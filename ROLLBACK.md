@@ -1,101 +1,170 @@
 # Rollback Guide
 
-This document explains how to rollback to a previous version of the site.
+This document explains how to safely roll back to a previous version of the Bitcoin Power Law site.
 
-## Available Versions (Git Tags)
+## Quick Start
 
-Run this command to see all tagged versions:
+Use the helper script for the easiest experience:
 
 ```bash
+# See what versions are available
+./scripts/rollback.sh list
+
+# Roll back to a previous version
+./scripts/rollback.sh to v2-backend-powered
+
+# Go back to the latest version
+./scripts/rollback.sh to main
+```
+
+---
+
+## Available Versions
+
+Run this command to see all rollback points:
+
+```bash
+./scripts/rollback.sh list
+# or
 git tag -l
 ```
 
-Current important tags:
+### Current Important Tags
 
-- `legacy-single-file` — The original single-file `index.html` version (before the big-bang cutover)
-- `v2-backend-powered` — Current production version (backend + frontend with Q10/Q90 support)
+| Tag                        | Description |
+|----------------------------|-------------|
+| `legacy-single-file`       | Original single-file `index.html` (pre-cutover) |
+| `v2-backend-powered`       | Current production version (backend + frontend) |
+| `v2.1-rollback-docs`       | Same as above + this rollback documentation |
 
-## How to Rollback
+---
 
-### Quick Rollback to a Previous Version
+## Using the Rollback Script
 
+The script lives at `scripts/rollback.sh` and supports these commands:
+
+### List available versions
 ```bash
-# View what changed in a specific version
-git show v2-backend-powered --stat
-
-# Roll back the entire working directory to a previous tag
-git checkout <tag-name>
-
-# Example: rollback to the legacy single-file version
-git checkout legacy-single-file
+./scripts/rollback.sh list
 ```
 
-After checking out an old tag:
-- The root `index.html` + `assets/` will be from that version.
-- The backend code will also be from that version.
+### Roll back to a specific version
+```bash
+./scripts/rollback.sh to <tag>
+```
 
-To go back to the latest version:
+Examples:
+```bash
+./scripts/rollback.sh to legacy-single-file
+./scripts/rollback.sh to v2-backend-powered
+```
+
+### Check what version you're currently on
+```bash
+./scripts/rollback.sh current
+```
+
+### See what changed between two versions
+```bash
+./scripts/rollback.sh diff legacy-single-file v2-backend-powered
+```
+
+---
+
+## What Happens When You Rollback
+
+When you run `git checkout <tag>`:
+
+- All source files (backend + frontend source) are reverted to that version.
+- The static files at the root (`index.html` + `assets/`) are also reverted.
+- Your uncommitted changes are preserved (unless you had conflicts).
+
+### After Rolling Back
+
+**Always consider these post-rollback steps:**
+
+1. **Frontend changes**
+   - If the version you rolled back to has different frontend code, rebuild it:
+     ```bash
+     cd frontend && npm run build
+     cp dist/index.html ..
+     cp dist/assets/* ../assets/
+     ```
+
+2. **Data changes (`btc_daily.csv`)**
+   - If you rolled back the data file, the model will be out of date.
+   - Run a refit:
+     ```bash
+     curl -X POST http://localhost:8000/refit
+     ```
+
+3. **Backend**
+   - Restart the backend if the code changed:
+     ```bash
+     # Stop the old one (Ctrl+C), then:
+     python backend/run.py
+     ```
+
+---
+
+## Manual Git Rollback (Without the Script)
+
+You can also use git directly:
+
+```bash
+# Roll back everything
+git checkout <tag-name>
+
+# Roll back only the data file
+git checkout <tag-name> -- btc_daily.csv
+
+# See what a previous version looked like without checking it out
+git show v2-backend-powered:index.html | head -50
+```
+
+To return to normal development after a rollback:
 
 ```bash
 git checkout main
 ```
 
-### Rollback Only the Frontend (Static Site)
+---
 
-If you only want to rollback the user-facing site (not the backend code):
+## Safety Tips
 
-1. Checkout the desired tag:
-   ```bash
-   git checkout <tag-name>
-   ```
-
-2. Copy the built files:
-   ```bash
-   cp index.html /path/to/your/production/
-   cp -r assets/ /path/to/your/production/
-   ```
-
-3. Return to normal development:
-   ```bash
-   git checkout main
-   ```
-
-### Rollback Data (`btc_daily.csv`)
-
-The data file is tracked in git. To restore an older version of the data:
-
-```bash
-git checkout <tag-name> -- btc_daily.csv
-```
-
-**Warning**: After restoring an old CSV, you will likely need to run:
-
-```bash
-curl -X POST http://localhost:8000/refit
-```
-
-to update the power law model.
-
-## Emergency Rollback (No Git)
-
-If git is not available:
-
-1. The legacy single-file version is preserved at:
-   `archive/old-single-file/index.html`
-
-2. Copy it to the root to restore the old experience:
-   ```bash
-   cp archive/old-single-file/index.html .
-   # (you may also need to restore the old updater script)
-   ```
-
-## Recommended Workflow
-
-- Before making significant changes (especially to the model or major UI), create a new tag:
+- **Always commit or stash** your current work before rolling back.
+- The script will warn you if you have uncommitted changes.
+- After rolling back data, you almost always need to refit the model.
+- Tags are cheap — create them before risky experiments:
   ```bash
-  git tag v3-my-new-feature -m "Description of changes"
+  git tag experiment-my-new-idea -m "Trying something new"
   ```
 
-- Always commit working state before experimental changes.
+---
 
-- Use `git tag -l` regularly to see your rollback points.
+## Emergency Recovery (No Git)
+
+If git is unavailable or broken:
+
+- The original single-file version is still preserved at:
+  `archive/old-single-file/index.html`
+
+- Copy it back to the root as a last resort:
+  ```bash
+  cp archive/old-single-file/index.html .
+  ```
+
+---
+
+## Creating New Rollback Points
+
+Before making significant changes, create a tag so you can come back:
+
+```bash
+git tag v3-my-feature-name -m "Short description of the changes"
+```
+
+This is especially recommended before:
+- Major model changes
+- Big UI refactors
+- Data pipeline modifications
