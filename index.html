@@ -10,8 +10,30 @@
     body { font-family: 'Inter', system_ui, sans-serif; }
     .font-display { font-family: 'Space Grotesk', 'Inter', system_ui, sans-serif; font-weight: 600; }
     .chart-container { position: relative; background: #0a0c10; }
+
+    /* Year-end projections table polish */
+    #projections-table tr:nth-child(even) {
+      background-color: rgba(63, 63, 70, 0.12);
+    }
+    
+    #projections-table tr:hover {
+      background-color: rgba(63, 63, 70, 0.32) !important;
+      transition: background-color 0.1s ease;
+    }
+    
+    #projections-table td {
+      padding-top: 0.55rem;
+      padding-bottom: 0.55rem;
+    }
+    
+    #projections-table th {
+      font-weight: 500;
+      padding-top: 0.5rem;
+      padding-bottom: 0.5rem;
+      color: #a1a1aa;
+    }
   </style>
-  <script type="module" crossorigin src="/assets/index-ByxL2v7g.js"></script>
+  <script type="module" crossorigin src="/assets/index-l5SykW7K.js"></script>
 </head>
 <body class="bg-zinc-950 text-zinc-200">
   <div class="max-w-[1100px] mx-auto px-6 py-10">
@@ -93,8 +115,8 @@
               <!-- Dynamically populated by JavaScript based on active band toggles -->
             </tr>
           </thead>
-          <tbody id="projections-table" class="text-zinc-200 divide-y divide-zinc-800">
-            <!-- Populated by JavaScript -->
+          <tbody id="projections-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+            <!-- Populated by JavaScript. Rows get zebra + hover styles via CSS + JS -->
           </tbody>
         </table>
       </div>

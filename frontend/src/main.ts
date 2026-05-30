@@ -263,60 +263,60 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
     });
   }
 
-  // Outer bands (Q10 / Q90)
-  if (showOuterBands) {
-    if (curvesData.curves?.[0.1]) {
-      datasets.push({
-        label: 'Q10 (Lower)',
-        data: curvesData.curves[0.1],
-        borderColor: 'rgba(245, 158, 11, 0.35)',
-        borderWidth: 1.5,
-        borderDash: [2, 4],
-        pointRadius: 0,
-        tension: 0,
-        order: 4,
-      });
-    }
-    if (curvesData.curves?.[0.9]) {
-      datasets.push({
-        label: 'Q90 (Upper)',
-        data: curvesData.curves[0.9],
-        borderColor: 'rgba(245, 158, 11, 0.35)',
-        borderWidth: 1.5,
-        borderDash: [2, 4],
-        pointRadius: 0,
-        tension: 0,
-        order: 0,
-      });
-    }
+  // Outer bands (Q10 / Q90) with dynamic alpha for fade on toggle
+  if (curvesData.curves?.[0.1]) {
+    const outerAlpha = showOuterBands ? 0.35 : 0.06;
+    datasets.push({
+      label: 'Q10 (Lower)',
+      data: curvesData.curves[0.1],
+      borderColor: `rgba(245, 158, 11, ${outerAlpha})`,
+      borderWidth: 1.5,
+      borderDash: [2, 4],
+      pointRadius: 0,
+      tension: 0,
+      order: 4,
+    });
+  }
+  if (curvesData.curves?.[0.9]) {
+    const outerAlpha = showOuterBands ? 0.35 : 0.06;
+    datasets.push({
+      label: 'Q90 (Upper)',
+      data: curvesData.curves[0.9],
+      borderColor: `rgba(245, 158, 11, ${outerAlpha})`,
+      borderWidth: 1.5,
+      borderDash: [2, 4],
+      pointRadius: 0,
+      tension: 0,
+      order: 0,
+    });
   }
 
-  // Inner bands (Q25 / Q75)
-  if (showBands) {
-    if (curvesData.curves?.[0.25]) {
-      datasets.push({
-        label: 'Q25 (Lower)',
-        data: curvesData.curves[0.25],
-        borderColor: 'rgba(245, 158, 11, 0.55)',
-        borderWidth: 2,
-        borderDash: [5, 3],
-        pointRadius: 0,
-        tension: 0,
-        order: 3,
-      });
-    }
-    if (curvesData.curves?.[0.75]) {
-      datasets.push({
-        label: 'Q75 (Upper)',
-        data: curvesData.curves[0.75],
-        borderColor: 'rgba(245, 158, 11, 0.55)',
-        borderWidth: 2,
-        borderDash: [5, 3],
-        pointRadius: 0,
-        tension: 0,
-        order: 1,
-      });
-    }
+  // Inner bands (Q25 / Q75) with dynamic alpha for fade on toggle
+  if (curvesData.curves?.[0.25]) {
+    const innerAlpha = showBands ? 0.55 : 0.08;
+    datasets.push({
+      label: 'Q25 (Lower)',
+      data: curvesData.curves[0.25],
+      borderColor: `rgba(245, 158, 11, ${innerAlpha})`,
+      borderWidth: 2,
+      borderDash: [5, 3],
+      pointRadius: 0,
+      tension: 0,
+      order: 3,
+    });
+  }
+  if (curvesData.curves?.[0.75]) {
+    const innerAlpha = showBands ? 0.55 : 0.08;
+    datasets.push({
+      label: 'Q75 (Upper)',
+      data: curvesData.curves[0.75],
+      borderColor: `rgba(245, 158, 11, ${innerAlpha})`,
+      borderWidth: 2,
+      borderDash: [5, 3],
+      pointRadius: 0,
+      tension: 0,
+      order: 1,
+    });
   }
 
   const timeTicks = getTimeTickValues(startDays, endDays);
@@ -326,74 +326,87 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
   const spanYears = (endDays - startDays) / 365.25;
   const showYearOnly = spanYears > 2.2;   // true for 3y/5y/All
 
-  if (chart) chart.destroy();
+  if (chart) {
+    // Reuse existing chart for smooth transitions instead of destroying + recreating
+    const isRangeChange = chart.options.scales.x.min !== startDays || chart.options.scales.x.max !== endDays;
 
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: { datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 250 },
-      scales: {
-        x: {
-          type: 'logarithmic',
-          min: startDays,
-          max: endDays,
-          title: { display: true, text: 'Year', color: '#a1a1aa' },
-          grid: { color: '#27272a' },
-          ticks: {
-            color: '#71717a',
-            font: { size: 11 },
-            values: timeTicks,
-            callback: function (value: number) {
-              const year = Math.round(2009 + value / 365.25);
+    chart.data.datasets = datasets;
+    chart.options.scales.x.min = startDays;
+    chart.options.scales.x.max = endDays;
+    chart.options.scales.x.ticks.values = timeTicks;
 
-              if (showYearOnly) {
-                // 3y / 5y / All views: always show the year number, never months
-                return year.toString();
-              } else {
-                // 1y view: show month name, except January which shows the year
-                const d = daysToDate(value);
-                const month = d.getUTCMonth();
-                if (month === 0) {
+    // Longer, gentler animation when changing time ranges
+    // Shorter animation when only toggling bands
+    chart.update({
+      duration: isRangeChange ? 380 : 220,
+      easing: isRangeChange ? 'easeOutCubic' : 'easeOutQuart',
+    });
+  } else {
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 300 },
+        scales: {
+          x: {
+            type: 'logarithmic',
+            min: startDays,
+            max: endDays,
+            title: { display: true, text: 'Year', color: '#a1a1aa' },
+            grid: { color: '#27272a' },
+            ticks: {
+              color: '#71717a',
+              font: { size: 11 },
+              values: timeTicks,
+              callback: function (value: number) {
+                const year = Math.round(2009 + value / 365.25);
+
+                if (showYearOnly) {
                   return year.toString();
                 } else {
-                  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                  return months[month];
+                  const d = daysToDate(value);
+                  const month = d.getUTCMonth();
+                  if (month === 0) {
+                    return year.toString();
+                  } else {
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    return months[month];
+                  }
                 }
-              }
+              },
+            },
+          },
+          y: {
+            type: 'logarithmic',
+            title: { display: true, text: 'Price (USD)', color: '#a1a1aa' },
+            grid: { color: '#27272a' },
+          },
+        },
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            mode: 'nearest',
+            intersect: false,
+            callbacks: {
+              title: (tooltipItems: any[]) => {
+                const d = daysToDate(tooltipItems[0].raw.x);
+                return d.toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short' 
+                });
+              },
+              label: (ctx: any) => `${ctx.dataset.label}: $${ctx.raw.y.toLocaleString()}`,
             },
           },
         },
-        y: {
-          type: 'logarithmic',
-          title: { display: true, text: 'Price (USD)', color: '#a1a1aa' },
-          grid: { color: '#27272a' },
+        elements: {
+          line: { tension: 0.15 },
         },
       },
-      plugins: {
-        legend: { display: true, position: 'top' },
-        tooltip: {
-          mode: 'nearest',
-          intersect: false,
-          callbacks: {
-            title: (tooltipItems: any[]) => {
-              const d = daysToDate(tooltipItems[0].raw.x);
-              return d.toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'short' 
-              });
-            },
-            label: (ctx: any) => `${ctx.dataset.label}: $${ctx.raw.y.toLocaleString()}`,
-          },
-        },
-      },
-      elements: {
-        line: { tension: 0.15 },
-      },
-    },
-  });
+    });
+  }
 }
 
 // --- Main Load Function ---
@@ -405,6 +418,13 @@ async function loadAndRender(range: 'all' | '5y' | '3y' | '1y') {
   const ranges = getVisibleRanges(range);
   const requestedQuantiles = getRequestedQuantiles();
 
+  // Subtle loading state on the chart container
+  const chartContainer = document.querySelector('.chart-container') as HTMLElement;
+  if (chartContainer) {
+    chartContainer.style.transition = 'opacity 0.15s ease';
+    chartContainer.style.opacity = '0.65';
+  }
+
   try {
     const [curvesData, historicalData] = await Promise.all([
       fetchCurves(ranges.curveStart, ranges.curveEnd, 7, requestedQuantiles, true),
@@ -413,9 +433,15 @@ async function loadAndRender(range: 'all' | '5y' | '3y' | '1y') {
 
     renderChart(curvesData, historicalData, ranges.curveStart, ranges.curveEnd);
     updateProjectionsInfo(curvesData);
+
+    // Restore full opacity after render
+    if (chartContainer) {
+      chartContainer.style.opacity = '1';
+    }
   } catch (err) {
     console.error(err);
     alert('Failed to load data from backend. Is the backend running on port 8000?');
+    if (chartContainer) chartContainer.style.opacity = '1';
   }
 }
 
@@ -521,15 +547,18 @@ async function loadYearEndProjections() {
       const cells: string[] = [];
       columns.forEach(col => {
         const point = findClosest(curvesData.curves?.[parseFloat(col.key)]);
+        const isCentral = col.key === '0.5';
+        const extraClass = isCentral ? 'font-semibold' : '';
+        
         cells.push(`
-          <td class="px-4 py-2 text-right font-mono ${col.color}">
+          <td class="px-4 py-2 text-right font-mono ${col.color} ${extraClass}">
             ${point ? formatPrice(point.y) : '—'}
           </td>
         `);
       });
 
       rowsHtml += `
-        <tr class="hover:bg-zinc-950/60 transition-colors">
+        <tr class="transition-colors cursor-pointer">
           <td class="px-4 py-2 text-zinc-300 font-medium">${year}</td>
           ${cells.join('')}
         </tr>
