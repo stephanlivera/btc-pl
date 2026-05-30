@@ -34,8 +34,9 @@ git tag -l
 | Tag                        | Description |
 |----------------------------|-------------|
 | `legacy-single-file`       | Original single-file `index.html` (pre-cutover) |
-| `v2-backend-powered`       | Current production version (backend + frontend) |
-| `v2.1-rollback-docs`       | Same as above + this rollback documentation |
+| `v2-backend-powered`       | Early backend + frontend version |
+| `v2.2-rollback-tools`      | Added rollback helper script and documentation |
+| `v3-transitions`           | Completion of first UX improvements: subtle chart transitions (loading opacity, band fade, range vs band animation) + prior data freshness polish |
 
 ---
 
