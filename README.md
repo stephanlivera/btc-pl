@@ -89,25 +89,35 @@ Optional flags:
   ```bash
   python scripts/update_btc_daily.py --days 90
   ```
-- Skip automatic refit (e.g. if you only want to update the raw data file):
+- Skip automatic refit:
   ```bash
   python scripts/update_btc_daily.py --no-refit
+  ```
+- Skip the automatic model sense checker:
+  ```bash
+  python scripts/update_btc_daily.py --no-sense-check
   ```
 - Point to a non-default backend:
   ```bash
   BACKEND_URL=http://your-server:8000 python scripts/update_btc_daily.py
   ```
 
-After the script finishes, it will automatically trigger a model refit on the backend (unless `--no-refit` is passed). This means the curves, time ranges, projections, and data freshness display will update with a single command in most cases.
+After the script finishes, it will **automatically**:
+1. Trigger a model refit on the backend (unless `--no-refit`).
+2. Run the model **sense checker** (unless `--no-sense-check`).
 
-Example success output when new data is found and refit succeeds:
+This is now the recommended and safest way to update data.
+
+Example success output:
 
 ```
 Data update complete. Model refitted with data through 2026-06-02.
-The frontend will automatically pick up the new latest date on the next page load.
-```
+
+Running model sense checker for safety...
+✅ All sense checks PASSED
 
 The frontend will automatically pick up the new latest date on the next page load.
+```
 
 ## Production / Static Deployment
 
@@ -146,52 +156,86 @@ Full interactive docs: http://localhost:8000/docs (when backend is running).
 
 ## Running Tests & Sense Checks
 
-This project includes several layers of automated checks:
+This project has a strong emphasis on safety around the statistical model and data pipeline.
 
-### 1. Sense Checker (Recommended after every data update)
+### Recommended Workflow After Updating Data
+
+Just run the updater:
+
+```bash
+python scripts/update_btc_daily.py
+```
+
+It will automatically:
+1. Append new price data
+2. Trigger a backend model refit
+3. Run the **sense checker**
+
+This is the safest and simplest way to keep everything healthy.
+
+### Sense Checker (`backend/sense_check.py`)
+
+The most important safety tool in the project.
+
 ```bash
 python -m backend.sense_check
 ```
-This runs important model invariants (no quantile crossing, sane decay, reasonable prices, etc.).
-It is the single most valuable check for this project.
 
-You can also run it automatically after `update_btc_daily.py` (see the script for details).
+It validates critical model invariants:
+- No quantile crossing (Q10 < Q25 < Q50 < Q75 < Q90)
+- Central line sits correctly between bands
+- Time-based decay is only applied to future projections
+- Prices remain positive and within reasonable bounds
 
-### 2. Backend Model Tests
+It exits with code `0` on success and `1` on failure (useful for CI or scripting).
+
+### Running All Tests
+
+**Easiest way** (from project root):
+
+```bash
+./run-tests.sh
+```
+
+Useful options:
+- `./run-tests.sh --backend-only`
+- `./run-tests.sh --frontend-only`
+
+### Backend Tests (pytest)
+
 ```bash
 cd backend
 pip install -r requirements-dev.txt
 pytest tests/ -q
 ```
 
-### 3. Frontend Pure Function Tests
+Includes:
+- Core model tests (`test_quantile_model.py`)
+- API smoke/contract tests (`test_api_smoke.py`)
+
+### Frontend Tests (Vitest)
+
 ```bash
 cd frontend
 npm install
-npm run test:run          # Run once
-npm test                  # Watch mode
+npm run test:run      # Run once
+npm test              # Watch mode
 ```
 
-### 4. API Smoke Tests
+Tests pure utility functions (tick generation, price formatting, nearest-point lookup, etc.) that were extracted into `src/utils.ts` for testability.
+
+### API Smoke Tests (standalone)
+
+If you want to run just the API tests against a running backend:
+
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-# Start the backend in another terminal first:
-python run.py
+python run.py          # in one terminal
 
-# Then run:
+# in another terminal
 pytest tests/test_api_smoke.py -q
 ```
-
-### Convenience Script (Recommended)
-From the project root you can run everything with one command:
-```bash
-./run-tests.sh
-```
-
-Options:
-- `./run-tests.sh --backend-only`
-- `./run-tests.sh --frontend-only`
 
 ## Project Structure
 
@@ -200,34 +244,44 @@ simplepowerlaw/
 ├── btc_daily.csv                 # Source of truth (daily closes)
 ├── backend/
 │   ├── main.py                   # FastAPI app
-│   ├── quantile_model.py         # Core QuantReg fitting + curve generation + decay logic
-│   ├── run.py                    # Recommended launcher with dependency checks
+│   ├── quantile_model.py         # Core model (fitting, curves, decay)
+│   ├── sense_check.py            # Model safety/invariant checker
+│   ├── tests/                    # Pytest model + API smoke tests
+│   ├── run.py                    # Recommended backend launcher
 │   └── requirements.txt
 ├── frontend/
-│   ├── src/main.ts               # Main app (Chart.js rendering, time ranges, table, etc.)
-│   ├── vite.config.ts            # Dev proxy to backend
-│   └── package.json
+│   ├── src/
+│   │   ├── main.ts               # Main UI (Chart.js, controls, table, etc.)
+│   │   ├── utils.ts              # Pure functions (extracted for testing)
+│   │   └── __tests__/            # Vitest tests
+│   ├── package.json
+│   └── vite.config.ts
 ├── scripts/
-│   └── update_btc_daily.py       # CoinGecko data updater
+│   └── update_btc_daily.py       # Data updater (now auto-runs sense checker)
+├── run-tests.sh                  # Root convenience script for all tests
 ├── archive/
-│   └── old-single-file/          # Archived legacy single-file version + old updater (for reference/rollback)
-├── index.html                    # Current production UI (built from frontend/)
-├── assets/                       # Bundled JS for the static UI
-├── frontend/                     # Source for the frontend (development only)
-│   ├── src/main.ts
-│   └── ...
-├── backend/                      # FastAPI + quantile model (run with python backend/run.py)
+│   └── old-single-file/          # Legacy single-file version (for reference)
+├── index.html                    # Production static UI (built output)
+├── assets/                       # Bundled JS for static hosting
 └── README.md
 ```
 
 ## Recent Major Changes
 
-- Full cutover to backend-driven quantile regression (no more client-side power law math).
-- Residual-based parallel bands (prevents crossing and absurd far-future values).
-- Simple time-based decay on bands for long-term projections (user-chosen Option 1).
-- Dynamic y-axis, every-year x-axis ticks, symmetric forward projections, proper year-end table with Q25/Central/Q75.
-- Frontend now dynamically fetches the real latest data date from the backend on load (eliminates the old hardcoded `LATEST_DAYS` staleness problem). The UI now displays the actual data end date.
-- Major improvements to `scripts/update_btc_daily.py`: safer 180-day default, `COINGECKO_API_KEY` support, `--days` CLI flag, automatic deduplication, and much better error handling.
+- **Testing & Safety Infrastructure** (v3.4):
+  - New model **sense checker** (`backend/sense_check.py`) that validates key invariants (no quantile crossing, correct decay behavior, etc.).
+  - The updater (`update_btc_daily.py`) now **automatically runs the sense checker** after data updates + refit.
+  - Full test suites: pytest model + API tests, Vitest frontend tests.
+  - New root convenience script: `./run-tests.sh`.
+- X-axis tick improvements on 3y/5y views (strict one-tick-per-year enforcement on log scale via `afterBuildTicks`).
+- Year-end projections table now dynamically matches the active chart band toggles.
+- Tooltip improvements: prioritizes real historical prices when near data points, always shows Q50, conditionally shows other quantiles, and auto-sorts them low-to-high.
+- Major improvements to `scripts/update_btc_daily.py`: safer 180-day default, `COINGECKO_API_KEY` support, `--days` flag, automatic deduplication, better error handling, and now automatic sense checking.
+- Frontend now dynamically fetches the real latest data date from `/health` (no more stale hardcoded `LATEST_DAYS`).
+
+Older major changes:
+- Full cutover to backend-driven quantile regression.
+- Residual-based parallel bands + time-based decay for long-term projections.
 
 ## License & Attribution
 

@@ -7,28 +7,30 @@ This document is **historical**. The project completed the big-bang cutover to a
 
 ## Current Maintenance (New Architecture)
 
-See the root [README.md](README.md) for the active instructions.
+See the root [README.md](README.md) for the most up-to-date instructions.
 
-**Data updates** (the only regular maintenance needed):
+**Regular maintenance** is mainly about keeping the price data fresh:
 
-1. Run the Python updater:
-   ```bash
-   python scripts/update_btc_daily.py
-   ```
-
-2. Refit the models (no full restart required in most cases):
-   ```bash
-   curl -X POST http://localhost:8000/refit
-   ```
-
-3. Refresh the frontend. The new curves and year-end table will reflect the latest data automatically thanks to quantile regression on the full daily CSV.
-
-**Strongly recommended after every data update:**
 ```bash
+python scripts/update_btc_daily.py
+```
+
+This single command now automatically:
+- Fetches and appends new daily closes from CoinGecko
+- Triggers a model refit on the backend
+- Runs the model **sense checker**
+
+After it completes, just refresh the frontend. The curves, time ranges, projections, and data freshness display will update automatically.
+
+### Running Tests & Sense Checks Manually
+
+```bash
+./run-tests.sh                 # Run everything (recommended)
+./run-tests.sh --backend-only
 python -m backend.sense_check
 ```
 
-See the Testing section in the root README for full instructions on model tests, frontend tests, and API smoke tests.
+See the **Testing** section in the root README for full details on model tests, frontend tests, and API smoke tests.
 
 The old process of manually curating `historicalPoints` inside a giant single `index.html` no longer exists.
 
@@ -39,4 +41,4 @@ The old single-file version and its updater script (`update-historical-data.js`)
 
 ---
 
-**Goal**: Keep data fresh via the automated CSV + `/refit` flow. The statistical model + time-based decay now handles everything else.
+**Goal**: Keep data fresh and the model healthy. The updater now handles data + refit + sense checking automatically. The statistical model + time-based decay does the rest. Run `./run-tests.sh` periodically for extra confidence.
