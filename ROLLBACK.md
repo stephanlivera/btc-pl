@@ -41,6 +41,7 @@ git tag -l
 | `v3.2-table-sync`          | Year-end projections table now dynamically matches the chart's active bands (Q25/Q75 and Q10/Q90 columns only when their toggles are enabled, with proper low-to-high ordering). Includes tooltip hover stabilization (follows mouse x-position reliably). |
 | `v3.3-xaxis-ticks`         | Fixed duplicate year labels / multiple ticks per year on 3y and 5y views. Now strictly enforces one tick per calendar year on logarithmic x-axis using afterBuildTicks (addresses Chart.js auto-tick generation on log scales). |
 | `v3.4-testing-infra`       | Added testing infrastructure: model sense checker (with auto-run after data updates), pytest model + API smoke tests, Vitest frontend pure function tests, root run-tests.sh convenience script, and sense checker hook in update_btc_daily.py. |
+| `v3.5-ui-polish`           | Header and chart card UI cleanup: moved data freshness pill to top right (replacing 'POWER LAW CURVES' badge), removed redundant Q25/Q50/Q75 text from header, simplified subtitle to 'Quantile regression analysis', removed bottom data source footer. |
 
 ---
 
