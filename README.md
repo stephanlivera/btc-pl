@@ -189,3 +189,5 @@ Empirical power law parameters and philosophy are based on the work of Giovanni 
 A `.gitignore` has been added that ignores Python caches, node_modules, and frontend build artifacts while intentionally keeping the root `index.html` + `assets/` committed (so the repo can be served statically with minimal fuss).
 
 **Need help?** See the "Quick Start" section above. For ongoing development use the Vite dev server (`cd frontend && npm run dev`) + the backend. The root static files are the production build output.
+
+**Rollback instructions**: See [ROLLBACK.md](ROLLBACK.md) for how to quickly revert to a previous version using git tags.
