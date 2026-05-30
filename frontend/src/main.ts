@@ -19,6 +19,10 @@ let showBands = false;        // Q25–Q75 (inner bands)
 let showOuterBands = false;   // Q10–Q90 (outer bands)
 let chart: any = null;
 
+// Data for custom tooltip lookups (updated on every render)
+let lastHistoricalPoints: Array<{x: number; y: number}> = [];
+let lastCurves: Record<string, Array<{x: number; y: number}>> = {};
+
 function daysToDate(days: number): Date {
   return new Date(GENESIS.getTime() + days * MS_PER_DAY);
 }
@@ -101,6 +105,40 @@ function getTimeTickValues(startDays: number, endDays: number): number[] {
   }
 
   return ticks;
+}
+
+/**
+ * Find the nearest point in a sorted array of {x, y} within maxDiff.
+ * Used for tooltip to decide whether a real historical price is "available"
+ * near the hover position, and to look up model values from the (sparser) curves.
+ */
+function findNearestPoint(
+  points: Array<{x: number; y: number}>,
+  targetX: number,
+  maxDiff: number = 10
+): {x: number; y: number} | null {
+  if (!points || points.length === 0) return null;
+  let best: {x: number; y: number} | null = null;
+  let bestDiff = Infinity;
+  for (const p of points) {
+    const diff = Math.abs(p.x - targetX);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = p;
+    }
+    if (p.x >= targetX + maxDiff) break; // early exit (points are sorted ascending)
+  }
+  return (best && bestDiff <= maxDiff) ? best : null;
+}
+
+/** Look up (nearest within tolerance) a model curve value for tooltip display. */
+function getCurveValue(
+  curve: Array<{x: number; y: number}> | undefined,
+  targetX: number,
+  maxDiff: number = 25
+): number | null {
+  const p = findNearestPoint(curve || [], targetX, maxDiff);
+  return p ? p.y : null;
 }
 
 // --- API Helpers ---
@@ -230,6 +268,10 @@ function getVisibleRanges(range: 'all' | '5y' | '3y' | '1y') {
 // --- Chart Rendering ---
 
 function renderChart(curvesData: any, historicalData: any, startDays: number, endDays: number) {
+  // Capture full source data for robust tooltip lookups (independent of Chart.js hit detection)
+  lastHistoricalPoints = historicalData?.points ?? [];
+  lastCurves = curvesData?.curves ?? {};
+
   const ctx = document.getElementById('chart') as HTMLCanvasElement;
   if (!ctx) return;
 
@@ -321,11 +363,6 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
 
   const timeTicks = getTimeTickValues(startDays, endDays);
 
-  // Decide label style based on the visible span (not per-tick)
-  // This guarantees that 3y/5y/All only ever show year numbers.
-  const spanYears = (endDays - startDays) / 365.25;
-  const showYearOnly = spanYears > 2.2;   // true for 3y/5y/All
-
   if (chart) {
     // Reuse existing chart for smooth transitions instead of destroying + recreating
     const isRangeChange = chart.options.scales.x.min !== startDays || chart.options.scales.x.max !== endDays;
@@ -361,9 +398,19 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
               font: { size: 11 },
               values: timeTicks,
               callback: function (value: number) {
+                // Always compute the decision from the *live* scale bounds.
+                // This prevents stale closures when we reuse the chart instance
+                // (range changes or band toggles) and guarantees that 3y/5y/All
+                // never emit month names.
+                const scale = (this as any).chart?.scales?.x;
+                const min = scale?.min ?? startDays;
+                const max = scale?.max ?? endDays;
+                const spanYears = (max - min) / 365.25;
+                const onlyYears = spanYears > 2.2;
+
                 const year = Math.round(2009 + value / 365.25);
 
-                if (showYearOnly) {
+                if (onlyYears) {
                   return year.toString();
                 } else {
                   const d = daysToDate(value);
@@ -387,17 +434,78 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
         plugins: {
           legend: { display: true, position: 'top' },
           tooltip: {
-            mode: 'nearest',
+            mode: 'index',
             intersect: false,
+            backgroundColor: 'rgba(24, 24, 27, 0.95)',
+            borderColor: '#3f3f46',
+            borderWidth: 1,
+            titleFont: { size: 13, weight: '600' },
+            bodyFont: { size: 12 },
+            padding: 10,
+            // Only trigger tooltip from Historical (when present) or Central line.
+            // This gives us a stable x anchor and avoids "closest dataset wins" behavior.
+            filter: (item: any) => {
+              const lbl = item.dataset.label;
+              return lbl === 'Historical Price' || lbl === 'Central (Q50)';
+            },
             callbacks: {
               title: (tooltipItems: any[]) => {
-                const d = daysToDate(tooltipItems[0].raw.x);
-                return d.toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short' 
+                if (!tooltipItems.length) return '';
+                const x = tooltipItems[0].raw.x;
+                // Prefer the exact date from a nearby historical point when available
+                const hist = findNearestPoint(lastHistoricalPoints, x, 8);
+                const d = daysToDate(hist ? hist.x : x);
+                return d.toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
                 });
               },
-              label: (ctx: any) => `${ctx.dataset.label}: $${ctx.raw.y.toLocaleString()}`,
+              label: () => '', // fully custom body via afterBody
+              afterBody: (tooltipItems: any[]) => {
+                if (!tooltipItems.length) return [];
+                const x = tooltipItems[0].raw.x; // hover x (days) from stable anchor (hist or Q50)
+
+                // Historical price (tight tolerance — only when truly near real daily data)
+                const hist = findNearestPoint(lastHistoricalPoints, x, 6);
+
+                // Collect all visible model lines, then sort them ascending by quantile.
+                // This puts Q50 naturally in the middle of whatever bands are toggled on.
+                const modelLines: { q: number; text: string }[] = [];
+
+                // Q50 is always present
+                const q50 = getCurveValue(lastCurves['0.5'] || lastCurves[0.5], x, 30);
+                if (q50 != null) {
+                  modelLines.push({ q: 0.5, text: `Q50 (Central): $${q50.toLocaleString()}` });
+                }
+
+                if (showBands) {
+                  const q25 = getCurveValue(lastCurves['0.25'] || lastCurves[0.25], x, 30);
+                  const q75 = getCurveValue(lastCurves['0.75'] || lastCurves[0.75], x, 30);
+                  if (q25 != null) modelLines.push({ q: 0.25, text: `Q25 (Lower): $${q25.toLocaleString()}` });
+                  if (q75 != null) modelLines.push({ q: 0.75, text: `Q75 (Upper): $${q75.toLocaleString()}` });
+                }
+
+                if (showOuterBands) {
+                  const q10 = getCurveValue(lastCurves['0.1'] || lastCurves[0.1], x, 30);
+                  const q90 = getCurveValue(lastCurves['0.9'] || lastCurves[0.9], x, 30);
+                  if (q10 != null) modelLines.push({ q: 0.1, text: `Q10 (Lower): $${q10.toLocaleString()}` });
+                  if (q90 != null) modelLines.push({ q: 0.9, text: `Q90 (Upper): $${q90.toLocaleString()}` });
+                }
+
+                // Sort by quantile ascending so the corridor reads low → central → high
+                modelLines.sort((a, b) => a.q - b.q);
+
+                const lines: string[] = [];
+                if (hist) {
+                  lines.push(`Historical: $${hist.y.toLocaleString()}`);
+                }
+                for (const m of modelLines) {
+                  lines.push(m.text);
+                }
+
+                return lines;
+              }
             },
           },
         },
