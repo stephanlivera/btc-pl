@@ -37,6 +37,7 @@ git tag -l
 | `v2-backend-powered`       | Early backend + frontend version |
 | `v2.2-rollback-tools`      | Added rollback helper script and documentation |
 | `v3-transitions`           | Completion of first UX improvements: subtle chart transitions (loading opacity, band fade, range vs band animation) + prior data freshness polish |
+| `v3.1-tooltip`             | Tooltip upgrades: prioritize historical price when near data, always show Q50, conditional Q25/Q75 + Q10/Q90 based on toggles, automatic ascending sort so Q50 is centered; plus x-axis labeling stability (years only on 3y/5y/All) |
 
 ---
 
