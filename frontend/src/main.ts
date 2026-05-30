@@ -434,7 +434,13 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
         plugins: {
           legend: { display: true, position: 'top' },
           tooltip: {
-            mode: 'index',
+            // Use 'nearest' + axis:'x' so the tooltip follows the mouse position
+            // along the x-axis as closely as possible (the behavior the user wants).
+            // All visible datasets participate so Chart.js has good candidates
+            // for the nearest x (especially helpful on the future projection area
+            // and on log scale).
+            mode: 'nearest',
+            axis: 'x',
             intersect: false,
             backgroundColor: 'rgba(24, 24, 27, 0.95)',
             borderColor: '#3f3f46',
@@ -442,12 +448,6 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
             titleFont: { size: 13, weight: '600' },
             bodyFont: { size: 12 },
             padding: 10,
-            // Only trigger tooltip from Historical (when present) or Central line.
-            // This gives us a stable x anchor and avoids "closest dataset wins" behavior.
-            filter: (item: any) => {
-              const lbl = item.dataset.label;
-              return lbl === 'Historical Price' || lbl === 'Central (Q50)';
-            },
             callbacks: {
               title: (tooltipItems: any[]) => {
                 if (!tooltipItems.length) return '';
@@ -606,15 +606,15 @@ async function loadYearEndProjections() {
   const tableHead = document.getElementById('projections-table-head')!;
   if (!tableBody || !tableHead) return;
 
-  // Determine which columns to show
-  const showOuter = showOuterBands;
-  const columns = [
-    ...(showOuter ? [{ key: '0.1', label: 'Q10 (Lower)', color: 'text-emerald-300' }] : []),
-    { key: '0.25', label: 'Q25 (Lower)', color: 'text-emerald-400' },
-    { key: '0.5',  label: 'Central (Q50)', color: 'text-orange-400' },
-    { key: '0.75', label: 'Q75 (Upper)', color: 'text-rose-400' },
-    ...(showOuter ? [{ key: '0.9', label: 'Q90 (Upper)', color: 'text-rose-300' }] : []),
-  ];
+  // Determine which columns to show — exactly match the bands currently visible on the chart.
+  // Order them low → central → high for natural reading.
+  const columns: Array<{ key: string; label: string; color: string }> = [];
+
+  if (showOuterBands) columns.push({ key: '0.1', label: 'Q10 (Lower)', color: 'text-emerald-300' });
+  if (showBands)      columns.push({ key: '0.25', label: 'Q25 (Lower)', color: 'text-emerald-400' });
+  columns.push({ key: '0.5', label: 'Central (Q50)', color: 'text-orange-400' });
+  if (showBands)      columns.push({ key: '0.75', label: 'Q75 (Upper)', color: 'text-rose-400' });
+  if (showOuterBands) columns.push({ key: '0.9', label: 'Q90 (Upper)', color: 'text-rose-300' });
 
   const colCount = columns.length + 1; // +1 for Year End column
 
@@ -632,12 +632,15 @@ async function loadYearEndProjections() {
   const startDays = yearEnds[0].days - 100;
   const endDays = yearEnds[yearEnds.length - 1].days + 100;
 
-  // Determine which quantiles to fetch
-  const quantilesToFetch: number[] = [0.25, 0.5, 0.75];
-  if (showOuter) {
-    quantilesToFetch.unshift(0.1);
-    quantilesToFetch.push(0.9);
+  // Determine which quantiles to fetch — only what the current toggles require
+  const quantilesToFetch: number[] = [0.5];
+  if (showBands) {
+    quantilesToFetch.push(0.25, 0.75);
   }
+  if (showOuterBands) {
+    quantilesToFetch.push(0.1, 0.9);
+  }
+  quantilesToFetch.sort((a, b) => a - b);
 
   try {
     const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
@@ -697,6 +700,7 @@ function setupControls() {
     showBands = !showBands;
     updateBandsToggle();
     loadAndRender(currentRange);
+    loadYearEndProjections(); // Refresh table to match chart band visibility
   });
 
   // Outer bands toggle (Q10–Q90)
