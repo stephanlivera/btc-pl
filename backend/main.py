@@ -1,0 +1,170 @@
+"""
+FastAPI backend that serves full pre-computed power law quantile curves.
+
+This is Option 2 (Full Curve Generation Backend).
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import List
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+from .quantile_model import QuantilePowerLawModel
+
+app = FastAPI(title="Bitcoin Power Law Quantile Curves")
+
+# Allow the frontend to call this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configurable data path (useful for Docker / different environments)
+DEFAULT_DATA_PATH = Path(__file__).parent.parent / "btc_daily.csv"
+DATA_PATH = Path(os.getenv("BTC_DAILY_CSV_PATH", DEFAULT_DATA_PATH))
+
+model = QuantilePowerLawModel(quantiles=[0.10, 0.25, 0.50, 0.75, 0.90])
+
+
+@app.on_event("startup")
+def load_and_fit_model():
+    """Load data and fit models on startup."""
+    print(f"Loading data from: {DATA_PATH}")
+    try:
+        df = model.load_data(DATA_PATH)
+        model.fit(df)
+        print(f"Model fitted successfully. Data through {model.data_end_date}")
+        print(f"Quantiles: {model.quantiles}")
+        # Decay settings are printed inside the model's fit() method
+    except Exception as e:
+        print(f"WARNING: Failed to load/fit model on startup: {e}")
+        print("The app will start, but /curves will fail until a successful /refit")
+
+
+@app.post("/refit")
+def refit_model():
+    """Reload the CSV and refit the quantile models.
+    Call this after running the update script to refresh the curves.
+    """
+    try:
+        model.refit(DATA_PATH)
+        return {
+            "status": "success",
+            "data_end_date": str(model.data_end_date),
+            "last_fit_date": str(model.last_fit_date),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/curves")
+def get_curves(
+    start_days: int = Query(..., description="Start day (days since 2009-01-03)"),
+    end_days: int = Query(..., description="End day (inclusive)"),
+    step: int = Query(7, description="Step size in days (1 = daily, 7 = weekly, etc.)"),
+    quantiles: List[float] = Query([0.25, 0.50, 0.75], description="Quantiles to return"),
+    parallel: bool = Query(True, description="Use stable parallel residual bands + simple time-based decay for future projections (strongly recommended)"),
+):
+    """
+    Return full price curves for the requested quantiles and day range.
+    Each curve is a list of {x: days, y: price}.
+    """
+    if not model.results:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not fitted yet. Call /refit or restart the service after ensuring btc_daily.csv exists.",
+        )
+
+    try:
+        # parallel=True: residual-based parallel bands + simple time-based decay on future points
+        curves = model.predict_curve(
+            start_days, end_days, step=step, quantiles=quantiles, parallel=parallel
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "meta": {
+            "start_days": start_days,
+            "end_days": end_days,
+            "step": step,
+            "data_end_date": str(model.data_end_date),
+            "last_fit_date": str(model.last_fit_date),
+            "quantiles_returned": list(curves.keys()),
+        },
+        "curves": curves,
+    }
+
+
+@app.get("/parameters")
+def get_parameters():
+    """Return the fitted a and b coefficients for each quantile."""
+    if not model.results:
+        raise HTTPException(status_code=503, detail="Model not fitted yet.")
+
+    response = {
+        "meta": {
+            "data_end_date": str(model.data_end_date),
+            "last_fit_date": str(model.last_fit_date),
+            "note": "parallel=True (default) uses residual quantiles around Q50 + simple time-based decay (Option 1) applied only to future projections. This compresses Q25/Q75 band width over long horizons.",
+        },
+        "parameters": model.get_parameters(),
+    }
+
+    if hasattr(model, 'residual_quantiles') and model.residual_quantiles:
+        response["residual_quantiles"] = model.residual_quantiles
+
+    # Surface the decay configuration for transparency
+    response["decay"] = {
+        "enabled_for_future": True,
+        "rate": 0.12,
+        "min_factor": 0.30,
+        "ref_days": model.ref_days,
+        "description": "offset(t) = base_offset * max(min_factor, 1 / (1 + rate * years_ahead)) for t > ref_days"
+    }
+
+    return response
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok" if model.results else "model_not_fitted",
+        "data_end_date": str(model.data_end_date) if model.data_end_date else None,
+        "last_fit_date": str(model.last_fit_date) if model.last_fit_date else None,
+    }
+
+
+@app.get("/historical")
+def get_historical(
+    start_days: int = Query(..., description="Start day (days since 2009-01-03)"),
+    end_days: int = Query(..., description="End day (inclusive)"),
+    step: int = Query(1, description="Downsampling step (1 = every day, 7 = weekly, etc.)"),
+):
+    """
+    Return actual historical daily close prices within the requested day range.
+    """
+    if model.df is None:
+        raise HTTPException(status_code=503, detail="Data not loaded")
+
+    try:
+        points = model.get_historical_data(start_days, end_days, step=step)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "meta": {
+            "start_days": start_days,
+            "end_days": end_days,
+            "step": step,
+            "count": len(points),
+        },
+        "points": points,
+    }
