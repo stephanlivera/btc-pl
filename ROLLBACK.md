@@ -39,6 +39,7 @@ git tag -l
 | `v3-transitions`           | Completion of first UX improvements: subtle chart transitions (loading opacity, band fade, range vs band animation) + prior data freshness polish |
 | `v3.1-tooltip`             | Tooltip upgrades: prioritize historical price when near data, always show Q50, conditional Q25/Q75 + Q10/Q90 based on toggles, automatic ascending sort so Q50 is centered; plus x-axis labeling stability (years only on 3y/5y/All) |
 | `v3.2-table-sync`          | Year-end projections table now dynamically matches the chart's active bands (Q25/Q75 and Q10/Q90 columns only when their toggles are enabled, with proper low-to-high ordering). Includes tooltip hover stabilization (follows mouse x-position reliably). |
+| `v3.3-xaxis-ticks`         | Fixed duplicate year labels / multiple ticks per year on 3y and 5y views. Now strictly enforces one tick per calendar year on logarithmic x-axis using afterBuildTicks (addresses Chart.js auto-tick generation on log scales). |
 
 ---
 
