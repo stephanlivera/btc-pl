@@ -23,6 +23,13 @@ See the root [README.md](README.md) for the active instructions.
 
 3. Refresh the frontend. The new curves and year-end table will reflect the latest data automatically thanks to quantile regression on the full daily CSV.
 
+**Strongly recommended after every data update:**
+```bash
+python -m backend.sense_check
+```
+
+See the Testing section in the root README for full instructions on model tests, frontend tests, and API smoke tests.
+
 The old process of manually curating `historicalPoints` inside a giant single `index.html` no longer exists.
 
 ## Archived Legacy

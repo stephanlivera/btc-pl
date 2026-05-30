@@ -144,6 +144,55 @@ The legacy single-file version is archived in `archive/old-single-file/`.
 
 Full interactive docs: http://localhost:8000/docs (when backend is running).
 
+## Running Tests & Sense Checks
+
+This project includes several layers of automated checks:
+
+### 1. Sense Checker (Recommended after every data update)
+```bash
+python -m backend.sense_check
+```
+This runs important model invariants (no quantile crossing, sane decay, reasonable prices, etc.).
+It is the single most valuable check for this project.
+
+You can also run it automatically after `update_btc_daily.py` (see the script for details).
+
+### 2. Backend Model Tests
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest tests/ -q
+```
+
+### 3. Frontend Pure Function Tests
+```bash
+cd frontend
+npm install
+npm run test:run          # Run once
+npm test                  # Watch mode
+```
+
+### 4. API Smoke Tests
+```bash
+cd backend
+pip install -r requirements-dev.txt
+# Start the backend in another terminal first:
+python run.py
+
+# Then run:
+pytest tests/test_api_smoke.py -q
+```
+
+### Convenience Script (Recommended)
+From the project root you can run everything with one command:
+```bash
+./run-tests.sh
+```
+
+Options:
+- `./run-tests.sh --backend-only`
+- `./run-tests.sh --frontend-only`
+
 ## Project Structure
 
 ```

@@ -2,6 +2,16 @@
 // New Power Law Frontend (Backend-powered)
 // =====================================================
 
+import {
+  daysToDate,
+  formatPrice,
+  getNextTenYearEnds,
+  getTimeTickValues,
+  findNearestPoint,
+  getCurveValue,
+  END_OF_2035_DAYS as IMPORTED_END_OF_2035_DAYS,
+} from './utils';
+
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
 // In normal operation this is overwritten by fetchLatestDataDay() on startup.
 let currentLatestDays = 6355;
@@ -11,8 +21,7 @@ const GENESIS = new Date('2009-01-03T00:00:00Z');
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 // Pre-compute end of 2035 for the "All" view projection
-const END_OF_2035 = new Date(Date.UTC(2035, 11, 31));
-const END_OF_2035_DAYS = Math.floor((END_OF_2035.getTime() - GENESIS.getTime()) / MS_PER_DAY);
+const END_OF_2035_DAYS = IMPORTED_END_OF_2035_DAYS;
 
 let currentRange: 'all' | '5y' | '3y' | '1y' = '1y';
 let showBands = false;        // Q25–Q75 (inner bands)
@@ -22,124 +31,6 @@ let chart: any = null;
 // Data for custom tooltip lookups (updated on every render)
 let lastHistoricalPoints: Array<{x: number; y: number}> = [];
 let lastCurves: Record<string, Array<{x: number; y: number}>> = {};
-
-function daysToDate(days: number): Date {
-  return new Date(GENESIS.getTime() + days * MS_PER_DAY);
-}
-
-function formatPrice(price: number): string {
-  if (price >= 1000000) return '$' + (price / 1000000).toFixed(2) + 'M';
-  if (price >= 10000) return '$' + Math.round(price / 1000) + 'k';
-  if (price >= 1000) return '$' + (price / 1000).toFixed(1) + 'k';
-  if (price >= 10) return '$' + Math.round(price);
-  if (price >= 1) return '$' + price.toFixed(1);
-  return '$' + price.toFixed(2);
-}
-
-function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {
-  const results: { year: number; days: number }[] = [];
-  const startDate = daysToDate(latestDays);
-  let currentYear = startDate.getUTCFullYear();
-
-  // Start from this year or next year
-  if (startDate.getUTCMonth() === 11 && startDate.getUTCDate() > 25) {
-    currentYear += 1; // if very close to end of year, start from next
-  }
-
-  for (let i = 0; i < 10; i++) {
-    const year = currentYear + i;
-    const dec31 = new Date(Date.UTC(year, 11, 31));
-    const daysSince = Math.floor((dec31.getTime() - GENESIS.getTime()) / MS_PER_DAY);
-    results.push({ year, days: daysSince });
-  }
-  return results;
-}
-
-/**
- * Returns sensible tick positions for the x-axis.
- * - 1y views: bi-monthly ticks (shows months + year)
- * - 3y / 5y / All views: annual ticks only (shows the year)
- */
-function getTimeTickValues(startDays: number, endDays: number): number[] {
-  const ticks: number[] = [];
-  const spanDays = endDays - startDays;
-  const spanYears = spanDays / 365.25;
-
-  // Use annual ticks (one per year, showing the year) for 3y, 5y and 'all' views.
-  // Only use finer monthly-ish ticks for the 1y view.
-  const useAnnualTicks = spanYears > 2.2;   // 1y button has ~2 year span, so this keeps it on fine ticks
-
-  if (useAnnualTicks) {
-    // Strictly annual ticks: Jan 1 of each year in the range.
-    // This is what the user wants for 3y / 5y / All views.
-    const startYear = Math.floor(2009 + startDays / 365.25);
-    const endYear = Math.ceil(2009 + endDays / 365.25);
-
-    for (let y = startYear; y <= endYear; y++) {
-      const jan1 = new Date(Date.UTC(y, 0, 1));
-      const daysSince = Math.floor((jan1.getTime() - GENESIS.getTime()) / MS_PER_DAY);
-      if (daysSince >= startDays && daysSince <= endDays) {
-        ticks.push(daysSince);
-      }
-    }
-  } else {
-    // 1y view: bi-monthly ticks so the axis has reasonable labels
-    let current = new Date(daysToDate(startDays));
-    current.setUTCDate(1);
-
-    const startMonth = current.getUTCMonth();
-    const alignedMonth = Math.floor(startMonth / 2) * 2;
-    current.setUTCMonth(alignedMonth);
-
-    const maxTicks = 10;
-    let count = 0;
-
-    while (current.getTime() <= daysToDate(endDays).getTime() && count < maxTicks) {
-      const days = Math.floor((current.getTime() - GENESIS.getTime()) / MS_PER_DAY);
-      if (days >= startDays && days <= endDays) {
-        ticks.push(days);
-        count++;
-      }
-      current.setUTCMonth(current.getUTCMonth() + 2);
-    }
-  }
-
-  return ticks;
-}
-
-/**
- * Find the nearest point in a sorted array of {x, y} within maxDiff.
- * Used for tooltip to decide whether a real historical price is "available"
- * near the hover position, and to look up model values from the (sparser) curves.
- */
-function findNearestPoint(
-  points: Array<{x: number; y: number}>,
-  targetX: number,
-  maxDiff: number = 10
-): {x: number; y: number} | null {
-  if (!points || points.length === 0) return null;
-  let best: {x: number; y: number} | null = null;
-  let bestDiff = Infinity;
-  for (const p of points) {
-    const diff = Math.abs(p.x - targetX);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = p;
-    }
-    if (p.x >= targetX + maxDiff) break; // early exit (points are sorted ascending)
-  }
-  return (best && bestDiff <= maxDiff) ? best : null;
-}
-
-/** Look up (nearest within tolerance) a model curve value for tooltip display. */
-function getCurveValue(
-  curve: Array<{x: number; y: number}> | undefined,
-  targetX: number,
-  maxDiff: number = 25
-): number | null {
-  const p = findNearestPoint(curve || [], targetX, maxDiff);
-  return p ? p.y : null;
-}
 
 // --- API Helpers ---
 

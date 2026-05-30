@@ -11,13 +11,17 @@ Usage:
     # Skip automatic model refit
     python scripts/update_btc_daily.py --no-refit
 
+    # Skip the automatic sense checker
+    python scripts/update_btc_daily.py --no-sense-check
+
 It fetches recent daily Bitcoin close prices from CoinGecko and appends only new
 dates to btc_daily.csv. By default it fetches the last 180 days (sufficient for
 regular updates and more reliable on the free tier).
 
-After appending new data, the script will automatically trigger a model refit
-on the backend (via POST /refit) so the quantile curves and projections update
-immediately.
+After appending new data + refit, the script will **automatically run the model
+sense checker** (`python -m backend.sense_check`) unless you pass --no-sense-check.
+
+This is the recommended way to keep your data and model healthy.
 
 Recommended: Run this manually or via cron / GitHub Actions on a daily or weekly basis.
 """
@@ -26,6 +30,7 @@ import argparse
 import csv
 import datetime as dt
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -182,6 +187,11 @@ def main():
         action="store_true",
         help="Update the CSV file but do not automatically trigger a model refit on the backend.",
     )
+    parser.add_argument(
+        "--no-sense-check",
+        action="store_true",
+        help="Skip running the model sense checker after updating data (and refitting).",
+    )
     args = parser.parse_args()
 
     if args.days < 1:
@@ -215,7 +225,29 @@ def main():
                 print("Automatic refit skipped (--no-refit).")
                 print(f"  Run manually if needed: curl -X POST {args.backend_url.rstrip('/')}/refit")
 
-            print("The frontend will automatically pick up the new latest date on the next page load.")
+            # Run sense checker unless explicitly disabled
+            if not args.no_sense_check:
+                print("\nRunning model sense checker for safety...")
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-m", "backend.sense_check"],
+                        cwd=Path(__file__).parent.parent,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    print(result.stdout)
+                    if result.stderr:
+                        print(result.stderr)
+                    if result.returncode != 0:
+                        print("⚠️  Sense checker reported issues (see output above).")
+                        print("   The data was still updated successfully.")
+                except Exception as e:
+                    print(f"⚠️  Could not run sense checker: {e}")
+            else:
+                print("\nSense checker skipped (--no-sense-check).")
+
+            print("\nThe frontend will automatically pick up the new latest date on the next page load.")
         else:
             print("\nNo new data. CSV is already up to date.")
 
