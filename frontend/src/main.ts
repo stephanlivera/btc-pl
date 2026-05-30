@@ -363,6 +363,11 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
 
   const timeTicks = getTimeTickValues(startDays, endDays);
 
+  // We store the exact tick positions we want so we can enforce them via afterBuildTicks.
+  // This is needed because on logarithmic scales Chart.js can generate extra ticks
+  // beyond what we put in `values`, leading to duplicate year labels in 3y/5y views.
+  const desiredXTicks = timeTicks;
+
   if (chart) {
     // Reuse existing chart for smooth transitions instead of destroying + recreating
     const isRangeChange = chart.options.scales.x.min !== startDays || chart.options.scales.x.max !== endDays;
@@ -371,6 +376,17 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
     chart.options.scales.x.min = startDays;
     chart.options.scales.x.max = endDays;
     chart.options.scales.x.ticks.values = timeTicks;
+    (chart as any)._desiredXTicks = desiredXTicks;
+
+    // Make sure the enforcement hook exists on updates
+    if (!(chart.options.scales.x as any).afterBuildTicks) {
+      (chart.options.scales.x as any).afterBuildTicks = (axis: any) => {
+        const desired = (axis.chart as any)._desiredXTicks;
+        if (desired && desired.length > 0) {
+          axis.ticks = desired.map((value: number) => ({ value }));
+        }
+      };
+    }
 
     // Longer, gentler animation when changing time ranges
     // Shorter animation when only toggling bands
@@ -423,6 +439,15 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
                   }
                 }
               },
+            },
+            // Force the exact tick positions we calculated (one per year for 3y/5y/All,
+            // bi-monthly for 1y). This defeats Chart.js's automatic extra tick generation
+            // on logarithmic scales that was causing duplicate year labels.
+            afterBuildTicks: (axis: any) => {
+              const desired = (axis.chart as any)._desiredXTicks;
+              if (desired && desired.length > 0) {
+                axis.ticks = desired.map((value: number) => ({ value }));
+              }
             },
           },
           y: {
@@ -514,6 +539,9 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
         },
       },
     });
+
+    // Store the desired ticks so the afterBuildTicks hook (defined above) can enforce them
+    (chart as any)._desiredXTicks = desiredXTicks;
   }
 }
 
