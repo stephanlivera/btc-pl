@@ -105,20 +105,28 @@ async function fetchLatestDataDay(): Promise<number> {
  */
 function updateDataFreshnessDisplay() {
   if (!currentDataEndDate) {
-    // Keep the default text from the HTML template if we couldn't fetch a real date
     return;
   }
 
-  // Header subtitle (under the title)
-  const rangeEl = document.getElementById('data-range');
-  if (rangeEl) {
-    rangeEl.textContent = `Q25 / Q50 / Q75 • Data through ${currentDataEndDate}`;
-  }
+  // Update the modern data freshness pill in the chart card
+  const dateEl = document.getElementById('data-freshness-date');
+  if (dateEl) {
+    const date = new Date(currentDataEndDate + 'T00:00:00Z');
+    const formatted = date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    dateEl.textContent = formatted;
 
-  // Small text below the chart
-  const sourceEl = document.getElementById('data-source');
-  if (sourceEl) {
-    sourceEl.textContent = `btc_daily.csv through ${currentDataEndDate}`;
+    // Add a subtle freshness indicator (green dot) if data is reasonably recent
+    const pill = document.getElementById('data-freshness-pill');
+    if (pill) {
+      const daysOld = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysOld <= 7) {
+        pill.classList.add('border-emerald-900/50');
+      }
+    }
   }
 }
 
