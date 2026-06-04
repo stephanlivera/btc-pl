@@ -62,6 +62,18 @@ def test_curves_with_multiple_quantiles():
         assert key in curves or q in curves
 
 
+def test_curves_with_extreme_quantiles():
+    """Analyst-style quantiles (Q99, Q1) via empirical residual offsets."""
+    response = client.get(
+        "/curves?start_days=6000&end_days=7000&step=50"
+        "&quantiles=0.99&quantiles=0.01&parallel=true"
+    )
+    assert response.status_code == 200
+    curves = response.json()["curves"]
+    assert 0.99 in curves or "0.99" in curves
+    assert 0.01 in curves or "0.01" in curves
+
+
 def test_historical_endpoint():
     response = client.get("/historical?start_days=6000&end_days=6100&step=7")
     assert response.status_code == 200

@@ -12,6 +12,11 @@ const END_OF_2035_DAYS = Math.floor((END_OF_2035.getTime() - GENESIS.getTime()) 
 
 export { END_OF_2035_DAYS };
 
+export function getEndOfYearDays(year: number): number {
+  const dec31 = new Date(Date.UTC(year, 11, 31));
+  return Math.floor((dec31.getTime() - GENESIS.getTime()) / MS_PER_DAY);
+}
+
 export function daysToDate(days: number): Date {
   return new Date(GENESIS.getTime() + days * MS_PER_DAY);
 }
@@ -23,6 +28,25 @@ export function formatPrice(price: number): string {
   if (price >= 10) return '$' + Math.round(price);
   if (price >= 1) return '$' + price.toFixed(1);
   return '$' + price.toFixed(2);
+}
+
+/** Quantiles used in the analyst-style horizon grid (Q99 → Q1). */
+export const ANALYST_QUANTILES = [0.99, 0.95, 0.85, 0.75, 0.60, 0.50, 0.40, 0.25, 0.15, 0.05, 0.01] as const;
+
+const DAYS_PER_YEAR = 365.25;
+
+/** Horizon column targets relative to the latest data day. */
+export function getHorizonTargets(latestDays: number): { label: string; days: number }[] {
+  return [
+    { label: 'Now', days: latestDays },
+    { label: '+1 year', days: Math.round(latestDays + DAYS_PER_YEAR) },
+    { label: '+5 years', days: Math.round(latestDays + 5 * DAYS_PER_YEAR) },
+    { label: '+10 years', days: Math.round(latestDays + 10 * DAYS_PER_YEAR) },
+  ];
+}
+
+export function quantileLabel(q: number): string {
+  return `Q${Math.round(q * 100)}`;
 }
 
 export function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {

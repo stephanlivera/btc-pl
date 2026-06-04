@@ -9,7 +9,11 @@ import {
   getTimeTickValues,
   findNearestPoint,
   getCurveValue,
+  ANALYST_QUANTILES,
+  getHorizonTargets,
+  quantileLabel,
   END_OF_2035_DAYS as IMPORTED_END_OF_2035_DAYS,
+  getEndOfYearDays,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -23,10 +27,24 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 // Pre-compute end of 2035 for the "All" view projection
 const END_OF_2035_DAYS = IMPORTED_END_OF_2035_DAYS;
 
+// --- Gold Market Cap Flip assumptions ---
+const GOLD_MC_T = 31.0;                 // Current gold market cap (~$31T est. mid-2026, ~216kt above-ground per WGC + ~$4470/oz)
+const BTC_SUPPLY = 21_000_000;          // Long-term max supply used for projections
+const GOLD_CAGR_OPTIONS = [
+  { rate: 0.04, label: '4% p.a.' },
+  { rate: 0.06, label: '6% p.a.' },
+  { rate: 0.08, label: '8% p.a.' },
+] as const;
+
 let currentRange: 'all' | '5y' | '3y' | '1y' = '1y';
 let showBands = false;        // Q25–Q75 (inner bands)
 let showOuterBands = false;   // Q10–Q90 (outer bands)
 let chart: any = null;
+
+// Gold flip card state
+let goldFlipChart: any = null;
+let selectedGoldCagr = 0.06;
+let longTermCurvesCache: any = null;
 
 // Data for custom tooltip lookups (updated on every render)
 let lastHistoricalPoints: Array<{x: number; y: number}> = [];
@@ -56,6 +74,33 @@ async function fetchHistorical(startDays: number, endDays: number, step = 1) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Backend error: ${res.status}`);
   return res.json();
+}
+
+// --- Gold Flip Helpers ---
+
+function goldMcAt(targetDays: number, cagr: number): number {
+  const ref = currentLatestDays;
+  const years = (targetDays - ref) / 365.25;
+  if (years <= 0) return GOLD_MC_T;
+  return GOLD_MC_T * Math.pow(1 + cagr, years);
+}
+
+async function fetchLongTermCurves() {
+  if (longTermCurvesCache) return longTermCurvesCache;
+  // Project to end of 2050 for crossover visibility under different gold growth rates
+  const endDays = getEndOfYearDays(2050);
+  const quantiles = [0.25, 0.5, 0.75]; // central + inner bands sufficient for viz + table
+  const qs = quantiles.map(q => `quantiles=${q}`).join('&');
+  const url = `/api/curves?start_days=${Math.floor(currentLatestDays)}&end_days=${endDays}&step=365&${qs}&parallel=true`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  const data = await res.json();
+  longTermCurvesCache = data;
+  return data;
+}
+
+function computeBtcMcT(price: number): number {
+  return (price * BTC_SUPPLY) / 1e12;
 }
 
 /** Returns the list of quantiles we should request from the backend based on current toggles */
@@ -528,6 +573,77 @@ function updateProjectionsInfo(data: any) {
   console.log('Projections info updated (now using table)');
 }
 
+function getCurveForQuantile(
+  curves: Record<string, Array<{ x: number; y: number }>>,
+  q: number
+): Array<{ x: number; y: number }> | undefined {
+  return curves[q] ?? curves[String(q)] ?? curves[q.toFixed(2)];
+}
+
+function quantileRowColor(q: number): string {
+  if (q === 0.5) return 'text-orange-400';
+  if (q > 0.5) {
+    if (q >= 0.95) return 'text-rose-300';
+    if (q >= 0.75) return 'text-rose-400';
+    return 'text-rose-400/80';
+  }
+  if (q <= 0.05) return 'text-emerald-300';
+  if (q <= 0.25) return 'text-emerald-400';
+  return 'text-emerald-400/80';
+}
+
+async function loadQuantileHorizonTable() {
+  const tableBody = document.getElementById('quantile-grid-table')!;
+  const nowDateEl = document.getElementById('quantile-grid-now-date');
+  const colCount = 5;
+  const horizons = getHorizonTargets(currentLatestDays);
+
+  if (nowDateEl && currentDataEndDate) {
+    nowDateEl.textContent = ` (Now = ${currentDataEndDate})`;
+  }
+
+  tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-zinc-500">Loading quantile grid...</td></tr>`;
+
+  const startDays = horizons[0].days - 5;
+  const endDays = horizons[horizons.length - 1].days + 5;
+  const quantilesToFetch = [...ANALYST_QUANTILES];
+
+  try {
+    const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
+    const curves = curvesData.curves ?? {};
+
+    let rowsHtml = '';
+    for (const q of ANALYST_QUANTILES) {
+      const curve = getCurveForQuantile(curves, q);
+      const label = quantileLabel(q);
+      const color = quantileRowColor(q);
+      const isCentral = q === 0.5;
+      const rowClass = isCentral ? 'font-semibold' : '';
+
+      const cells = horizons.map(h => {
+        const price = getCurveValue(curve, h.days, 3);
+        return `
+          <td class="px-4 py-2 text-right font-mono ${color} ${rowClass}">
+            ${price != null ? formatPrice(price) : '—'}
+          </td>
+        `;
+      });
+
+      rowsHtml += `
+        <tr class="transition-colors">
+          <td class="px-4 py-2 font-medium ${color} ${rowClass}">${label}</td>
+          ${cells.join('')}
+        </tr>
+      `;
+    }
+
+    tableBody.innerHTML = rowsHtml;
+  } catch (err) {
+    console.error(err);
+    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-red-400">Failed to load quantile grid</td></tr>`;
+  }
+}
+
 async function loadYearEndProjections() {
   const tableBody = document.getElementById('projections-table')!;
   const tableHead = document.getElementById('projections-table-head')!;
@@ -610,6 +726,365 @@ async function loadYearEndProjections() {
   }
 }
 
+// --- Bitcoin Stats at a Glance helpers (200DMA, 200WMA, Mayer) ---
+
+async function fetchRecentHistoricalForStats() {
+  // Need at least ~1400 days for a proper 200-week MA + 200 days for DMA
+  const lookbackDays = 1600;
+  const startDays = Math.max(1, Math.floor(currentLatestDays - lookbackDays));
+  const hist = await fetchHistorical(startDays, currentLatestDays, 1);
+  return hist.points || [];
+}
+
+function computeBitcoinStats(points: Array<{ x: number; y: number }>) {
+  if (!points || points.length === 0) return null;
+  const closes = points.map(p => p.y);
+  const n = closes.length;
+  const currentPrice = closes[n - 1];
+
+  const dmaLen = Math.min(200, n);
+  const dma200 = closes.slice(-dmaLen).reduce((sum, v) => sum + v, 0) / dmaLen;
+
+  const wmaLen = Math.min(1400, n);
+  const wma200 = closes.slice(-wmaLen).reduce((sum, v) => sum + v, 0) / wmaLen;
+
+  const mayerMultiple = currentPrice / dma200;
+
+  return {
+    currentPrice,
+    dma200,
+    wma200,
+    mayerMultiple,
+  };
+}
+
+// --- Gold Market Cap Flip Card (new bottom section) ---
+
+async function renderGoldFlipChart(cagr: number) {
+  const curvesData = await fetchLongTermCurves();
+  const canvas = document.getElementById('gold-flip-chart') as HTMLCanvasElement;
+  if (!canvas) return;
+
+  if (goldFlipChart) {
+    goldFlipChart.destroy();
+    goldFlipChart = null;
+  }
+
+  const q50Points = curvesData.curves?.[0.5] ?? [];
+  if (q50Points.length === 0) return;
+
+  // Populate "today" comparison using the power law central (model-implied, not spot price)
+  const currentEl = document.getElementById('gold-flip-current');
+  if (currentEl) {
+    const nowP = q50Points[0];
+    const btcNowMc = computeBtcMcT(nowP.y);
+    const gNow = GOLD_MC_T;
+    currentEl.innerHTML = `Today (power law Q50 at data end): <span class="font-mono text-orange-400">BTC ~$${btcNowMc.toFixed(1)}T</span> vs <span class="font-mono text-amber-400">Gold ~$${gNow.toFixed(0)}T</span>`;
+  }
+
+  const curve25 = curvesData.curves?.[0.25] ?? [];
+  const curve75 = curvesData.curves?.[0.75] ?? [];
+
+  const labels: string[] = [];
+  const goldData: (number | null)[] = [];
+  const btcQ50Data: (number | null)[] = [];
+  const btcQ25Data: (number | null)[] = [];
+  const btcQ75Data: (number | null)[] = [];
+
+  for (const p of q50Points) {
+    const yr = daysToDate(p.x).getUTCFullYear();
+    labels.push(String(yr));
+
+    const btcMc = computeBtcMcT(p.y);
+    btcQ50Data.push(parseFloat(btcMc.toFixed(2)));
+
+    const gMc = goldMcAt(p.x, cagr);
+    goldData.push(parseFloat(gMc.toFixed(2)));
+
+    const p25 = getCurveValue(curve25, p.x, 400);
+    btcQ25Data.push(p25 != null ? parseFloat(computeBtcMcT(p25).toFixed(2)) : null);
+
+    const p75 = getCurveValue(curve75, p.x, 400);
+    btcQ75Data.push(p75 != null ? parseFloat(computeBtcMcT(p75).toFixed(2)) : null);
+  }
+
+  const goldLabel = `Gold @ ${(cagr * 100).toFixed(0)}% CAGR`;
+
+  const datasets: any[] = [
+    {
+      label: goldLabel,
+      data: goldData,
+      borderColor: '#fbbf24',
+      borderWidth: 2.5,
+      pointRadius: 0,
+      tension: 0.15,
+      order: 2,
+    },
+    {
+      label: 'BTC Q50 (power law × 21M)',
+      data: btcQ50Data,
+      borderColor: '#f59e0b',
+      borderWidth: 3,
+      pointRadius: 0,
+      tension: 0,
+      order: 1,
+    },
+  ];
+
+  // Include bands if the main UI has inner bands enabled (keeps viz consistent)
+  if (showBands) {
+    datasets.push({
+      label: 'BTC Q25',
+      data: btcQ25Data,
+      borderColor: 'rgba(245, 158, 11, 0.45)',
+      borderWidth: 1.5,
+      borderDash: [4, 3],
+      pointRadius: 0,
+      tension: 0,
+      order: 3,
+    });
+    datasets.push({
+      label: 'BTC Q75',
+      data: btcQ75Data,
+      borderColor: 'rgba(245, 158, 11, 0.45)',
+      borderWidth: 1.5,
+      borderDash: [4, 3],
+      pointRadius: 0,
+      tension: 0,
+      order: 0,
+    });
+  }
+
+  goldFlipChart = new (window as any).Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          title: { display: true, text: 'Year', color: '#71717a', font: { size: 11 } },
+          ticks: { color: '#71717a', maxTicksLimit: 14, autoSkip: true },
+          grid: { color: 'rgba(63,63,70,0.3)' },
+        },
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: 'Market Cap (USD trillions)', color: '#71717a', font: { size: 11 } },
+          ticks: {
+            color: '#71717a',
+            callback: (v: number) => '$' + v + 'T',
+          },
+          grid: { color: 'rgba(63,63,70,0.3)' },
+        },
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+          align: 'end',
+          labels: { color: '#a1a1aa', boxWidth: 10, font: { size: 11 } },
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label: (ctx: any) => `${ctx.dataset.label}: $${ctx.raw}T`,
+          },
+        },
+      },
+      elements: {
+        point: { hoverRadius: 3 },
+      },
+    },
+  });
+}
+
+async function computeCrossoverTableData() {
+  const curvesData = await fetchLongTermCurves();
+  const results: Array<{
+    rate: number;
+    label: string;
+    yearQ50: string;
+    yearQ25: string;
+    yearQ75: string;
+    mcBtc: string;
+    mcGold: string;
+  }> = [];
+
+  for (const opt of GOLD_CAGR_OPTIONS) {
+    const cagr = opt.rate;
+    const q50Pts = curvesData.curves?.[0.5] ?? [];
+    const q25Pts = curvesData.curves?.[0.25] ?? [];
+    const q75Pts = curvesData.curves?.[0.75] ?? [];
+
+    const findFirstCross = (pts: any[]) => {
+      for (const p of pts) {
+        const btcMc = computeBtcMcT(p.y);
+        const gMc = goldMcAt(p.x, cagr);
+        if (btcMc > gMc + 0.01) { // small epsilon
+          return daysToDate(p.x).getUTCFullYear().toString();
+        }
+      }
+      return 'after 2050';
+    };
+
+    const yearQ50 = findFirstCross(q50Pts);
+    const yearQ25 = findFirstCross(q25Pts);
+    const yearQ75 = findFirstCross(q75Pts);
+
+    // For the central cross values (use Q50 cross point)
+    let mcBtcStr = '—';
+    let mcGoldStr = '—';
+    for (const p of q50Pts) {
+      const btcMc = computeBtcMcT(p.y);
+      const gMc = goldMcAt(p.x, cagr);
+      if (btcMc > gMc + 0.01) {
+        mcBtcStr = btcMc.toFixed(1) + 'T';
+        mcGoldStr = gMc.toFixed(1) + 'T';
+        break;
+      }
+    }
+
+    results.push({
+      rate: cagr,
+      label: opt.label,
+      yearQ50,
+      yearQ25,
+      yearQ75,
+      mcBtc: mcBtcStr,
+      mcGold: mcGoldStr,
+    });
+  }
+  return results;
+}
+
+function populateGoldFlipTable(selectedRate?: number) {
+  const headEl = document.getElementById('gold-flip-table-head')!;
+  const bodyEl = document.getElementById('gold-flip-table')!;
+  if (!headEl || !bodyEl) return;
+
+  headEl.innerHTML = `
+    <th class="text-left font-normal px-3 py-2">Gold CAGR</th>
+    <th class="text-right font-normal px-3 py-2">Q50 crosses in</th>
+    <th class="text-right font-normal px-3 py-2">Q25 crosses in</th>
+    <th class="text-right font-normal px-3 py-2">Q75 crosses in</th>
+    <th class="text-right font-normal px-3 py-2">BTC MC</th>
+    <th class="text-right font-normal px-3 py-2">Gold MC</th>
+  `;
+
+  bodyEl.innerHTML = `<tr><td colspan="6" class="px-4 py-3 text-zinc-500">Computing crossovers...</td></tr>`;
+
+  computeCrossoverTableData().then((rows) => {
+    let html = '';
+    for (const r of rows) {
+      const isSel = selectedRate != null && Math.abs(r.rate - selectedRate) < 0.0001;
+      const cls = isSel ? 'bg-zinc-800/50' : '';
+      html += `
+        <tr class="${cls} transition-colors">
+          <td class="px-3 py-2 font-medium text-zinc-200">${r.label}</td>
+          <td class="px-3 py-2 text-right font-mono text-orange-400">${r.yearQ50}</td>
+          <td class="px-3 py-2 text-right font-mono text-emerald-400">${r.yearQ25}</td>
+          <td class="px-3 py-2 text-right font-mono text-rose-400">${r.yearQ75}</td>
+          <td class="px-3 py-2 text-right font-mono">${r.mcBtc}</td>
+          <td class="px-3 py-2 text-right font-mono">${r.mcGold}</td>
+        </tr>`;
+    }
+    bodyEl.innerHTML = html || `<tr><td colspan="6" class="px-3 py-2 text-zinc-500">No data</td></tr>`;
+  }).catch((err) => {
+    console.error(err);
+    bodyEl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 text-red-400">Failed to compute gold flip table</td></tr>`;
+  });
+}
+
+async function loadBitcoinStatsCard() {
+  const tableBody = document.getElementById('bitcoin-stats-table') as HTMLElement | null;
+  if (!tableBody) return;
+
+  tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 text-zinc-500">Loading Bitcoin stats...</td></tr>`;
+
+  try {
+    const points = await fetchRecentHistoricalForStats();
+    const stats = computeBitcoinStats(points);
+    if (!stats) {
+      tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 text-red-400">Not enough price history</td></tr>`;
+      return;
+    }
+
+    const fmtPrice = (p: number) => formatPrice(p);
+    const currentDate = currentDataEndDate
+      ? new Date(currentDataEndDate + 'T00:00:00Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+      : '';
+
+    const dmaVs = ((stats.currentPrice / stats.dma200 - 1) * 100);
+    const wmaVs = ((stats.currentPrice / stats.wma200 - 1) * 100);
+
+    const rowsHtml = `
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">Current Price</td>
+        <td class="px-4 py-2 text-right font-mono text-sky-400">${fmtPrice(stats.currentPrice)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">${currentDate}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">200-Day MA (DMA)</td>
+        <td class="px-4 py-2 text-right font-mono text-amber-400">${fmtPrice(stats.dma200)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">${dmaVs.toFixed(1)}% ${dmaVs >= 0 ? 'above' : 'below'}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">200-Week MA (WMA)</td>
+        <td class="px-4 py-2 text-right font-mono text-amber-400">${fmtPrice(stats.wma200)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">≈1400d SMA; ${wmaVs.toFixed(1)}% ${wmaVs >= 0 ? 'above' : 'below'}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">Mayer Multiple</td>
+        <td class="px-4 py-2 text-right font-mono text-orange-400 font-semibold">${stats.mayerMultiple.toFixed(2)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">Price ÷ 200 DMA</td>
+      </tr>
+    `;
+    tableBody.innerHTML = rowsHtml;
+  } catch (err) {
+    console.error('Failed to load bitcoin stats', err);
+    tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 text-red-400">Failed to load stats (backend /historical?)</td></tr>`;
+  }
+}
+
+async function loadGoldFlipCard() {
+  // Setup the segmented controls for gold growth rate (affects chart gold line)
+  const controls = document.getElementById('gold-growth-controls');
+  if (controls) {
+    controls.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">Gold growth assumption:</span>`;
+    GOLD_CAGR_OPTIONS.forEach((opt) => {
+      const btn = document.createElement('button');
+      const active = Math.abs(opt.rate - selectedGoldCagr) < 0.0001;
+      btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${active
+        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
+        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'}`;
+      btn.textContent = opt.label;
+      btn.addEventListener('click', () => {
+        selectedGoldCagr = opt.rate;
+        // re-style all
+        controls.querySelectorAll('button').forEach((b) => {
+          b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+          b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+        });
+        btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+        btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+        // update viz
+        renderGoldFlipChart(selectedGoldCagr).catch(console.error);
+        populateGoldFlipTable(selectedGoldCagr);
+      });
+      controls.appendChild(btn);
+    });
+  }
+
+  try {
+    await renderGoldFlipChart(selectedGoldCagr);
+    populateGoldFlipTable(selectedGoldCagr);
+  } catch (err) {
+    console.error('Failed to load gold flip card:', err);
+    const tbl = document.getElementById('gold-flip-table');
+    if (tbl) tbl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 text-red-400">Failed to load (is backend running?)</td></tr>`;
+  }
+}
+
 // --- Event Listeners ---
 
 function setupControls() {
@@ -628,6 +1103,10 @@ function setupControls() {
     updateBandsToggle();
     loadAndRender(currentRange);
     loadYearEndProjections(); // Refresh table to match chart band visibility
+    // Also sync the gold flip chart bands (re-render with current toggle state)
+    if (goldFlipChart) {
+      renderGoldFlipChart(selectedGoldCagr).catch(console.error);
+    }
   });
 
   // Outer bands toggle (Q10–Q90)
@@ -637,6 +1116,7 @@ function setupControls() {
     updateOuterBandsToggle();
     loadAndRender(currentRange);
     loadYearEndProjections(); // Refresh table to show/hide outer bands
+    // outer bands not shown on gold chart (we use inner only)
   });
 
   updateBandsToggle();
@@ -659,8 +1139,15 @@ async function init() {
   // Default to 1y view (as we did in the old site)
   await loadAndRender('1y');
 
-  // Load the year-end projections table (next 10 years)
+  // Load projection tables
   loadYearEndProjections();
+  loadQuantileHorizonTable();
+
+  // Bitcoin stats at a glance (current MAs + Mayer)
+  loadBitcoinStatsCard();
+
+  // Gold market cap flip card at bottom
+  loadGoldFlipCard();
 }
 
 init();

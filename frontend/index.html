@@ -11,22 +11,22 @@
     .font-display { font-family: 'Space Grotesk', 'Inter', system_ui, sans-serif; font-weight: 600; }
     .chart-container { position: relative; background: #0a0c10; }
 
-    /* Year-end projections table polish */
-    #projections-table tr:nth-child(even) {
+    /* Projection tables (year-end + quantile grid) */
+    .projection-table tr:nth-child(even) {
       background-color: rgba(63, 63, 70, 0.12);
     }
-    
-    #projections-table tr:hover {
+
+    .projection-table tr:hover {
       background-color: rgba(63, 63, 70, 0.32) !important;
       transition: background-color 0.1s ease;
     }
-    
-    #projections-table td {
+
+    .projection-table td {
       padding-top: 0.55rem;
       padding-bottom: 0.55rem;
     }
-    
-    #projections-table th {
+
+    .projection-table th {
       font-weight: 500;
       padding-top: 0.5rem;
       padding-bottom: 0.5rem;
@@ -110,7 +110,7 @@
       </div>
       
       <div class="overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="projection-table w-full text-sm">
           <thead>
             <tr id="projections-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
               <!-- Dynamically populated by JavaScript based on active band toggles -->
@@ -124,6 +124,113 @@
       
       <div class="mt-2 text-[10px] text-zinc-500">
         These are deterministic outputs from the power law quantile regression model.
+      </div>
+    </div>
+
+    <!-- Quantile × Horizon Price Grid -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
+      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+        <span>Quantile Price Grid</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Parallel bands from latest data</span>
+      </div>
+
+      <div class="text-[10px] text-zinc-500 mb-3">
+        Model-implied prices by quantile (rows) at Now and forward horizons (columns).
+        <span id="quantile-grid-now-date" class="text-zinc-400"></span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr id="quantile-grid-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
+              <th class="text-left font-normal px-4 py-2">Quantile</th>
+              <th class="text-right font-normal px-4 py-2">Now</th>
+              <th class="text-right font-normal px-4 py-2">+1 year</th>
+              <th class="text-right font-normal px-4 py-2">+5 years</th>
+              <th class="text-right font-normal px-4 py-2">+10 years</th>
+            </tr>
+          </thead>
+          <tbody id="quantile-grid-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+            <tr>
+              <td colspan="5" class="px-4 py-3 text-zinc-500">Loading quantile grid...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 text-[10px] text-zinc-500">
+        Uses the same parallel residual quantiles and time-based decay as the chart projections. Not a market forecast.
+      </div>
+    </div>
+
+    <!-- Bitcoin Stats at a Glance -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
+      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+        <span>Bitcoin Stats at a Glance</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Computed from on-chain daily close history</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr class="border-b border-zinc-800 text-xs text-zinc-500">
+              <th class="text-left font-normal px-4 py-2">Metric</th>
+              <th class="text-right font-normal px-4 py-2">Value</th>
+              <th class="text-right font-normal px-4 py-2">Context</th>
+            </tr>
+          </thead>
+          <tbody id="bitcoin-stats-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+            <tr>
+              <td colspan="3" class="px-4 py-3 text-zinc-500">Loading Bitcoin stats...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 text-[10px] text-zinc-500">
+        200 DMA = 200-day simple moving average of daily closes. 200 WMA = 200-week MA (≈1400-day SMA of daily closes). Mayer Multiple = current price ÷ 200 DMA. Updates with <code>/historical</code> data.
+      </div>
+    </div>
+
+    <!-- Bitcoin vs Gold Market Cap Flip -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
+      <div class="font-medium text-zinc-300 mb-2 flex items-center justify-between">
+        <span>Bitcoin Gold Flip • Market Cap Crossover</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Power law projection vs gold growing at long-term rates</span>
+      </div>
+
+      <div class="text-[10px] text-zinc-500 mb-3">
+        BTC market cap = power law price × 21M supply. Gold market cap starts at ~$31T and compounds at a constant long-term historical rate.
+        The chart and table show when the power law corridors cross gold under different gold growth assumptions.
+      </div>
+
+      <!-- Gold CAGR selector (populated by JS) -->
+      <div id="gold-growth-controls" class="flex flex-wrap items-center gap-1 mb-3 text-xs"></div>
+
+      <div id="gold-flip-current" class="text-[10px] text-zinc-400 mb-2 px-1"></div>
+
+      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 320px;">
+        <canvas id="gold-flip-chart"></canvas>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr id="gold-flip-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
+              <!-- JS populated -->
+            </tr>
+          </thead>
+          <tbody id="gold-flip-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+            <tr>
+              <td colspan="6" class="px-4 py-3 text-zinc-500">Loading crossover projections...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 text-[10px] text-zinc-500">
+        Assumptions: fixed 21M BTC supply (long-term); gold MC growth rate combines new above-ground supply (~1–2%/yr) + price appreciation; crossovers use yearly samples from the model to 2050.
+        Q25/Q75 show the inner power law corridor. Long-horizon extrapolations have substantial uncertainty.
       </div>
     </div>
 

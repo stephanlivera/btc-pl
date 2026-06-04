@@ -24,6 +24,8 @@ from backend.quantile_model import QuantilePowerLawModel
 
 DATA_PATH = Path(__file__).parent.parent.parent / "btc_daily.csv"
 
+ANALYST_QUANTILES = [0.99, 0.95, 0.85, 0.75, 0.60, 0.50, 0.40, 0.25, 0.15, 0.05, 0.01]
+
 
 @pytest.fixture(scope="module")
 def fitted_model():
@@ -31,8 +33,9 @@ def fitted_model():
     if not DATA_PATH.exists():
         pytest.skip("btc_daily.csv not found — cannot run model tests")
 
-    model = QuantilePowerLawModel(str(DATA_PATH))
-    model.fit()
+    model = QuantilePowerLawModel()
+    df = model.load_data(DATA_PATH)
+    model.fit(df)
     return model
 
 
@@ -128,6 +131,44 @@ def test_time_decay_only_applies_to_future(fitted_model):
     # We expect some compression in the far future
     assert far_future <= near_ref * 1.15, \
         f"Expected future bands to compress due to decay, got {near_ref:.3f} → {far_future:.3f}"
+
+
+def test_analyst_quantiles_all_returned(fitted_model):
+    """Extended quantile grid (Q99–Q1) is available via empirical residuals."""
+    ref = fitted_model.ref_days
+    curves = fitted_model.predict_curve(
+        start_days=ref,
+        end_days=ref + 10,
+        step=1,
+        quantiles=ANALYST_QUANTILES,
+        parallel=True,
+    )
+    for q in ANALYST_QUANTILES:
+        assert q in curves
+        assert len(curves[q]) > 0
+
+
+def test_analyst_quantiles_monotonic_at_horizons(fitted_model):
+    """Q1 < Q5 < ... < Q99 at Now and +10 years."""
+    ref = fitted_model.ref_days
+    horizons = [ref, int(ref + 10 * 365.25)]
+
+    curves = fitted_model.predict_curve(
+        start_days=ref,
+        end_days=horizons[-1] + 5,
+        step=1,
+        quantiles=ANALYST_QUANTILES,
+        parallel=True,
+    )
+
+    for days in horizons:
+        values = []
+        for q in ANALYST_QUANTILES:
+            point = min(curves[q], key=lambda p: abs(p["x"] - days))
+            values.append(point["y"])
+        # ANALYST_QUANTILES is high → low; prices should decrease down the list
+        for i in range(len(values) - 1):
+            assert values[i] > values[i + 1] * 0.9999, f"Crossing at day {days}"
 
 
 def test_predictions_are_positive(fitted_model):

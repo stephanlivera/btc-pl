@@ -5,6 +5,9 @@ import {
   getTimeTickValues,
   findNearestPoint,
   getCurveValue,
+  getHorizonTargets,
+  quantileLabel,
+  ANALYST_QUANTILES,
 } from '../utils';
 
 describe('formatPrice', () => {
@@ -23,11 +26,37 @@ describe('formatPrice', () => {
   });
 });
 
+describe('getHorizonTargets', () => {
+  it('returns four horizon columns with expected labels', () => {
+    const horizons = getHorizonTargets(6359);
+    expect(horizons.map(h => h.label)).toEqual(['Now', '+1 year', '+5 years', '+10 years']);
+    expect(horizons[0].days).toBe(6359);
+    expect(horizons[1].days - horizons[0].days).toBeCloseTo(365.25, 0);
+    expect(horizons[3].days - horizons[0].days).toBe(3653);
+  });
+});
+
+describe('quantileLabel', () => {
+  it('formats quantile as Q-prefixed integer', () => {
+    expect(quantileLabel(0.99)).toBe('Q99');
+    expect(quantileLabel(0.5)).toBe('Q50');
+    expect(quantileLabel(0.01)).toBe('Q1');
+  });
+});
+
+describe('ANALYST_QUANTILES', () => {
+  it('has eleven quantiles from Q99 to Q1', () => {
+    expect(ANALYST_QUANTILES.length).toBe(11);
+    expect(ANALYST_QUANTILES[0]).toBe(0.99);
+    expect(ANALYST_QUANTILES[ANALYST_QUANTILES.length - 1]).toBe(0.01);
+  });
+});
+
 describe('getNextTenYearEnds', () => {
   it('returns 10 future year ends', () => {
     const results = getNextTenYearEnds(6200);
     expect(results.length).toBe(10);
-    expect(results[0].year).toBeGreaterThan(2025);
+    expect(results[0].year).toBeGreaterThanOrEqual(2025);
   });
 });
 

@@ -79,10 +79,12 @@ class QuantilePowerLawModel:
             central_res = self.results[0.5]
             central_pred = central_res.predict(X)
             residuals = y - central_pred
+            self._log_residuals = residuals.to_numpy(dtype=float)
             self.residual_quantiles = {}
             for q in self.quantiles:
                 self.residual_quantiles[q] = float(residuals.quantile(q))
         else:
+            self._log_residuals = np.array([], dtype=float)
             self.residual_quantiles = {}
 
         if self.residual_quantiles:
@@ -100,6 +102,12 @@ class QuantilePowerLawModel:
         print(f"Time-based decay active for future projections: rate={DECAY_RATE}, min_factor={MIN_DECAY_FACTOR}")
         if self.ref_days:
             print(f"  Decay reference point: day {self.ref_days} ({self.data_end_date})")
+
+    def _residual_offset(self, q: float) -> float:
+        """Empirical log-residual quantile around the Q50 fit (any q in (0, 1))."""
+        if not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
+            raise RuntimeError("Log residuals not available; fit the model first.")
+        return float(np.quantile(self._log_residuals, q))
 
     def refit(self, csv_path: Path | str) -> None:
         """Reload data from CSV and refit all models. Useful after running the update script."""
@@ -153,10 +161,12 @@ class QuantilePowerLawModel:
             ref = self.ref_days if self.ref_days is not None else 0
 
             for q in qs:
-                if q not in self.residual_quantiles:
+                if q in self.residual_quantiles:
+                    base_offset = self.residual_quantiles[q]
+                elif 0 < q < 1:
+                    base_offset = self._residual_offset(q)
+                else:
                     continue
-
-                base_offset = self.residual_quantiles[q]
 
                 if q == 0.5 or ref <= 0:
                     # Central line or no ref: no decay

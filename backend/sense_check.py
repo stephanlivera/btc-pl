@@ -157,10 +157,10 @@ def run_sense_checks() -> bool:
         print(f"❌ Data file not found: {DATA_PATH}")
         return False
 
-    model = QuantilePowerLawModel(str(DATA_PATH))
+    model = QuantilePowerLawModel(quantiles=[0.10, 0.25, 0.50, 0.75, 0.90])
 
     try:
-        model.fit()
+        model.refit(DATA_PATH)
     except Exception as e:
         print(f"❌ Failed to fit model: {e}")
         return False
