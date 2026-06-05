@@ -33,7 +33,7 @@
       color: #a1a1aa;
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-_4TcK67B.js"></script>
+  <script type="module" crossorigin src="/assets/index-DtzdxOZd.js"></script>
 </head>
 <body class="bg-zinc-950 text-zinc-200">
   <div class="max-w-[1100px] mx-auto px-6 py-10">
@@ -164,6 +164,46 @@
       </div>
     </div>
 
+    <!-- Current Quantile Position & Short-Term Statistical Outlook -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
+      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+        <span>Current Power Law Quantile Position &amp; Short-Term Outlook</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Empirical rank vs historical residuals</span>
+      </div>
+
+      <div class="text-[10px] text-zinc-500 mb-3">
+        Today's actual close ranked against the historical distribution of deviations from the central power-law (Q50) trend.
+        <span id="current-quantile-now-date" class="text-zinc-400"></span>
+        The "current regime" projections are the *current price scaled by historical gains* (median + 25-75 range) observed in the following months after past episodes at a similar quantile level.
+      </div>
+
+      <div id="current-quantile-summary" class="text-[11px] text-zinc-400 mb-3 px-1 font-light"></div>
+
+      <div class="overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr id="current-quantile-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
+              <th class="text-left font-normal px-4 py-2">Series</th>
+              <th class="text-right font-normal px-4 py-2">Now</th>
+              <th class="text-right font-normal px-4 py-2">+3 months</th>
+              <th class="text-right font-normal px-4 py-2">+6 months</th>
+              <th class="text-right font-normal px-4 py-2">+1 year</th>
+              <th class="text-right font-normal px-4 py-2">+2 years</th>
+            </tr>
+          </thead>
+          <tbody id="current-quantile-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+            <tr>
+              <td colspan="6" class="px-4 py-3 text-zinc-500">Loading current quantile position...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 text-[10px] text-zinc-500">
+        "Current regime (hist. scaled gains)" = current price × median historical multiplier (gain) from k-nearest past periods at a similar quantile/residual level (with 25-75 range of those multipliers applied). Other rows are the structural power-law model quantiles. Not a forecast.
+      </div>
+    </div>
+
     <!-- Bitcoin Stats at a Glance -->
     <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
       <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
@@ -190,6 +230,41 @@
 
       <div class="mt-2 text-[10px] text-zinc-500">
         200 DMA = 200-day simple moving average of daily closes. 200 WMA = 200-week MA (≈1400-day SMA of daily closes). Mayer Multiple = current price ÷ 200 DMA. Updates with <code>/historical</code> data.
+      </div>
+    </div>
+
+    <!-- Bitcoin Historical CAGR -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
+      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+        <span>Bitcoin CAGR (Compound Annual Growth Rate)</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Historical annualized returns</span>
+      </div>
+
+      <div class="text-[10px] text-zinc-500 mb-3">
+        CAGR computed from actual daily close prices at the closest historical dates ~N years prior to the latest data point.
+        <span id="bitcoin-cagr-now-date" class="text-zinc-400"></span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr class="border-b border-zinc-800 text-xs text-zinc-500">
+              <th class="text-left font-normal px-4 py-2">Period</th>
+              <th class="text-right font-normal px-4 py-2">CAGR</th>
+              <th class="text-right font-normal px-4 py-2">Start Price</th>
+              <th class="text-right font-normal px-4 py-2">Start Date</th>
+            </tr>
+          </thead>
+          <tbody id="bitcoin-cagr-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+            <tr>
+              <td colspan="4" class="px-4 py-3 text-zinc-500">Loading Bitcoin CAGR...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 text-[10px] text-zinc-500">
+        CAGR = (End Price / Start Price) ^ (1 / years) - 1. Uses the closest available daily close within ~30 days of the exact anniversary. Updates with <code>/historical</code> data.
       </div>
     </div>
 

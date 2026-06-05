@@ -30,6 +30,34 @@ def test_health_endpoint():
     assert "data_end_date" in data or data.get("status") == "ok"
 
 
+def test_current_endpoint_returns_position_and_quantile():
+    """Contract test for the new current position endpoint (current quantile level + context)."""
+    response = client.get("/current")
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "meta" in data
+    assert "position" in data
+    assert "analog_projections" in data
+    assert "note" in data
+
+    pos = data["position"]
+    assert "actual_price" in pos and pos["actual_price"] > 0
+    assert "quantile" in pos and 0.0 <= pos["quantile"] <= 1.0
+    assert "quantile_label" in pos and pos["quantile_label"].startswith("Q")
+    assert "deviation_pct" in pos
+    assert "model_q50" in pos
+    assert data["meta"].get("ref_days") is not None
+
+    ap = data["analog_projections"]
+    if ap:
+        assert "horizons" in ap
+        assert "0" in ap["horizons"]  # now
+        h0 = ap["horizons"]["0"]
+        # h=0 should be multiplier of 1.0 (or scaled to current)
+        assert h0.get("median_mult") is not None or h0.get("scaled_median") is not None
+
+
 def test_curves_endpoint_returns_expected_structure():
     """Basic contract test for the main curves endpoint."""
     response = client.get("/curves?start_days=6000&end_days=6500&step=50&quantiles=0.5")

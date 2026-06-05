@@ -227,3 +227,156 @@ class QuantilePowerLawModel:
             {"x": int(row.days), "y": float(row.Close)}
             for _, row in subset.iterrows()
         ]
+
+    def get_current_position(self) -> dict:
+        """Return the current (latest) price's position in the power law model.
+
+        Includes the empirical quantile rank of today's log-residual vs the full
+        historical distribution of residuals around the central Q50 fit. This is
+        the key 'current quantile level' for the new analysis card.
+        """
+        if self.df is None or self.df.empty:
+            raise RuntimeError("Data not loaded")
+        if 0.5 not in self.results or not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
+            raise RuntimeError("Central model or residuals not available; fit the model first.")
+
+        latest_row = self.df.iloc[-1]
+        days = int(latest_row["days"])
+        actual_price = float(latest_row["Close"])
+
+        central_res = self.results[0.5]
+        central_a = float(central_res.params["const"])
+        central_b = float(central_res.params["log_days"])
+        central_log = central_a + central_b * float(latest_row["log_days"])
+        model_q50 = 10 ** central_log
+
+        residual = float(latest_row["log_close"] - central_log)
+        deviation_pct = (actual_price / model_q50 - 1.0) * 100.0
+
+        # Empirical CDF rank of this residual in the historical distribution (0-1).
+        # Uses <= so the latest point's own rank is included consistently with fit-time quantiles.
+        quantile = float((self._log_residuals <= residual).mean())
+        quantile_label = f"Q{int(round(quantile * 100))}"
+
+        return {
+            "actual_price": round(actual_price, 2),
+            "days": days,
+            "date": str(self.data_end_date) if self.data_end_date else None,
+            "model_q50": round(model_q50, 2),
+            "deviation_pct": round(deviation_pct, 2),
+            "residual": round(residual, 6),
+            "quantile": round(quantile, 4),
+            "quantile_label": quantile_label,
+        }
+
+    def get_historical_analog_projections(
+        self, quantile: float, horizons: list[int], k: int = 40
+    ) -> dict:
+        """Return statistical forward price projections at the requested horizons,
+        based purely on historical analogs: periods in the data when the price's
+        residual (deviation from then-current Q50) was closest to the residual
+        implied by `quantile`.
+
+        This is "historical extrapolation from similar regimes" rather than
+        continuing the power-law quantile band forward.
+
+        Uses k-nearest historical starting points (by residual distance) that have
+        sufficient data forward for the longest horizon.
+        """
+        if self.df is None or self.df.empty:
+            raise RuntimeError("Data not loaded")
+        if not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
+            raise RuntimeError("Residuals not available; fit the model first.")
+
+        residuals = self._log_residuals
+        n = len(residuals)
+        if n == 0:
+            raise RuntimeError("No historical residuals")
+
+        # Target residual for the given quantile rank (inverse of the empirical CDF)
+        target_residual = float(np.quantile(residuals, np.clip(quantile, 0.0, 1.0)))
+
+        # Precompute for fast lookup and filtering
+        days_arr = self.df["days"].to_numpy()
+        close_arr = self.df["Close"].to_numpy().astype(float)
+        ref = self.ref_days or int(days_arr.max())
+
+        max_h = max(horizons) if horizons else 0
+
+        # Collect candidate starting indices that have enough forward data
+        candidates: list[tuple[float, int, int, float]] = []  # (dist, i, start_day, start_price)
+        for i in range(n):
+            if days_arr[i] + max_h > ref:
+                continue
+            r = residuals[i]
+            dist = abs(r - target_residual)
+            start_day = int(days_arr[i])
+            start_price = float(close_arr[i])
+            candidates.append((dist, i, start_day, start_price))
+
+        # Take the k closest by residual distance
+        candidates.sort(key=lambda t: t[0])
+        selected = candidates[:k]
+
+        # For each horizon, collect *multipliers* (future / start) from the selected analogs.
+        # This gives "how much higher did it go", which we later scale to the current price level.
+        from collections import defaultdict
+        mults_by_h: dict[int, list[float]] = defaultdict(list)
+
+        # Build a fast day->price lookup (dict is fine, n~5k)
+        day_to_price: dict[int, float] = {int(d): float(p) for d, p in zip(days_arr, close_arr)}
+
+        for _dist, i, start_day, start_price in selected:
+            for h in horizons:
+                if h == 0:
+                    mults_by_h[h].append(1.0)
+                    continue
+                td = start_day + h
+                # Find actual price at or near td (within a week, prefer exact or closest in data)
+                fut_p = None
+                if td in day_to_price:
+                    fut_p = day_to_price[td]
+                else:
+                    # nearest in data
+                    j = np.searchsorted(days_arr, td)
+                    cands = []
+                    if j < n:
+                        cands.append(j)
+                    if j > 0:
+                        cands.append(j - 1)
+                    best_j = None
+                    best_d = 1e9
+                    for jj in cands:
+                        d = abs(days_arr[jj] - td)
+                        if d < best_d and d <= 7:
+                            best_d = d
+                            best_j = jj
+                    if best_j is not None:
+                        fut_p = float(close_arr[best_j])
+                if fut_p is not None and start_price > 0:
+                    mult = fut_p / start_price
+                    mults_by_h[h].append(mult)
+
+        # Aggregate stats per horizon (multipliers)
+        out: dict[str, dict] = {}
+        for h in horizons:
+            ms = mults_by_h.get(h, [])
+            key = str(h)
+            if not ms:
+                out[key] = {"median_mult": None, "p25_mult": None, "p75_mult": None, "count": 0}
+                continue
+            arr = np.asarray(ms, dtype=float)
+            out[key] = {
+                "median_mult": round(float(np.median(arr)), 4),
+                "p25_mult": round(float(np.percentile(arr, 25)), 4),
+                "p75_mult": round(float(np.percentile(arr, 75)), 4),
+                "count": len(ms),
+            }
+
+        return {
+            "target_quantile": round(float(quantile), 4),
+            "k_used": min(k, len(candidates)),
+            "total_candidates_considered": len(candidates),
+            "horizons": out,
+            "description": "Multipliers (future_price / start_price) are the median (and 25/75) gains observed at +horizon days, taken from the k historical periods whose residual from Q50 was closest to the current regime's residual. Only periods with data through the horizon are used. These multipliers are later scaled to the current actual price to produce regime projections.",
+        }

@@ -142,6 +142,54 @@ def health():
     }
 
 
+@app.get("/current")
+def get_current():
+    """Return the latest price's empirical quantile rank vs the power law model
+    (key for the 'current quantile level' card) plus context for short-term projections.
+    """
+    if not model.results:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not fitted yet. Call /refit or restart the service after ensuring btc_daily.csv exists.",
+        )
+    try:
+        position = model.get_current_position()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Short-term offsets for historical analog projections (matches the card's 3m/6m/1y/2y)
+    short_horizons = [0, 91, 183, 365, 730]
+    try:
+        analog_projections = model.get_historical_analog_projections(
+            position.get("quantile", 0.5), short_horizons, k=40
+        )
+        # Scale the historical multipliers to the current actual price level.
+        # This produces "how much higher the price is projected to be than it is now",
+        # based on gains seen in similar historical regimes.
+        curr_price = position.get("actual_price")
+        if analog_projections and curr_price and "horizons" in analog_projections:
+            for hkey, stats in analog_projections["horizons"].items():
+                if stats.get("median_mult") is not None:
+                    stats["scaled_median"] = round(curr_price * stats["median_mult"], 2)
+                    if stats.get("p25_mult") is not None:
+                        stats["scaled_p25"] = round(curr_price * stats["p25_mult"], 2)
+                    if stats.get("p75_mult") is not None:
+                        stats["scaled_p75"] = round(curr_price * stats["p75_mult"], 2)
+    except Exception:
+        analog_projections = None
+
+    return {
+        "meta": {
+            "data_end_date": str(model.data_end_date),
+            "last_fit_date": str(model.last_fit_date),
+            "ref_days": model.ref_days,
+        },
+        "position": position,
+        "analog_projections": analog_projections,
+        "note": "quantile (0-1) is the empirical CDF rank of the latest log-residual vs full historical _log_residuals around Q50 central (parallel bands + decay). 'analog_projections' provides historical *multipliers* (gains) from k-nearest similar-residual regimes; scaled_* fields apply those multipliers to today's actual price.",
+    }
+
+
 @app.get("/historical")
 def get_historical(
     start_days: int = Query(..., description="Start day (days since 2009-01-03)"),

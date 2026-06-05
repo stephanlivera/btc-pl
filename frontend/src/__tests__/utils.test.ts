@@ -6,8 +6,11 @@ import {
   findNearestPoint,
   getCurveValue,
   getHorizonTargets,
+  getShortHorizonTargets,
   quantileLabel,
   ANALYST_QUANTILES,
+  calculateCAGR,
+  findPriceAtYearsAgo,
 } from '../utils';
 
 describe('formatPrice', () => {
@@ -104,5 +107,54 @@ describe('getCurveValue', () => {
   it('returns value from nearest point on curve', () => {
     const val = getCurveValue(curve, 1050, 100);
     expect(val).toBe(80000);
+  });
+});
+
+describe('getShortHorizonTargets', () => {
+  it('returns five horizon columns with expected short-term labels', () => {
+    const horizons = getShortHorizonTargets(6359);
+    expect(horizons.map(h => h.label)).toEqual(['Now', '+3 months', '+6 months', '+1 year', '+2 years']);
+    expect(horizons[0].days).toBe(6359);
+    // ~91, 183, 365, 730 day deltas
+    expect(horizons[1].days - horizons[0].days).toBeCloseTo(91, -1);
+    expect(horizons[2].days - horizons[0].days).toBeCloseTo(183, -1);
+    expect(horizons[3].days - horizons[0].days).toBeCloseTo(365, -1);
+    expect(horizons[4].days - horizons[0].days).toBeCloseTo(730, -1);
+  });
+});
+
+describe('calculateCAGR', () => {
+  it('computes correct CAGR for known values', () => {
+    // e.g. doubles in 1 year -> 100% CAGR
+    expect(calculateCAGR(100, 200, 1)).toBeCloseTo(1.0);
+    // 10x in 5 years -> ~58.5%
+    expect(calculateCAGR(100, 1000, 5)).toBeCloseTo(0.5849, 0.001);
+    expect(calculateCAGR(100, 1000, 5)! * 100).toBeCloseTo(58.49, 0.1);
+  });
+
+  it('returns null for invalid inputs', () => {
+    expect(calculateCAGR(0, 100, 1)).toBeNull();
+    expect(calculateCAGR(100, 0, 1)).toBeNull();
+    expect(calculateCAGR(100, 200, 0)).toBeNull();
+  });
+});
+
+describe('findPriceAtYearsAgo', () => {
+  const points = [
+    { x: 6000, y: 10000 },
+    { x: 6359, y: 60000 }, // now-ish
+  ];
+
+  it('finds point approx N years ago', () => {
+    const res = findPriceAtYearsAgo(points, 6359, 1);
+    expect(res).not.toBeNull();
+    expect(res!.price).toBe(10000);
+    expect(res!.day).toBe(6000);
+    expect(res!.yearsActual).toBeCloseTo(0.98, 0.1);
+  });
+
+  it('returns null if no point within tolerance', () => {
+    const res = findPriceAtYearsAgo(points, 6359, 10);
+    expect(res).toBeNull();
   });
 });

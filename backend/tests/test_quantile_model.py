@@ -183,3 +183,39 @@ def test_predictions_are_positive(fitted_model):
 
     for point in curves[0.5]:
         assert point["y"] > 0, f"Non-positive price at day {point['x']}"
+
+
+def test_get_current_position_returns_sensible_values(fitted_model):
+    """Current position must return actual price, model Q50, deviation, and quantile rank in [0,1]."""
+    pos = fitted_model.get_current_position()
+
+    assert isinstance(pos, dict)
+    assert "actual_price" in pos and pos["actual_price"] > 0
+    assert "model_q50" in pos and pos["model_q50"] > 0
+    assert "deviation_pct" in pos
+    assert "residual" in pos
+    assert "quantile" in pos
+    assert 0.0 <= pos["quantile"] <= 1.0
+    assert "quantile_label" in pos and pos["quantile_label"].startswith("Q")
+    assert "date" in pos and pos["date"]
+    assert "days" in pos and pos["days"] > 0
+
+    # The latest residual's rank should be consistent (the computation re-uses the same residuals used for bands)
+    # Just sanity: if actual is very close to Q50, quantile near 0.5
+    if abs(pos["deviation_pct"]) < 1.0:
+        assert 0.4 <= pos["quantile"] <= 0.6
+
+
+def test_get_historical_analog_projections(fitted_model):
+    """Analog projections should return multiplier stats (median_mult etc.) for requested horizons based on similar-residual history."""
+    pos = fitted_model.get_current_position()
+    q = pos["quantile"]
+    ap = fitted_model.get_historical_analog_projections(q, [0, 91, 365], k=20)
+    assert "horizons" in ap
+    for key in ["0", "91", "365"]:
+        assert key in ap["horizons"]
+        h = ap["horizons"][key]
+        assert "median_mult" in h
+        assert "count" in h and h["count"] > 0
+        if h["median_mult"] is not None:
+            assert h["median_mult"] > 0

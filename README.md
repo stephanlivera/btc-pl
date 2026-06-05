@@ -7,7 +7,7 @@ Interactive visualization of Bitcoin's long-term power law trend using Giovanni 
 - **Core model**: Quantile regression (Q25 / Q50 / Q75) fit on log-log daily Bitcoin closes (`log10(price) ~ log10(days_since_2009-01-03)`).
 - **Data source**: `btc_daily.csv` (daily closes back to ~2012, kept fresh via script).
 - **Bands**: Residual-based parallel bands around the central (Q50) fit for stability. Long-term projections use **simple time-based decay** (Option 1) so the Q75/Q50 ratio compresses naturally toward ~1.3–1.45× by the early 2030s (matching how many analysts present maturing power law corridors).
-- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 bands, fully dynamic axes, 10-year year-end projections table, year + month tooltips.
+- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 bands, fully dynamic axes, 10-year year-end projections table, Bitcoin CAGR table (1y/3y/5y/10y), current quantile position + short-term outlook card, year + month tooltips.
 
 The old single-file `index.html` (root) is the legacy prototype. The current production experience lives in `frontend/` + `backend/`.
 
@@ -150,6 +150,7 @@ The legacy single-file version is archived in `archive/old-single-file/`.
 - `GET /historical?start_days=...&end_days=...` — Actual daily close prices (for the blue line).
 - `POST /refit` — Reload CSV and refit all quantile models (use after data updates).
 - `GET /parameters` — Fitted coefficients + current residual quantiles + decay settings.
+- `GET /current` — Latest actual price + its empirical quantile rank (0-1) vs historical residuals around Q50, plus context (for the "current quantile position" card + short-term outlook).
 - `GET /health` — Simple health check + `data_end_date`. Used by the frontend to keep time ranges and freshness display up to date automatically.
 
 Full interactive docs: http://localhost:8000/docs (when backend is running).
@@ -222,7 +223,7 @@ npm run test:run      # Run once
 npm test              # Watch mode
 ```
 
-Tests pure utility functions (tick generation, price formatting, nearest-point lookup, etc.) that were extracted into `src/utils.ts` for testability.
+Tests pure utility functions (tick generation, price formatting, nearest-point lookup, CAGR calculation, historical price lookup for periods, etc.) that were extracted into `src/utils.ts` for testability. The new Bitcoin CAGR card uses `calculateCAGR` and `findPriceAtYearsAgo`.
 
 ### API Smoke Tests (standalone)
 
@@ -252,8 +253,9 @@ simplepowerlaw/
 ├── frontend/
 │   ├── src/
 │   │   ├── main.ts               # Main UI (Chart.js, controls, table, etc.)
-│   │   ├── utils.ts              # Pure functions (extracted for testing)
-│   │   └── __tests__/            # Vitest tests
+│   │   ├── utils.ts              # Pure functions (extracted for testing) — includes CAGR helpers
+│   │   └── __tests__/            # Vitest tests (covers new CAGR + historical lookup utils)
+
 │   ├── package.json
 │   └── vite.config.ts
 ├── scripts/
@@ -268,6 +270,7 @@ simplepowerlaw/
 
 ## Recent Major Changes
 
+- New **Bitcoin CAGR card/table** in the UI: historical compound annual growth rates for 1y/3y/5y/10y, computed client-side from `/historical` data using pure `calculateCAGR` + `findPriceAtYearsAgo` utils (with Vitest coverage).
 - **Testing & Safety Infrastructure** (v3.4):
   - New model **sense checker** (`backend/sense_check.py`) that validates key invariants (no quantile crossing, correct decay behavior, etc.).
   - The updater (`update_btc_daily.py`) now **automatically runs the sense checker** after data updates + refit.

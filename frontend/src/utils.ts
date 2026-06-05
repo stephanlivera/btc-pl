@@ -45,6 +45,18 @@ export function getHorizonTargets(latestDays: number): { label: string; days: nu
   ];
 }
 
+/** Short-term horizon targets (for the current quantile position + outlook card). */
+export function getShortHorizonTargets(latestDays: number): { label: string; days: number }[] {
+  const dpy = DAYS_PER_YEAR;
+  return [
+    { label: 'Now', days: latestDays },
+    { label: '+3 months', days: Math.round(latestDays + (3 * dpy) / 12) },
+    { label: '+6 months', days: Math.round(latestDays + (6 * dpy) / 12) },
+    { label: '+1 year', days: Math.round(latestDays + dpy) },
+    { label: '+2 years', days: Math.round(latestDays + 2 * dpy) },
+  ];
+}
+
 export function quantileLabel(q: number): string {
   return `Q${Math.round(q * 100)}`;
 }
@@ -141,4 +153,48 @@ export function getCurveValue(
 ): number | null {
   const p = findNearestPoint(curve || [], targetX, maxDiff);
   return p ? p.y : null;
+}
+
+/**
+ * Calculate CAGR (Compound Annual Growth Rate) as a decimal (e.g. 0.65 for 65%).
+ * Pure function for testability.
+ */
+export function calculateCAGR(startPrice: number, endPrice: number, years: number): number | null {
+  if (!startPrice || !endPrice || !years || startPrice <= 0 || endPrice <= 0 || years <= 0) {
+    return null;
+  }
+  return Math.pow(endPrice / startPrice, 1 / years) - 1;
+}
+
+/**
+ * Find the historical data point closest to N years before the current day.
+ * Returns {price, day, yearsActual} or null if no suitable point within tolerance.
+ */
+export function findPriceAtYearsAgo(
+  points: Array<{ x: number; y: number }>,
+  currentDay: number,
+  years: number,
+  maxDiffDays: number = 30
+): { price: number; day: number; yearsActual: number } | null {
+  if (!points || points.length === 0 || !currentDay || years <= 0) return null;
+  const targetDay = Math.round(currentDay - years * 365.25);
+  let best: { x: number; y: number } | null = null;
+  let bestDiff = Infinity;
+  for (const p of points) {
+    const diff = Math.abs(p.x - targetDay);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = p;
+    }
+    if (p.x > targetDay + maxDiffDays) break;
+  }
+  if (best && bestDiff <= maxDiffDays) {
+    const yearsActual = (currentDay - best.x) / 365.25;
+    return {
+      price: best.y,
+      day: best.x,
+      yearsActual: yearsActual || years,
+    };
+  }
+  return null;
 }

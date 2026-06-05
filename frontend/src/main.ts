@@ -11,9 +11,12 @@ import {
   getCurveValue,
   ANALYST_QUANTILES,
   getHorizonTargets,
+  getShortHorizonTargets,
   quantileLabel,
   END_OF_2035_DAYS as IMPORTED_END_OF_2035_DAYS,
   getEndOfYearDays,
+  calculateCAGR,
+  findPriceAtYearsAgo,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -71,6 +74,13 @@ async function fetchCurves(
 
 async function fetchHistorical(startDays: number, endDays: number, step = 1) {
   const url = `/api/historical?start_days=${startDays}&end_days=${endDays}&step=${step}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  return res.json();
+}
+
+async function fetchCurrentPosition() {
+  const url = `/api/current`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Backend error: ${res.status}`);
   return res.json();
@@ -644,6 +654,107 @@ async function loadQuantileHorizonTable() {
   }
 }
 
+async function loadCurrentQuantileCard() {
+  const tableBody = document.getElementById('current-quantile-table') as HTMLElement | null;
+  const nowDateEl = document.getElementById('current-quantile-now-date');
+  if (!tableBody) return;
+
+  const colCount = 6;
+  const horizons = getShortHorizonTargets(currentLatestDays);
+
+  if (nowDateEl && currentDataEndDate) {
+    nowDateEl.textContent = ` (Now = ${currentDataEndDate})`;
+  }
+
+  tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-zinc-500">Loading current quantile position...</td></tr>`;
+
+  try {
+    const posData = await fetchCurrentPosition();
+    const pos = posData.position || {};
+    const currentQ = typeof pos.quantile === 'number' ? pos.quantile : 0.5;
+    const analogProjs = posData.analog_projections || null;
+
+    const startDays = horizons[0].days - 5;
+    const endDays = horizons[horizons.length - 1].days + 5;
+    // Only fetch the structural power-law reference quantiles (current regime uses historical analogs instead)
+    const quantilesToFetch = [0.25, 0.5, 0.75];
+
+    const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
+    const curves = curvesData.curves ?? {};
+
+    // Build rows: Current regime now uses *historical analogs* (not model Q at currentQ)
+    const rowsToShow: Array<{ q: number; label: string; isCurrent?: boolean }> = [
+      { q: currentQ, label: `Current regime (hist. scaled gains)`, isCurrent: true },
+      { q: 0.5, label: 'Q50 (median)' },
+      { q: 0.25, label: 'Q25' },
+      { q: 0.75, label: 'Q75' },
+    ];
+
+    // Precompute offsets from the horizons for analog lookup (0, ~91, ~183, ...)
+    const nowDay = horizons[0].days;
+    const offsets = horizons.map(h => Math.round(h.days - nowDay));
+
+    let rowsHtml = '';
+    for (const row of rowsToShow) {
+      const color = quantileRowColor(row.q);
+      const rowClass = row.isCurrent ? 'font-semibold bg-zinc-800/40' : '';
+      const cells = horizons.map((h, idx) => {
+        let price: number | null = null;
+        let rangeText = '';
+        const off = offsets[idx];
+        const isNow = off === 0;
+        if (row.isCurrent && analogProjs && analogProjs.horizons && !isNow) {
+          // Historical analogs only for future horizons; Now always shows actual current price.
+          // Use *scaled* prices (current price × historical median gain from similar regimes).
+          // find matching offset key (within a few days tolerance)
+          let ap = null;
+          for (const k of Object.keys(analogProjs.horizons)) {
+            if (Math.abs(parseInt(k) - off) <= 5) {
+              ap = analogProjs.horizons[k];
+              break;
+            }
+          }
+          if (ap && ap.scaled_median != null) {
+            price = ap.scaled_median;
+            const mult = ap.median_mult != null ? `×${ap.median_mult.toFixed(2)}` : '';
+            if (ap.scaled_p25 != null && ap.scaled_p75 != null) {
+              rangeText = `<div class="text-[9px] opacity-60 font-normal">${formatPrice(ap.scaled_p25)}–${formatPrice(ap.scaled_p75)} ${mult}</div>`;
+            } else if (mult) {
+              rangeText = `<div class="text-[9px] opacity-60 font-normal">${mult}</div>`;
+            }
+          }
+        } else if (row.isCurrent && isNow && pos.actual_price != null) {
+          price = pos.actual_price;
+          // no range for "now" - it's the observed price
+        } else {
+          const curve = getCurveForQuantile(curves, row.q);
+          price = getCurveValue(curve, h.days, 5);
+        }
+        const priceStr = price != null ? formatPrice(price) : '—';
+        return `<td class="px-4 py-2 text-right font-mono ${color} ${rowClass}">${priceStr}${rangeText}</td>`;
+      });
+      rowsHtml += `
+        <tr class="transition-colors">
+          <td class="px-4 py-2 font-medium ${color} ${rowClass}">${row.label}</td>
+          ${cells.join('')}
+        </tr>
+      `;
+    }
+
+    // Also surface key current facts in a small header row area (simple text update if elements exist)
+    const summaryEl = document.getElementById('current-quantile-summary');
+    if (summaryEl && pos.actual_price != null) {
+      const dev = pos.deviation_pct != null ? `${pos.deviation_pct >= 0 ? '+' : ''}${pos.deviation_pct}%` : '';
+      summaryEl.innerHTML = `Today's close <span class="font-mono text-sky-400">${formatPrice(pos.actual_price)}</span> vs model Q50 <span class="font-mono text-orange-400">${formatPrice(pos.model_q50)}</span> <span class="text-xs">(${dev})</span> — at <span class="font-semibold">${pos.quantile_label || 'Q??'}</span> (${(pos.quantile * 100).toFixed(0)}th percentile of historical power-law residuals).`;
+    }
+
+    tableBody.innerHTML = rowsHtml;
+  } catch (err) {
+    console.error(err);
+    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-red-400">Failed to load current quantile position</td></tr>`;
+  }
+}
+
 async function loadYearEndProjections() {
   const tableBody = document.getElementById('projections-table')!;
   const tableHead = document.getElementById('projections-table-head')!;
@@ -755,6 +866,64 @@ function computeBitcoinStats(points: Array<{ x: number; y: number }>) {
     dma200,
     wma200,
     mayerMultiple,
+  };
+}
+
+async function fetchHistoricalForCAGR() {
+  // Need ~10 years + buffer for 10y CAGR
+  const lookbackDays = Math.round(10 * 365.25) + 200;
+  const startDays = Math.max(1, Math.floor(currentLatestDays - lookbackDays));
+  const hist = await fetchHistorical(startDays, currentLatestDays, 1);
+  return hist.points || [];
+}
+
+function computeBitcoinCAGRs(points: Array<{ x: number; y: number }>) {
+  if (!points || points.length === 0) return null;
+  const currentPoint = points[points.length - 1];
+  const currentPrice = currentPoint.y;
+  const currentDay = currentPoint.x;
+
+  const periods = [
+    { years: 1, label: '1 Year' },
+    { years: 3, label: '3 Years' },
+    { years: 5, label: '5 Years' },
+    { years: 10, label: '10 Years' },
+  ];
+
+  const results: Array<{
+    label: string;
+    cagr: number | null;
+    startPrice: number | null;
+    startDay: number | null;
+    yearsActual: number | null;
+  }> = [];
+
+  for (const p of periods) {
+    const found = findPriceAtYearsAgo(points, currentDay, p.years);
+    if (found) {
+      const cagr = calculateCAGR(found.price, currentPrice, found.yearsActual);
+      results.push({
+        label: p.label,
+        cagr,
+        startPrice: found.price,
+        startDay: found.day,
+        yearsActual: found.yearsActual,
+      });
+    } else {
+      results.push({
+        label: p.label,
+        cagr: null,
+        startPrice: null,
+        startDay: null,
+        yearsActual: null,
+      });
+    }
+  }
+
+  return {
+    currentPrice,
+    currentDay,
+    results,
   };
 }
 
@@ -1046,6 +1215,51 @@ async function loadBitcoinStatsCard() {
   }
 }
 
+async function loadBitcoinCAGRCard() {
+  const tableBody = document.getElementById('bitcoin-cagr-table') as HTMLElement | null;
+  const nowDateEl = document.getElementById('bitcoin-cagr-now-date');
+  if (!tableBody) return;
+
+  tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-zinc-500">Loading Bitcoin CAGR...</td></tr>`;
+
+  try {
+    const points = await fetchHistoricalForCAGR();
+    const cagrData = computeBitcoinCAGRs(points);
+    if (!cagrData || cagrData.results.length === 0) {
+      tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-red-400">Not enough price history for CAGR</td></tr>`;
+      return;
+    }
+
+    if (nowDateEl && currentDataEndDate) {
+      nowDateEl.textContent = `(as of ${currentDataEndDate})`;
+    }
+
+    const fmtPrice = (p: number) => formatPrice(p);
+    const fmtCAGR = (c: number | null) => (c != null ? (c * 100).toFixed(1) + '%' : '—');
+
+    let rowsHtml = '';
+    for (const r of cagrData.results) {
+      const startDateStr = r.startDay != null
+        ? daysToDate(r.startDay).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+        : '—';
+      const cagrStr = fmtCAGR(r.cagr);
+      const startPriceStr = r.startPrice != null ? fmtPrice(r.startPrice) : '—';
+      rowsHtml += `
+        <tr>
+          <td class="px-4 py-2 text-zinc-300 font-medium">${r.label}</td>
+          <td class="px-4 py-2 text-right font-mono text-emerald-400">${cagrStr}</td>
+          <td class="px-4 py-2 text-right font-mono text-amber-400">${startPriceStr}</td>
+          <td class="px-4 py-2 text-right text-xs text-zinc-500">${startDateStr}</td>
+        </tr>
+      `;
+    }
+    tableBody.innerHTML = rowsHtml;
+  } catch (err) {
+    console.error('Failed to load bitcoin CAGR', err);
+    tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-red-400">Failed to load CAGR (backend /historical?)</td></tr>`;
+  }
+}
+
 async function loadGoldFlipCard() {
   // Setup the segmented controls for gold growth rate (affects chart gold line)
   const controls = document.getElementById('gold-growth-controls');
@@ -1143,8 +1357,14 @@ async function init() {
   loadYearEndProjections();
   loadQuantileHorizonTable();
 
+  // Current quantile position + short-term statistical outlook card (new)
+  loadCurrentQuantileCard();
+
   // Bitcoin stats at a glance (current MAs + Mayer)
   loadBitcoinStatsCard();
+
+  // Bitcoin CAGR (1y/3y/5y/10y historical)
+  loadBitcoinCAGRCard();
 
   // Gold market cap flip card at bottom
   loadGoldFlipCard();
