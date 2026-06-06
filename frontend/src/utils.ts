@@ -198,3 +198,53 @@ export function findPriceAtYearsAgo(
   }
   return null;
 }
+
+/**
+ * Compute the Mayer Multiple time series from daily close points.
+ * Mayer Multiple (Trace Mayer) = price / 200-day simple moving average.
+ * A full window of `maWindow` prior closes (inclusive) is required before emitting a value.
+ * Returns points {x: day, y: mm} only for days where the SMA is fully defined.
+ */
+export function computeMayerMultipleSeries(
+  points: Array<{ x: number; y: number }>,
+  maWindow: number = 200
+): Array<{ x: number; y: number }> {
+  if (!points || points.length < maWindow) return [];
+  const result: Array<{ x: number; y: number }> = [];
+  const closes = points.map(p => p.y);
+  for (let i = maWindow - 1; i < points.length; i++) {
+    let sum = 0;
+    for (let j = i - maWindow + 1; j <= i; j++) {
+      sum += closes[j];
+    }
+    const sma = sum / maWindow;
+    const mm = closes[i] / sma;
+    result.push({ x: points[i].x, y: mm });
+  }
+  return result;
+}
+
+/**
+ * Basic summary stats over a Mayer Multiple series (for current indicator context).
+ */
+export function computeMayerStats(mmSeries: Array<{ x: number; y: number }>) {
+  if (!mmSeries || mmSeries.length === 0) return null;
+  const values = mmSeries.map(p => p.y);
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return { mean, min, max, count: values.length };
+}
+
+/**
+ * Empirical percentile rank of target within values (0..1).
+ * Fraction of values strictly less than target.
+ * Useful to report "current MM is higher than X% of historical readings".
+ */
+export function percentileRank(values: number[], target: number): number {
+  if (!values || values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  let i = 0;
+  while (i < sorted.length && sorted[i] < target) i++;
+  return i / sorted.length;
+}

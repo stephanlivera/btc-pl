@@ -17,6 +17,9 @@ import {
   getEndOfYearDays,
   calculateCAGR,
   findPriceAtYearsAgo,
+  computeMayerMultipleSeries,
+  computeMayerStats,
+  percentileRank,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -48,6 +51,11 @@ let chart: any = null;
 let goldFlipChart: any = null;
 let selectedGoldCagr = 0.06;
 let longTermCurvesCache: any = null;
+
+// Mayer Multiple history card state
+let mayerChart: any = null;
+let mayerRange: 'all' | '5y' | '2y' = 'all';
+let fullMayerSeries: Array<{ x: number; y: number }> = [];
 
 // Data for custom tooltip lookups (updated on every render)
 let lastHistoricalPoints: Array<{x: number; y: number}> = [];
@@ -847,6 +855,25 @@ async function fetchRecentHistoricalForStats() {
   return hist.points || [];
 }
 
+async function fetchHistoricalForMayer() {
+  // Always fetch a long window so we can support "All" + recent filtered views.
+  // The 200-day SMA for points near the start of a recent view will still be accurate
+  // because we compute the full series first, then slice for display.
+  const startDays = 800; // ~2011
+  const hist = await fetchHistorical(startDays, currentLatestDays, 1);
+  return hist.points || [];
+}
+
+/** Returns the subset of the pre-computed full MM series for the selected view. */
+function getMayerVisibleSeries(range: 'all' | '5y' | '2y'): Array<{ x: number; y: number }> {
+  if (!fullMayerSeries.length) return [];
+  if (range === 'all') return fullMayerSeries;
+
+  const years = range === '5y' ? 5 : 2;
+  const cutoff = Math.round(currentLatestDays - years * 365.25);
+  return fullMayerSeries.filter(p => p.x >= cutoff);
+}
+
 function computeBitcoinStats(points: Array<{ x: number; y: number }>) {
   if (!points || points.length === 0) return null;
   const closes = points.map(p => p.y);
@@ -1299,6 +1326,236 @@ async function loadGoldFlipCard() {
   }
 }
 
+// --- Mayer Multiple History card (chart + current indicator) ---
+
+function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
+  const ctx = document.getElementById('mayer-multiple-chart') as HTMLCanvasElement | null;
+  if (!ctx) return;
+
+  if (mayerChart) {
+    mayerChart.destroy();
+    mayerChart = null;
+  }
+  if (!mmSeries || mmSeries.length === 0) return;
+
+  const firstX = mmSeries[0].x;
+  const lastX = mmSeries[mmSeries.length - 1].x;
+  const maxMM = Math.max(...mmSeries.map(p => p.y));
+  const ySuggestedMax = Math.max(3.5, Math.ceil(maxMM * 1.15));
+
+  const ref1 = [{ x: firstX, y: 1 }, { x: lastX, y: 1 }];
+  const ref08 = [{ x: firstX, y: 0.8 }, { x: lastX, y: 0.8 }];
+  const ref24 = [{ x: firstX, y: 2.4 }, { x: lastX, y: 2.4 }];
+
+  const datasets: any[] = [
+    {
+      label: 'Mayer Multiple',
+      data: mmSeries,
+      borderColor: '#f59e0b',
+      borderWidth: 1.75,
+      pointRadius: mmSeries.length > 900 ? 0 : 0.7,
+      pointHoverRadius: 3,
+      tension: 0.08,
+      order: 2,
+    },
+    {
+      label: '1.0 (200DMA)',
+      data: ref1,
+      borderColor: '#a1a1aa',
+      borderWidth: 1,
+      borderDash: [3, 3],
+      pointRadius: 0,
+      tension: 0,
+      order: 10,
+    },
+    {
+      label: '0.8 (deep value / oversold)',
+      data: ref08,
+      borderColor: '#22c55e',
+      borderWidth: 1,
+      borderDash: [4, 2],
+      pointRadius: 0,
+      tension: 0,
+      order: 11,
+    },
+    {
+      label: '2.4 (classic threshold)',
+      data: ref24,
+      borderColor: '#ef4444',
+      borderWidth: 1,
+      borderDash: [2, 2],
+      pointRadius: 0,
+      tension: 0,
+      order: 12,
+    },
+  ];
+
+  const desiredXTicks = getTimeTickValues(firstX, lastX);
+
+  mayerChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 220 },
+      scales: {
+        x: {
+          type: 'linear',
+          min: firstX,
+          max: lastX,
+          title: { display: true, text: 'Year', color: '#a1a1aa' },
+          grid: { color: '#27272a' },
+          ticks: {
+            color: '#71717a',
+            font: { size: 10 },
+            callback: function (value: number) {
+              const year = Math.round(2009 + (value as number) / 365.25);
+              return year.toString();
+            },
+          },
+          afterBuildTicks: (axis: any) => {
+            if (desiredXTicks && desiredXTicks.length > 0) {
+              axis.ticks = desiredXTicks.map((v: number) => ({ value: v }));
+            }
+          },
+        },
+        y: {
+          type: 'linear',
+          min: 0,
+          suggestedMax: ySuggestedMax,
+          title: { display: true, text: 'Mayer Multiple', color: '#a1a1aa' },
+          grid: { color: '#27272a' },
+          ticks: { color: '#71717a', font: { size: 10 }, stepSize: 0.5 },
+        },
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: { boxWidth: 10, font: { size: 10 }, padding: 8 },
+        },
+        tooltip: {
+          mode: 'nearest',
+          intersect: false,
+          backgroundColor: 'rgba(24, 24, 27, 0.95)',
+          borderColor: '#3f3f46',
+          borderWidth: 1,
+          callbacks: {
+            title: (tooltipItems: any[]) => {
+              if (!tooltipItems.length) return '';
+              const x = tooltipItems[0].raw.x;
+              const d = daysToDate(x);
+              return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            },
+            label: (item: any) => `Mayer Multiple: ${Number(item.raw.y).toFixed(2)}`,
+          },
+        },
+      },
+    },
+  });
+}
+
+/** Render the Mayer chart for the active mayerRange (uses the precomputed full series). */
+function renderMayerForCurrentRange() {
+  const visible = getMayerVisibleSeries(mayerRange);
+  renderMayerChart(visible);
+}
+
+/** Create the All / 5y / 2y segmented controls for the Mayer history chart. */
+function setupMayerRangeControls() {
+  const container = document.getElementById('mayer-range-controls');
+  if (!container) return;
+
+  const ranges: Array<{ key: 'all' | '5y' | '2y'; label: string }> = [
+    { key: 'all', label: 'All' },
+    { key: '5y', label: '5y' },
+    { key: '2y', label: '2y' },
+  ];
+
+  container.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">View:</span>`;
+
+  ranges.forEach(({ key, label }) => {
+    const btn = document.createElement('button');
+    const isActive = key === mayerRange;
+    btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${
+      isActive
+        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
+        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'
+    }`;
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      if (mayerRange === key) return;
+      mayerRange = key;
+
+      // Update button styles
+      container.querySelectorAll('button').forEach(b => {
+        b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+        b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+      });
+      btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+      btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+
+      renderMayerForCurrentRange();
+    });
+    container.appendChild(btn);
+  });
+}
+
+async function loadMayerMultipleCard() {
+  const valueEl = document.getElementById('mayer-current-value') as HTMLElement | null;
+  const contextEl = document.getElementById('mayer-current-context') as HTMLElement | null;
+  const dateEl = document.getElementById('mayer-now-date') as HTMLElement | null;
+  const canvas = document.getElementById('mayer-multiple-chart') as HTMLCanvasElement | null;
+  if (!valueEl || !contextEl || !canvas) return;
+
+  valueEl.textContent = '…';
+  contextEl.textContent = 'Loading Mayer Multiple history...';
+
+  try {
+    const points = await fetchHistoricalForMayer();
+    fullMayerSeries = computeMayerMultipleSeries(points, 200);
+    if (!fullMayerSeries || fullMayerSeries.length === 0) {
+      valueEl.textContent = '—';
+      contextEl.textContent = 'Not enough history for 200-day SMA';
+      return;
+    }
+
+    if (dateEl && currentDataEndDate) {
+      dateEl.textContent = `(as of ${currentDataEndDate})`;
+    }
+
+    // Current indicator + stats are always computed from the *full* history,
+    // independent of the chart time-range toggle.
+    const currentMM = fullMayerSeries[fullMayerSeries.length - 1].y;
+    valueEl.textContent = currentMM.toFixed(2);
+
+    const stats = computeMayerStats(fullMayerSeries);
+    const vals = fullMayerSeries.map(p => p.y);
+    const rank = percentileRank(vals, currentMM);
+    const pct = Math.round(rank * 100);
+    const meanStr = stats ? stats.mean.toFixed(2) : '—';
+
+    let zone = '';
+    if (currentMM < 0.8) zone = ' • Deep value / oversold';
+    else if (currentMM < 1.0) zone = ' • Below 200DMA';
+    else if (currentMM < 2.4) zone = ' • Within historical range';
+    else zone = ' • Elevated (above classic 2.4 threshold)';
+
+    contextEl.textContent = `Historical avg ≈ ${meanStr} • Higher than ${pct}% of readings${zone}`;
+
+    // Setup (or refresh) the All / 5y / 2y toggle buttons
+    setupMayerRangeControls();
+
+    // Render the chart for the currently selected range (slices fullMayerSeries)
+    renderMayerForCurrentRange();
+  } catch (err) {
+    console.error('Failed to load Mayer Multiple card', err);
+    valueEl.textContent = '—';
+    contextEl.textContent = 'Failed to load (is backend running?)';
+  }
+}
+
 // --- Event Listeners ---
 
 function setupControls() {
@@ -1362,6 +1619,9 @@ async function init() {
 
   // Bitcoin stats at a glance (current MAs + Mayer)
   loadBitcoinStatsCard();
+
+  // Mayer Multiple full-history chart + current indicator (new)
+  loadMayerMultipleCard();
 
   // Bitcoin CAGR (1y/3y/5y/10y historical)
   loadBitcoinCAGRCard();

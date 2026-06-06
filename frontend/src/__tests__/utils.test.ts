@@ -11,6 +11,9 @@ import {
   ANALYST_QUANTILES,
   calculateCAGR,
   findPriceAtYearsAgo,
+  computeMayerMultipleSeries,
+  computeMayerStats,
+  percentileRank,
 } from '../utils';
 
 describe('formatPrice', () => {
@@ -156,5 +159,66 @@ describe('findPriceAtYearsAgo', () => {
   it('returns null if no point within tolerance', () => {
     const res = findPriceAtYearsAgo(points, 6359, 10);
     expect(res).toBeNull();
+  });
+});
+
+describe('computeMayerMultipleSeries', () => {
+  it('returns empty for fewer points than window', () => {
+    const pts = Array.from({ length: 50 }, (_, i) => ({ x: 1000 + i, y: 100 + i }));
+    expect(computeMayerMultipleSeries(pts, 200)).toEqual([]);
+  });
+
+  it('produces correct number of points and first MM uses exact window', () => {
+    // Flat price series => MM should be exactly 1.0 after window
+    const n = 250;
+    const pts = Array.from({ length: n }, (_, i) => ({ x: 1000 + i, y: 100 }));
+    const mm = computeMayerMultipleSeries(pts, 200);
+    expect(mm.length).toBe(n - 200 + 1); // indices 199..249 => 51 points
+    expect(mm[0].y).toBeCloseTo(1.0, 6);
+    expect(mm[mm.length - 1].y).toBeCloseTo(1.0, 6);
+    // x values preserved for the valid range
+    expect(mm[0].x).toBe(1000 + 199);
+  });
+
+  it('computes varying MM for a ramp series', () => {
+    const pts = [
+      ...Array.from({ length: 200 }, (_, i) => ({ x: 1000 + i, y: 100 + i * 0.1 })),
+      { x: 1200, y: 130 }, // extra point => total 201 pts
+    ];
+    const mm = computeMayerMultipleSeries(pts, 200);
+    // 201 points, window 200 => 2 valid MM values (i=199 and i=200)
+    expect(mm.length).toBe(2);
+    // Rough sanity on values (not exactly 1.0 because of the ramp)
+    expect(mm[0].y).not.toBeCloseTo(1.0, 2);
+    expect(mm[0].y).toBeGreaterThan(0);
+    expect(mm[1].y).toBeGreaterThan(0);
+  });
+});
+
+describe('computeMayerStats + percentileRank', () => {
+  it('returns null for empty series', () => {
+    expect(computeMayerStats([])).toBeNull();
+  });
+
+  it('computes mean/min/max/count', () => {
+    const series = [
+      { x: 1, y: 0.5 },
+      { x: 2, y: 1.0 },
+      { x: 3, y: 1.5 },
+    ];
+    const s = computeMayerStats(series);
+    expect(s).not.toBeNull();
+    expect(s!.mean).toBeCloseTo(1.0);
+    expect(s!.min).toBe(0.5);
+    expect(s!.max).toBe(1.5);
+    expect(s!.count).toBe(3);
+  });
+
+  it('percentileRank gives sensible fractions', () => {
+    const vals = [0.5, 1.0, 1.5, 2.0, 2.5];
+    expect(percentileRank(vals, 0.4)).toBeCloseTo(0);
+    expect(percentileRank(vals, 1.0)).toBeCloseTo(1 / 5); // 0.2 (strictly less)
+    expect(percentileRank(vals, 2.5)).toBeCloseTo(4 / 5);
+    expect(percentileRank(vals, 3.0)).toBeCloseTo(1);
   });
 });

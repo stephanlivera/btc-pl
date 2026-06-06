@@ -125,6 +125,7 @@ The project root now contains a ready-to-serve static site:
 
 - `index.html`
 - `assets/` (bundled application code)
+- `favicon.svg` (Bitcoin symbol icon)
 
 **For simple static hosting** (Netlify, Vercel, GitHub Pages, Cloudflare Pages, etc.):
 - Deploy the entire project root (or just `index.html` + `assets/` + any other static files you want).
@@ -140,6 +141,7 @@ cd frontend
 npm run build
 cp dist/index.html ..
 cp dist/assets/* ../assets/
+cp dist/favicon.svg ..
 ```
 
 The legacy single-file version is archived in `archive/old-single-file/`.
