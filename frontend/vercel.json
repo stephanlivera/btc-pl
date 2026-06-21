@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://btc-pl-api.onrender.com/:path*"
+      "destination": "https://btc-pl.onrender.com/:path*"
     }
   ]
 }

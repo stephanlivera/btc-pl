@@ -1,8 +1,8 @@
 # Render Blueprint — deploy the FastAPI backend (free tier).
-# Dashboard: New → Blueprint → connect this repo, or create a Web Service manually.
+# IMPORTANT: Root Directory must be the repo root (blank), NOT backend/.
 services:
   - type: web
-    name: btc-pl-api
+    name: btc-pl
     runtime: python
     plan: free
     buildCommand: pip install -r backend/requirements.txt
@@ -11,3 +11,5 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.0"
+      # Leave unset to use repo-root btc_daily.csv / assets_daily.csv.
+      # Do NOT set BTC_DAILY_CSV_PATH to "." or "" — that breaks loading.

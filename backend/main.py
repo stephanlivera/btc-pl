@@ -27,21 +27,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configurable data path (useful for Docker / different environments)
-DEFAULT_DATA_PATH = Path(__file__).parent.parent / "btc_daily.csv"
-DATA_PATH = Path(os.getenv("BTC_DAILY_CSV_PATH", DEFAULT_DATA_PATH))
+# Configurable data paths (Docker / Render / Vercel). Repo root = parent of backend/.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATA_PATH = PROJECT_ROOT / "btc_daily.csv"
+DEFAULT_ASSETS_PATH = PROJECT_ROOT / "assets_daily.csv"
+
+
+def _resolve_csv_path(env_var: str, default: Path) -> Path:
+    """Resolve a CSV path from env or default. Treat empty env as unset."""
+    raw = (os.getenv(env_var) or "").strip()
+    if not raw:
+        return default
+    path = Path(raw)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+DATA_PATH = _resolve_csv_path("BTC_DAILY_CSV_PATH", DEFAULT_DATA_PATH)
+ASSETS_PATH = _resolve_csv_path("ASSETS_DAILY_CSV_PATH", DEFAULT_ASSETS_PATH)
 
 model = QuantilePowerLawModel(quantiles=[0.10, 0.25, 0.50, 0.75, 0.90])
-
-DEFAULT_ASSETS_PATH = Path(__file__).parent.parent / "assets_daily.csv"
-ASSETS_PATH = Path(os.getenv("ASSETS_DAILY_CSV_PATH", DEFAULT_ASSETS_PATH))
 correlation_model = AssetCorrelationModel(assets_path=ASSETS_PATH, btc_path=DATA_PATH)
 
 
 @app.on_event("startup")
 def load_and_fit_model():
     """Load data and fit models on startup."""
-    print(f"Loading data from: {DATA_PATH}")
+    print(f"PROJECT_ROOT: {PROJECT_ROOT}")
+    print(f"Loading data from: {DATA_PATH} (exists={DATA_PATH.exists()})")
     try:
         df = model.load_data(DATA_PATH)
         model.fit(df)
