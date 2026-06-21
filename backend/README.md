@@ -94,7 +94,7 @@ PYTHONPATH=. uvicorn backend.main:app --reload --port 8000
 From the project root:
 
 ```bash
-python scripts/update_btc_daily.py
+python scripts/update_data.py
 ```
 
 This appends the latest daily closes from CoinGecko to `btc_daily.csv`.

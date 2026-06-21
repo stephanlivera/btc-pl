@@ -23,8 +23,8 @@ def _rewrite_argv(argv: list[str], from_flag: str, to_flag: str) -> list[str]:
 if __name__ == "__main__":
     target = Path(__file__).resolve().parent / "update_data.py"
     print(
-        "Note: update_btc_daily.py is deprecated. Use: python scripts/update_data.py",
+        "Note: update_asset_data.py is deprecated. Use: python scripts/update_data.py",
         file=sys.stderr,
     )
-    forwarded = _rewrite_argv(sys.argv[1:], "--days", "--btc-days")
+    forwarded = _rewrite_argv(sys.argv[1:], "--days", "--asset-days")
     raise SystemExit(subprocess.call([sys.executable, str(target), *forwarded]))

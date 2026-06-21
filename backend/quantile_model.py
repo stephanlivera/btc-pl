@@ -27,7 +27,18 @@ MIN_DECAY_FACTOR = 0.30    # Never compress bands tighter than this fraction of 
 class QuantilePowerLawModel:
     """
     Holds fitted quantile regression models for the power law:
-    log10(price) = a + b * log10(days_since_genesis)
+        log10(price) = a + b * log10(days_since_genesis)
+    where days_since_genesis = (date - 2009-01-03).days.
+
+    The central (Q50) fit is always used as the base for long-term projections
+    when parallel=True (the recommended mode). Other quantiles are expressed
+    as stable *residual offsets* around that central fit (computed once at
+    fit time from historical log-residuals vs Q50). This produces parallel,
+    non-crossing bands.
+
+    For future points only, a simple time-based decay is applied to the
+    *offsets* (never to the Q50 central line itself). See DECAY_RATE and
+    MIN_DECAY_FACTOR.
     """
 
     def __init__(self, quantiles: List[float] | None = None):
@@ -75,6 +86,9 @@ class QuantilePowerLawModel:
 
         # Compute residual quantiles around the central (Q50) fit.
         # These are used to create stable parallel bands for long-term projections.
+        # Note: the Q50 entry in residual_quantiles will be extremely close to 0
+        # (median of residuals around the median fit). This is why Q50 projections
+        # are effectively the pure central power-law line.
         if 0.5 in self.results:
             central_res = self.results[0.5]
             central_pred = central_res.predict(X)
@@ -126,17 +140,27 @@ class QuantilePowerLawModel:
         """
         Generate full price curves for the requested quantiles.
 
-        When parallel=True (strongly recommended for projections):
-            - We use the central (Q50) fit as the base.
-            - We add residual offsets (computed from historical deviation from the central trend).
-            - Simple time-based decay (Option 1) is applied to the offsets for all future days
-              beyond the data reference point. This compresses band width over long horizons
-              (Q75/Q50 ratio shrinks toward ~1.3-1.45x by 2030-35 instead of staying ~1.8x).
-            - This creates stable, parallel, and credible long-term bands.
+        When parallel=True (strongly recommended for projections, and what the
+        year-end projections table and most UI use):
+            - Base is always the central Q50 fit: log10(P) = a50 + b50 * log10(d).
+            - For any q we add a constant (in log space) offset taken from the
+              empirical quantile of historical residuals around that Q50 fit.
+              This guarantees parallel, non-crossing bands by construction.
+            - Q50 itself uses offset ≈ 0 (the median residual). The central line
+              is *never* decayed.
+            - For q != 0.5 and future days (d > ref_days), a time-based decay is
+              applied *only to the offset*:
+                  years_ahead = (d - ref_days) / 365.25
+                  decay = max(MIN_DECAY_FACTOR, 1 / (1 + DECAY_RATE * years_ahead))
+                  offset = base_offset * decay
+              This makes long-term corridors narrower (~1.3-1.45x by early 2030s),
+              matching how many power-law analysts present "maturing" bands.
+            - Result for a year-end target day: the exact Q50 power-law
+              extrapolation (plus decayed band offsets if requested).
 
         When parallel=False:
-            - Uses each quantile's own independently fitted slope + intercept (raw quantile regression).
-            - Can produce crossing or unrealistic bands when extrapolated far into the future.
+            - Uses each quantile's own independently fitted slope + intercept.
+            - Can produce crossing or unrealistic bands far into the future.
         """
         if not self.results:
             raise RuntimeError("Model has not been fitted yet.")
@@ -169,10 +193,14 @@ class QuantilePowerLawModel:
                     continue
 
                 if q == 0.5 or ref <= 0:
-                    # Central line or no ref: no decay
+                    # Q50 (central) or no reference day: use the raw residual offset (≈0 for median)
+                    # with *no* decay ever. The year-end Q50 projections are exactly this
+                    # central power-law line evaluated at the target day counts.
                     offsets = np.full_like(days, base_offset, dtype=float)
                 else:
-                    # Simple time-based decay (Option 1): only compress future bands
+                    # Simple time-based decay (Option 1) applied *only* to non-central bands
+                    # and only for future points. This is what narrows the displayed corridors
+                    # over 2030+ horizons while leaving the Q50 trend line untouched.
                     offsets = np.full_like(days, base_offset, dtype=float)
                     future_mask = days > ref
                     if np.any(future_mask):
@@ -212,6 +240,159 @@ class QuantilePowerLawModel:
                 "b": float(res.params["log_days"]),
             }
         return params
+
+    def _compute_central_diagnostics(self) -> dict:
+        """Compute key fit statistics for the central (Q50) power law on full data."""
+        if 0.5 not in self.results or self.df is None or self.df.empty:
+            return {}
+
+        central_res = self.results[0.5]
+        a = float(central_res.params["const"])
+        b = float(central_res.params["log_days"])
+        A = 10 ** a
+
+        log_days = self.df["log_days"].to_numpy(dtype=float)
+        log_close = self.df["log_close"].to_numpy(dtype=float)
+
+        # Pearson correlation on the log-log data (common companion to power-law fits)
+        corr = float(np.corrcoef(log_days, log_close)[0, 1])
+
+        # Familiar OLS R² on the exact same transformed data (widely cited for power laws)
+        X = sm.add_constant(log_days)
+        ols = sm.OLS(log_close, X).fit()
+        ols_r2 = float(ols.rsquared)
+
+        # Quantile regression pseudo-R² (if provided by statsmodels)
+        pr2 = getattr(central_res, "prsquared", None)
+        pr2 = float(pr2) if pr2 is not None else None
+
+        # 95% confidence interval for the exponent β (log_days coefficient)
+        beta_ci = None
+        try:
+            ci_df = central_res.conf_int(alpha=0.05)
+            low = float(ci_df.loc["log_days", 0])
+            high = float(ci_df.loc["log_days", 1])
+            beta_ci = [round(low, 4), round(high, 4)]
+        except Exception:
+            pass
+
+        # Current deviation from model Q50 (reuse the same logic as get_current_position)
+        latest = self.df.iloc[-1]
+        central_log = a + b * float(latest["log_days"])
+        model_q50 = 10 ** central_log
+        actual = float(latest["Close"])
+        dev_pct = (actual / model_q50 - 1.0) * 100.0 if model_q50 > 0 else 0.0
+        dev_abs = actual - model_q50
+
+        # Human friendly equation (A in scientific notation-ish)
+        if A > 0:
+            exp = int(np.floor(np.log10(A)))
+            mant = A / (10 ** exp)
+            eq = f"P(t) ≈ {mant:.2f}×10^{exp} × t^{b:.3f}"
+        else:
+            eq = f"P(t) ≈ 10^{a:.3f} × t^{b:.3f}"
+
+        return {
+            "a": round(a, 6),
+            "b": round(b, 4),
+            "A": A,
+            "beta": round(b, 4),
+            "beta_ci": beta_ci,
+            "ols_r2": round(ols_r2, 4),
+            "quantile_prsquared": round(pr2, 4) if pr2 is not None else None,
+            "correlation": round(corr, 4),
+            "equation": eq,
+            "current_deviation_pct": round(dev_pct, 2),
+            "current_deviation_abs": round(dev_abs, 2),
+            "n_points": int(len(self.df)),
+        }
+
+    def get_statistical_summary(self) -> dict:
+        """Rich diagnostics for the central power-law fit + parameter stability over windows.
+
+        Includes:
+        - OLS R² and Pearson correlation on log-log scale
+        - Exponent β with 95% CI (when available)
+        - Reconstructed equation P(t) ≈ A × t^β
+        - Current deviation from the Q50 model line
+        - β estimated on key trailing windows (full, 8y, 4y)
+        - A compact series of rolling 4y-window β values for a stability chart
+        """
+        if not self.results or self.df is None or self.df.empty:
+            raise RuntimeError("Model not fitted or no data")
+
+        fit = self._compute_central_diagnostics()
+
+        # --- Windowed betas (simple table for stability) ---
+        max_d = int(self.df["days"].max())
+        window_specs = [
+            ("Full history", None),
+            ("Last 8y", int(8 * 365.25)),
+            ("Last 4y", int(4 * 365.25)),
+        ]
+        windows: list[dict] = []
+        for label, lookback in window_specs:
+            if lookback is None:
+                sub = self.df
+            else:
+                cutoff = max_d - lookback
+                sub = self.df[self.df["days"] >= cutoff]
+            if len(sub) < 50:
+                continue
+            X = sm.add_constant(sub["log_days"])
+            y = sub["log_close"]
+            try:
+                b = float(QuantReg(y, X).fit(q=0.5).params["log_days"])
+                windows.append({
+                    "label": label,
+                    "beta": round(b, 4),
+                    "n": len(sub),
+                    "period": f"{sub['Date'].min().date()} → {sub['Date'].max().date()}",
+                })
+            except Exception:
+                continue
+
+        # --- Rolling β series (trailing ~4y windows, sampled for a small chart) ---
+        rolling: list[dict] = []
+        lookback4y = int(4 * 365.25)
+        # Sample roughly every 365 days, but ensure we have enough points and cover recent history
+        step = 365
+        start_candidate = max(int(self.df["days"].iloc[0]) + lookback4y, 1500)
+        for end_d in range(start_candidate, max_d + 1, step):
+            sub = self.df[(self.df["days"] > end_d - lookback4y) & (self.df["days"] <= end_d)]
+            if len(sub) < 80:
+                continue
+            try:
+                X = sm.add_constant(sub["log_days"])
+                y = sub["log_close"]
+                b = float(QuantReg(y, X).fit(q=0.5).params["log_days"])
+                rolling.append({"x": int(end_d), "beta": round(b, 4)})
+            except Exception:
+                continue
+
+        # Ensure the very latest window is represented
+        latest_sub = self.df[self.df["days"] > max_d - lookback4y]
+        if len(latest_sub) >= 80:
+            try:
+                X = sm.add_constant(latest_sub["log_days"])
+                y = latest_sub["log_close"]
+                b = float(QuantReg(y, X).fit(q=0.5).params["log_days"])
+                if not rolling or rolling[-1]["x"] < max_d - 180:
+                    rolling.append({"x": max_d, "beta": round(b, 4)})
+            except Exception:
+                pass
+
+        return {
+            "fit": fit,
+            "stability": {
+                "windows": windows,
+                "rolling_beta_4y": rolling,
+            },
+            "meta": {
+                "ref_days": self.ref_days,
+                "data_end_date": str(self.data_end_date) if self.data_end_date else None,
+            },
+        }
 
     def get_historical_data(
         self, start_days: int, end_days: int, step: int = 1

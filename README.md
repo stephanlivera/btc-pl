@@ -11,6 +11,65 @@ Interactive visualization of Bitcoin's long-term power law trend using Giovanni 
 
 The old single-file `index.html` (root) is the legacy prototype. The current production experience lives in `frontend/` + `backend/`.
 
+## How the Q50 Power Law Trend and Year-End Projections Are Calculated
+
+The central trend (the "Q50" or median line you see in the chart and the middle column of the year-end table) is a power law of the form:
+
+    log10(price) = a + b * log10(days)
+
+where `days` = integer days since the Bitcoin genesis block (2009-01-03). The constants `a` (intercept) and `b` (slope) are obtained by fitting a quantile regression (QuantReg) at q=0.5 on the full historical daily closes in `btc_daily.csv`. The same functional form is used for the other quantiles during fitting, but projections normally use the **parallel residual band** method (see below).
+
+### Q50 at any day (including future year-ends)
+For the central line the predicted price on any day `d` (past or future) is simply:
+
+    P50(d) = 10 ** (a50 + b50 * log10(d))
+
+There is **no time-based decay applied to Q50**. The line you see stretching into 2030–2035 (and the numbers in the "Central (Q50)" column of the year-end projections table) are the direct extrapolation of the fitted central power law.
+
+### Parallel bands + decay (what `parallel=true` does)
+The UI and the year-end table request curves with `parallel=true` (the strongly recommended mode). In this mode:
+
+1. The backend fits the central Q50 as above.
+2. It computes the historical log-residuals of every data point around that central fit: `residual = log10(actual) - (a50 + b50*log10(days))`.
+3. For any requested quantile q it stores `base_offset[q] = quantile(residuals, q)`.
+4. For a requested day range it builds:
+   - `central_log = a50 + b50 * log10(days)`
+   - For q == 0.5: `offset ≈ 0` (no decay).
+   - For other q and days > the reference day (last day in the fitted CSV): apply a decay factor only to the offset:
+         years_ahead = (d - ref_days) / 365.25
+         decay = max(0.30, 1 / (1 + 0.12 * years_ahead))
+         offset = base_offset[q] * decay
+   - `log_price = central_log + offset`; `price = 10 ** log_price`
+
+This produces stable, non-crossing bands whose width narrows in the far future while the central Q50 trend line continues its pure power-law path.
+
+### How the year-end projections table is populated
+- `getNextTenYearEnds(latestDays)` (frontend) calculates the exact day counts for the next 10 calendar Dec-31 dates (starting from the current data year, or the next year if it is late December).
+- The table calls the backend `/curves?start_days=...&end_days=...&step=1&quantiles=...&parallel=true`.
+- For each target year-end day it picks the closest point on the returned curve for that quantile (step=1 makes the match exact or off-by at most one day).
+- Which columns appear (Q10/Q25/Q50/Q75/Q90) is determined dynamically by the band toggles on the main chart, so the table always matches what you are looking at.
+
+You can inspect the live fitted coefficients and decay settings at the `/parameters` endpoint (or via the health + curves responses). The sense checker (`backend/sense_check.py`) and the test suite enforce that Q50 stays between the bands and that decay is applied only to future non-central points.
+
+## Alignment with Giovanni Santostasi's Power Law Model
+
+This project is explicitly built on the empirical power-law framework popularized by Giovanni Santostasi (log price vs. log time since the 2009 genesis block). The functional form used here is identical to the classic Santostasi-style regression:
+
+    Price ≈ 10^a * days^b     (or equivalently log10(Price) = a + b * log10(days))
+
+Early public presentations and implementations that trace directly to Santostasi commonly cite a slope `b` in the ~5.7–5.9 range and a large negative intercept on the order of -17 (i.e. a prefactor near 10^{-17}). The legacy single-file prototype in this repo used the explicit approximation `P ≈ 10^{-17} × days^{5.82}` and attributed it to Santostasi's empirical fit.
+
+The current backend does not hard-code those numbers. On every refit it performs a fresh quantile regression on the live `btc_daily.csv`. As of data through mid-2026 the fitted central Q50 coefficients are approximately a ≈ -17.28, b ≈ 5.88 — extremely close to the historical 5.82 / 10^{-17} values used in the earlier demo. The Q50 year-end projections are therefore the data-driven continuation of the same power-law family Santostasi introduced.
+
+Differences from some classic corridor charts:
+- We use quantile regression (median-focused, robust) rather than ordinary least squares.
+- Bands are empirical residual quantiles around the central fit (parallel by construction) rather than fixed multiplicative factors.
+- We apply an explicit, simple future-only time-based decay to the band offsets. This was added specifically so that the displayed Q25–Q75 corridor narrows toward the ~1.3–1.45× ratios that many analysts (including Santostasi-inspired work) show for the 2030s, rather than maintaining a constant historical width forever.
+
+In short: the **central Q50 trend line and its year-end projections are a faithful, continuously re-fitted realization of the Santostasi power-law model**. The surrounding machinery (residual bands + decay) is a pragmatic, stable, and transparent engineering layer on top that makes long-term visualizations match how the community commonly presents maturing power-law corridors.
+
+For the original spirit and derivations, see Santostasi's writings and the many public "Bitcoin Power Law" charts and TradingView scripts that cite his work (typical slopes 5.7–5.9, genesis-timed log-log regression). The sense checks and tests in this repo exist to keep the implementation honest to the core invariants of that model.
+
 ## Architecture
 
 - **Backend** (`backend/`): FastAPI + statsmodels.QuantReg. Serves dense pre-computed curves. No math is done in the browser.
@@ -64,49 +123,51 @@ The Vite dev server automatically proxies `/api/*` → `http://localhost:8000/*`
 
 - **Normal restart**: Press `Ctrl+C` in the backend terminal, then run `python backend/run.py` again.
 - **After code changes**: Usually unnecessary — the `--reload` flag in `run.py` picks up most Python file changes automatically.
-- **After updating price data**: The updater script (`update_btc_daily.py`) now automatically triggers a refit on the backend by default. In most cases you only need:
+- **After updating price data**: The unified updater (`update_data.py`) automatically refreshes Bitcoin + asset CSVs, triggers a backend refit, reloads correlations, and runs the sense checker. In most cases you only need:
 
   ```bash
-  python scripts/update_btc_daily.py
+  python scripts/update_data.py
   ```
 
-  Then refresh the frontend. The curves, time ranges, projections, and data freshness display will update automatically.
+  Then refresh the frontend. The curves, time ranges, projections, correlations, and data freshness display will update automatically.
 
 ## Updating the Price Data
 
 ```bash
-python scripts/update_btc_daily.py
+python scripts/update_data.py
 ```
 
-The updater fetches the last 180 days by default (reliable on CoinGecko's free tier) and only appends new dates. It also automatically cleans any duplicate dates.
+The updater:
+1. Fetches recent Bitcoin daily closes from CoinGecko (default: last 180 days) and appends only new dates to `btc_daily.csv`
+2. Fetches ETF proxies for stocks/gold/bonds/property from Yahoo Finance and rebuilds `assets_daily.csv` aligned to BTC dates
+3. Triggers backend `/refit` and `/correlations/reload` (unless disabled)
+4. Runs the model **sense checker** (unless disabled)
 
 Optional flags:
 - Use a free CoinGecko API key for more reliability:
   ```bash
-  COINGECKO_API_KEY=your_demo_key python scripts/update_btc_daily.py
+  COINGECKO_API_KEY=your_demo_key python scripts/update_data.py
   ```
-- Override the lookback window:
+- Override lookback windows:
   ```bash
-  python scripts/update_btc_daily.py --days 90
+  python scripts/update_data.py --btc-days 90 --asset-days 3650
   ```
-- Skip automatic refit:
+- Skip automatic backend refresh:
   ```bash
-  python scripts/update_btc_daily.py --no-refit
+  python scripts/update_data.py --no-refit
   ```
 - Skip the automatic model sense checker:
   ```bash
-  python scripts/update_btc_daily.py --no-sense-check
+  python scripts/update_data.py --no-sense-check
   ```
 - Point to a non-default backend:
   ```bash
-  BACKEND_URL=http://your-server:8000 python scripts/update_btc_daily.py
+  BACKEND_URL=http://your-server:8000 python scripts/update_data.py
   ```
 
-After the script finishes, it will **automatically**:
-1. Trigger a model refit on the backend (unless `--no-refit`).
-2. Run the model **sense checker** (unless `--no-sense-check`).
+Legacy wrappers `update_btc_daily.py` and `update_asset_data.py` still forward to `update_data.py` but are deprecated.
 
-This is now the recommended and safest way to update data.
+This is the recommended and safest way to update data.
 
 Example success output:
 
@@ -166,12 +227,12 @@ This project has a strong emphasis on safety around the statistical model and da
 Just run the updater:
 
 ```bash
-python scripts/update_btc_daily.py
+python scripts/update_data.py
 ```
 
 It will automatically:
-1. Append new price data
-2. Trigger a backend model refit
+1. Append new Bitcoin price data and refresh asset-class ETF data
+2. Trigger a backend model refit and correlation reload
 3. Run the **sense checker**
 
 This is the safest and simplest way to keep everything healthy.
@@ -261,7 +322,10 @@ simplepowerlaw/
 │   ├── package.json
 │   └── vite.config.ts
 ├── scripts/
-│   └── update_btc_daily.py       # Data updater (now auto-runs sense checker)
+│   ├── update_data.py            # Unified data updater (BTC + assets + refit + sense check)
+│   ├── data_updater.py           # Shared update logic (imported by tests)
+│   ├── update_btc_daily.py       # Deprecated wrapper → update_data.py
+│   └── update_asset_data.py      # Deprecated wrapper → update_data.py
 ├── run-tests.sh                  # Root convenience script for all tests
 ├── archive/
 │   └── old-single-file/          # Legacy single-file version (for reference)

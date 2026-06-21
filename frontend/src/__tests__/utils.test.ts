@@ -11,6 +11,12 @@ import {
   ANALYST_QUANTILES,
   calculateCAGR,
   findPriceAtYearsAgo,
+  formatCorrelation,
+  correlationColorClass,
+  correlationWindowLabel,
+  filterCorrelationSeriesByDate,
+  dateToDays,
+  daysToDate,
   computeMayerMultipleSeries,
   computeMayerStats,
   percentileRank,
@@ -192,6 +198,42 @@ describe('computeMayerMultipleSeries', () => {
     expect(mm[0].y).not.toBeCloseTo(1.0, 2);
     expect(mm[0].y).toBeGreaterThan(0);
     expect(mm[1].y).toBeGreaterThan(0);
+  });
+});
+
+describe('correlation helpers', () => {
+  it('formats correlation with sign', () => {
+    expect(formatCorrelation(0.42)).toBe('+0.42');
+    expect(formatCorrelation(-0.15)).toBe('-0.15');
+    expect(formatCorrelation(null)).toBe('—');
+  });
+
+  it('maps correlation strength to color classes', () => {
+    expect(correlationColorClass(0.6)).toContain('emerald');
+    expect(correlationColorClass(0.3)).toContain('sky');
+    expect(correlationColorClass(0)).toContain('zinc');
+    expect(correlationColorClass(-0.6)).toContain('red');
+  });
+
+  it('labels windows', () => {
+    expect(correlationWindowLabel(90)).toBe('90d');
+    expect(correlationWindowLabel(365)).toBe('1y');
+  });
+
+  it('filters series by start date', () => {
+    const series = [
+      { date: '2024-01-01', correlation: 0.1 },
+      { date: '2024-06-01', correlation: 0.2 },
+      { date: '2025-01-01', correlation: 0.3 },
+    ];
+    const filtered = filterCorrelationSeriesByDate(series, '2024-06-01');
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0].date).toBe('2024-06-01');
+  });
+
+  it('round-trips date strings through day counts', () => {
+    const days = dateToDays('2024-06-01');
+    expect(daysToDate(days).toISOString().slice(0, 10)).toBe('2024-06-01');
   });
 });
 

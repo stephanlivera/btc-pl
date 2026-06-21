@@ -13,6 +13,7 @@ from typing import List
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from .asset_correlations import AssetCorrelationModel
 from .quantile_model import QuantilePowerLawModel
 
 app = FastAPI(title="Bitcoin Power Law Quantile Curves")
@@ -31,6 +32,10 @@ DEFAULT_DATA_PATH = Path(__file__).parent.parent / "btc_daily.csv"
 DATA_PATH = Path(os.getenv("BTC_DAILY_CSV_PATH", DEFAULT_DATA_PATH))
 
 model = QuantilePowerLawModel(quantiles=[0.10, 0.25, 0.50, 0.75, 0.90])
+
+DEFAULT_ASSETS_PATH = Path(__file__).parent.parent / "assets_daily.csv"
+ASSETS_PATH = Path(os.getenv("ASSETS_DAILY_CSV_PATH", DEFAULT_ASSETS_PATH))
+correlation_model = AssetCorrelationModel(assets_path=ASSETS_PATH, btc_path=DATA_PATH)
 
 
 @app.on_event("startup")
@@ -133,6 +138,23 @@ def get_parameters():
     return response
 
 
+@app.get("/stats")
+def get_model_stats():
+    """Statistical summary of the central (Q50) power law fit.
+
+    Returns R² (OLS on log-log), Pearson correlation, exponent β with 95% CI,
+    the reconstructed equation, current deviation from model, plus windowed
+    and rolling estimates of β for a stability panel.
+    """
+    if not model.results:
+        raise HTTPException(status_code=503, detail="Model not fitted yet.")
+    try:
+        summary = model.get_statistical_summary()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return summary
+
+
 @app.get("/health")
 def health():
     return {
@@ -188,6 +210,40 @@ def get_current():
         "analog_projections": analog_projections,
         "note": "quantile (0-1) is the empirical CDF rank of the latest log-residual vs full historical _log_residuals around Q50 central (parallel bands + decay). 'analog_projections' provides historical *multipliers* (gains) from k-nearest similar-residual regimes; scaled_* fields apply those multipliers to today's actual price.",
     }
+
+
+@app.get("/correlations")
+def get_correlations(
+    window: int = Query(90, description="Rolling window in trading days for the chart series"),
+    step: int = Query(7, description="Downsample step for chart points (1 = daily)"),
+):
+    """
+    Rolling log-return correlations between Bitcoin and major asset classes.
+
+    Returns a multi-window snapshot table plus a time series for the requested window.
+    """
+    try:
+        return correlation_model.get_summary(window=window, step=step)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/correlations/reload")
+def reload_correlations():
+    """Reload asset CSV data (call after update_data.py)."""
+    try:
+        correlation_model.reload()
+        return {
+            "status": "success",
+            "data_end_date": correlation_model.data_end_date,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/historical")

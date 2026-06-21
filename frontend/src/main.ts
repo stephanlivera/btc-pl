@@ -20,6 +20,11 @@ import {
   computeMayerMultipleSeries,
   computeMayerStats,
   percentileRank,
+  formatCorrelation,
+  correlationColorClass,
+  correlationWindowLabel,
+  filterCorrelationSeriesByDate,
+  dateToDays,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -56,6 +61,19 @@ let longTermCurvesCache: any = null;
 let mayerChart: any = null;
 let mayerRange: 'all' | '5y' | '2y' = 'all';
 let fullMayerSeries: Array<{ x: number; y: number }> = [];
+
+// Asset correlations card state
+const CORR_WINDOWS = [30, 90, 180, 365] as const;
+const CORR_ASSET_COLORS: Record<string, string> = {
+  stocks: '#3b82f6',
+  gold: '#eab308',
+  bonds: '#22c55e',
+  property: '#a855f7',
+};
+let corrChart: any = null;
+let corrWindow = 90;
+let corrRange: 'all' | '5y' | '3y' | '1y' = '3y';
+let corrDataCache: any = null;
 
 // Data for custom tooltip lookups (updated on every render)
 let lastHistoricalPoints: Array<{x: number; y: number}> = [];
@@ -137,7 +155,7 @@ function getRequestedQuantiles(): number[] {
 
 /**
  * Fetches the actual latest day from the backend (/health) so the UI
- * automatically stays in sync after running update_btc_daily.py + /refit.
+ * automatically stays in sync after running update_data.py.
  * Falls back to the previous hardcoded value if the backend is unreachable.
  */
 async function fetchLatestDataDay(): Promise<number> {
@@ -805,11 +823,18 @@ async function loadYearEndProjections() {
   quantilesToFetch.sort((a, b) => a - b);
 
   try {
+    // Always request parallel=true (residual bands + decay on future offsets only).
+    // The backend guarantees the Q50 series is the pure central power-law line
+    // (no decay applied to the median). step=1 gives a dense sampling so the
+    // closest-point lookup below will be exact or off-by-1 day at worst.
     const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
 
     let rowsHtml = '';
 
     for (const { year, days: targetDay } of yearEnds) {
+      // Pick the curve point whose day is closest to the exact Dec-31 target.
+      // Because we asked for step=1 over a window containing the target, this
+      // yields the Q50 (and band) value(s) at/very near that future year-end.
       const findClosest = (curve: any[]) => {
         if (!curve || curve.length === 0) return null;
         return curve.reduce((prev, curr) =>
@@ -1287,6 +1312,144 @@ async function loadBitcoinCAGRCard() {
   }
 }
 
+async function loadStatisticalSummaryPanel() {
+  const card = document.getElementById('statistical-summary-card');
+  if (!card) return;
+
+  const metrics = {
+    r2: document.getElementById('stat-ols-r2'),
+    corr: document.getElementById('stat-corr'),
+    beta: document.getElementById('stat-beta'),
+    betaCi: document.getElementById('stat-beta-ci'),
+    equation: document.getElementById('stat-equation'),
+    dev: document.getElementById('stat-deviation'),
+    devAbs: document.getElementById('stat-deviation-abs'),
+  };
+  const tableBody = document.getElementById('stat-stability-table') as HTMLElement | null;
+  const canvas = document.getElementById('beta-stability-chart') as HTMLCanvasElement | null;
+
+  if (tableBody) tableBody.innerHTML = `<tr><td colspan="4" class="px-3 py-2 text-zinc-500 text-xs">Loading fit diagnostics...</td></tr>`;
+
+  let data: any = null;
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (e) {
+    console.error('Failed to load /stats', e);
+    if (tableBody) tableBody.innerHTML = `<tr><td colspan="4" class="px-3 py-2 text-red-400 text-xs">Failed to load statistical summary (is backend running?)</td></tr>`;
+    return;
+  }
+
+  const fit = data.fit || {};
+  const stability = data.stability || {};
+
+  // Prominent metrics
+  if (metrics.r2) metrics.r2.textContent = fit.ols_r2 != null ? fit.ols_r2.toFixed(4) : '—';
+  if (metrics.corr) metrics.corr.textContent = fit.correlation != null ? fit.correlation.toFixed(4) : '—';
+  if (metrics.beta) metrics.beta.textContent = fit.beta != null ? fit.beta.toFixed(3) : '—';
+  if (metrics.betaCi) {
+    if (fit.beta_ci && fit.beta_ci.length === 2) {
+      metrics.betaCi.textContent = `[${fit.beta_ci[0].toFixed(3)}, ${fit.beta_ci[1].toFixed(3)}]`;
+    } else {
+      metrics.betaCi.textContent = '';
+    }
+  }
+  if (metrics.equation) metrics.equation.textContent = fit.equation || '—';
+
+  const devSign = (fit.current_deviation_pct ?? 0) >= 0 ? '+' : '';
+  if (metrics.dev) {
+    metrics.dev.textContent = fit.current_deviation_pct != null
+      ? `${devSign}${fit.current_deviation_pct.toFixed(1)}%`
+      : '—';
+    metrics.dev.className = `text-2xl font-semibold font-mono tabular-nums mt-0.5 ${(fit.current_deviation_pct ?? 0) >= 0 ? 'text-sky-400' : 'text-emerald-400'}`;
+  }
+  if (metrics.devAbs) {
+    const absStr = fit.current_deviation_abs != null ? `$${Math.abs(fit.current_deviation_abs).toLocaleString()} ${fit.current_deviation_abs >= 0 ? 'above' : 'below'} Q50` : '';
+    metrics.devAbs.textContent = absStr;
+  }
+
+  // Stability table
+  if (tableBody) {
+    const rows = (stability.windows || []).map((w: any) => `
+      <tr>
+        <td class="px-3 py-1.5 font-medium">${w.label}</td>
+        <td class="px-3 py-1.5 text-right font-mono text-orange-400">${w.beta.toFixed(3)}</td>
+        <td class="px-3 py-1.5 text-right font-mono text-zinc-400">${w.n}</td>
+        <td class="px-3 py-1.5 text-xs text-zinc-500">${w.period || ''}</td>
+      </tr>
+    `).join('');
+    tableBody.innerHTML = rows || `<tr><td colspan="4" class="px-3 py-2 text-zinc-500 text-xs">No stability data</td></tr>`;
+  }
+
+  // Small rolling β line chart
+  if (canvas && (stability.rolling_beta_4y || []).length > 1) {
+    const pts = stability.rolling_beta_4y as Array<{x: number; beta: number}>;
+    // Destroy previous if any (reuse pattern from other charts)
+    const prev = (canvas as any)._chartInstance;
+    if (prev && typeof prev.destroy === 'function') prev.destroy();
+
+    const labels = pts.map(p => {
+      const yr = 2009 + p.x / 365.25;
+      return yr.toFixed(1);
+    });
+    const values = pts.map(p => p.beta);
+
+    const ch = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'β (4y trailing)',
+          data: values,
+          borderColor: '#f59e0b',
+          borderWidth: 2,
+          pointRadius: 1.5,
+          pointHoverRadius: 3,
+          tension: 0.15,
+          fill: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 200 },
+        scales: {
+          x: {
+            title: { display: true, text: 'Year (end of window)', color: '#71717a', font: { size: 10 } },
+            ticks: { color: '#71717a', font: { size: 9 }, maxTicksLimit: 8 },
+            grid: { color: 'rgba(63,63,70,0.3)' },
+          },
+          y: {
+            title: { display: true, text: 'β', color: '#71717a', font: { size: 10 } },
+            ticks: { color: '#71717a', font: { size: 9 } },
+            grid: { color: 'rgba(63,63,70,0.3)' },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx: any) => `β = ${Number(ctx.raw).toFixed(3)}`,
+            },
+          },
+        },
+        elements: { point: { hitRadius: 6 } },
+      },
+    });
+    (canvas as any)._chartInstance = ch;
+  } else if (canvas) {
+    // Placeholder text if not enough data
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#52525b';
+      ctx.font = '12px Inter, system-ui, sans-serif';
+      ctx.fillText('Insufficient history for rolling β series', 10, 20);
+    }
+  }
+}
+
 async function loadGoldFlipCard() {
   // Setup the segmented controls for gold growth rate (affects chart gold line)
   const controls = document.getElementById('gold-growth-controls');
@@ -1323,6 +1486,282 @@ async function loadGoldFlipCard() {
     console.error('Failed to load gold flip card:', err);
     const tbl = document.getElementById('gold-flip-table');
     if (tbl) tbl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 text-red-400">Failed to load (is backend running?)</td></tr>`;
+  }
+}
+
+// --- Asset Correlations card (rolling return correlations) ---
+
+async function fetchCorrelations(window = corrWindow, step = 7) {
+  const url = `/api/correlations?window=${window}&step=${step}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  return res.json();
+}
+
+function getCorrRangeStartDate(range: 'all' | '5y' | '3y' | '1y', endDate: string): string {
+  const end = new Date(endDate + 'T00:00:00Z');
+  const years = range === 'all' ? 50 : range === '5y' ? 5 : range === '3y' ? 3 : 1;
+  const start = new Date(end.getTime() - years * 365.25 * MS_PER_DAY);
+  return start.toISOString().slice(0, 10);
+}
+
+function renderAssetCorrelationsChart(data: any) {
+  const canvas = document.getElementById('asset-correlations-chart') as HTMLCanvasElement | null;
+  if (!canvas || !data?.series) return;
+
+  if (corrChart) {
+    corrChart.destroy();
+    corrChart = null;
+  }
+
+  const endDate = data.meta?.data_end_date || currentDataEndDate || '';
+  const startDate = endDate ? getCorrRangeStartDate(corrRange, endDate) : '';
+  const assets = data.meta?.assets || [];
+
+  const datasets = assets.map((asset: any) => {
+    const raw = (data.series[asset.id] || []) as Array<{ date: string; correlation: number }>;
+    const filtered = startDate ? filterCorrelationSeriesByDate(raw, startDate) : raw;
+    return {
+      label: asset.label,
+      data: filtered.map(p => ({ x: dateToDays(p.date), y: p.correlation })),
+      borderColor: CORR_ASSET_COLORS[asset.id] || '#a1a1aa',
+      borderWidth: 1.75,
+      pointRadius: filtered.length > 400 ? 0 : 0.6,
+      pointHoverRadius: 3,
+      tension: 0.12,
+    };
+  }).filter((ds: any) => ds.data.length > 0);
+
+  if (datasets.length === 0) return;
+
+  const firstX = datasets[0].data[0].x;
+  const lastX = datasets[0].data[datasets[0].data.length - 1].x;
+  const desiredXTicks = getTimeTickValues(firstX, lastX);
+
+  const refLine = [
+    { x: firstX, y: 0 },
+    { x: lastX, y: 0 },
+  ];
+
+  datasets.push({
+    label: '0 (uncorrelated)',
+    data: refLine,
+    borderColor: '#52525b',
+    borderWidth: 1,
+    borderDash: [4, 4],
+    pointRadius: 0,
+    tension: 0,
+    order: 10,
+  });
+
+  corrChart = new Chart(canvas, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 220 },
+      scales: {
+        x: {
+          type: 'linear',
+          min: firstX,
+          max: lastX,
+          title: { display: true, text: 'Year', color: '#a1a1aa' },
+          grid: { color: '#27272a' },
+          ticks: {
+            color: '#71717a',
+            font: { size: 10 },
+            callback: function (value: number) {
+              const year = Math.round(2009 + (value as number) / 365.25);
+              return year.toString();
+            },
+          },
+          afterBuildTicks: (axis: any) => {
+            if (desiredXTicks && desiredXTicks.length > 0) {
+              axis.ticks = desiredXTicks.map((v: number) => ({ value: v }));
+            }
+          },
+        },
+        y: {
+          min: -1,
+          max: 1,
+          title: {
+            display: true,
+            text: `Rolling correlation (${correlationWindowLabel(corrWindow)})`,
+            color: '#a1a1aa',
+          },
+          grid: { color: '#27272a' },
+          ticks: {
+            color: '#71717a',
+            font: { size: 10 },
+            stepSize: 0.25,
+            callback: (v: number) => (v > 0 ? '+' : '') + Number(v).toFixed(2),
+          },
+        },
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: { boxWidth: 10, font: { size: 10 }, padding: 8 },
+        },
+        tooltip: {
+          mode: 'nearest',
+          intersect: false,
+          backgroundColor: 'rgba(24, 24, 27, 0.95)',
+          borderColor: '#3f3f46',
+          borderWidth: 1,
+          callbacks: {
+            title: (items: any[]) => {
+              if (!items.length) return '';
+              const x = items[0].parsed.x ?? items[0].raw?.x;
+              if (x == null) return '';
+              return daysToDate(x).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+              });
+            },
+            label: (item: any) => {
+              if (item.dataset.label?.startsWith('0 (')) return '';
+              const y = item.parsed.y ?? item.raw?.y;
+              return `${item.dataset.label}: ${formatCorrelation(y)}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+function populateAssetCorrelationsTable(data: any) {
+  const tableBody = document.getElementById('asset-correlations-table') as HTMLElement | null;
+  if (!tableBody) return;
+
+  const current = data?.current || [];
+  if (!current.length) {
+    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">No correlation data available</td></tr>`;
+    return;
+  }
+
+  const rowsHtml = current.map((row: any) => {
+    const cells = CORR_WINDOWS.map(w => {
+      const val = row.windows?.[String(w)] ?? null;
+      const cls = correlationColorClass(val);
+      return `<td class="px-4 py-2 text-right font-mono ${cls}">${formatCorrelation(val)}</td>`;
+    }).join('');
+    return `
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">${row.label}</td>
+        ${cells}
+      </tr>
+    `;
+  }).join('');
+
+  tableBody.innerHTML = rowsHtml;
+}
+
+function setupCorrWindowControls(onChange: () => void) {
+  const container = document.getElementById('corr-window-controls');
+  if (!container) return;
+
+  container.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">Rolling window:</span>`;
+  CORR_WINDOWS.forEach(w => {
+    const btn = document.createElement('button');
+    const active = w === corrWindow;
+    btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${
+      active
+        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
+        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'
+    }`;
+    btn.textContent = correlationWindowLabel(w);
+    btn.addEventListener('click', () => {
+      if (corrWindow === w) return;
+      corrWindow = w;
+      corrDataCache = null;
+      container.querySelectorAll('button').forEach(b => {
+        b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+        b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+      });
+      btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+      btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+      onChange();
+    });
+    container.appendChild(btn);
+  });
+}
+
+function setupCorrRangeControls(onChange: () => void) {
+  const container = document.getElementById('corr-range-controls');
+  if (!container) return;
+
+  const ranges: Array<{ key: 'all' | '5y' | '3y' | '1y'; label: string }> = [
+    { key: '1y', label: '1y' },
+    { key: '3y', label: '3y' },
+    { key: '5y', label: '5y' },
+    { key: 'all', label: 'All' },
+  ];
+
+  container.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">Chart range:</span>`;
+  ranges.forEach(({ key, label }) => {
+    const btn = document.createElement('button');
+    const active = key === corrRange;
+    btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${
+      active
+        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
+        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'
+    }`;
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      if (corrRange === key) return;
+      corrRange = key;
+      container.querySelectorAll('button').forEach(b => {
+        b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+        b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+      });
+      btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+      btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+      onChange();
+    });
+    container.appendChild(btn);
+  });
+}
+
+async function loadAssetCorrelationsCard() {
+  const tableBody = document.getElementById('asset-correlations-table') as HTMLElement | null;
+  const dateEl = document.getElementById('corr-now-date') as HTMLElement | null;
+  if (!tableBody) return;
+
+  tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-zinc-500">Loading rolling correlations...</td></tr>`;
+
+  const refreshChart = async () => {
+    try {
+      if (!corrDataCache || corrDataCache.meta?.chart_window !== corrWindow) {
+        corrDataCache = await fetchCorrelations(corrWindow, 7);
+      }
+      renderAssetCorrelationsChart(corrDataCache);
+      populateAssetCorrelationsTable(corrDataCache);
+      if (dateEl && corrDataCache.meta?.data_end_date) {
+        dateEl.textContent = `(through ${corrDataCache.meta.data_end_date})`;
+      }
+    } catch (err) {
+      console.error('Failed to refresh correlations chart', err);
+    }
+  };
+
+  setupCorrWindowControls(() => refreshChart());
+  setupCorrRangeControls(() => renderAssetCorrelationsChart(corrDataCache));
+
+  try {
+    corrDataCache = await fetchCorrelations(corrWindow, 7);
+    renderAssetCorrelationsChart(corrDataCache);
+    populateAssetCorrelationsTable(corrDataCache);
+    if (dateEl && corrDataCache.meta?.data_end_date) {
+      dateEl.textContent = `(through ${corrDataCache.meta.data_end_date})`;
+    }
+  } catch (err) {
+    console.error('Failed to load asset correlations card', err);
+    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">Failed to load (run scripts/update_data.py and ensure backend is running)</td></tr>`;
   }
 }
 
@@ -1601,7 +2040,7 @@ async function init() {
 
   // Fetch the real latest day from the backend first.
   // This makes time ranges and projections automatically stay fresh
-  // after running update_btc_daily.py + /refit.
+  // after running update_data.py.
   await fetchLatestDataDay();
 
   // Update freshness indicators in the UI with the real date
@@ -1628,6 +2067,12 @@ async function init() {
 
   // Gold market cap flip card at bottom
   loadGoldFlipCard();
+
+  // Statistical summary / model diagnostics (R², β, stability)
+  loadStatisticalSummaryPanel();
+
+  // Rolling correlations vs major asset classes — bottom of page
+  loadAssetCorrelationsCard();
 }
 
 init();

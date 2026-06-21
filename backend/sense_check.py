@@ -5,7 +5,7 @@ Sense checker for the Bitcoin Power Law quantile model.
 This script loads the model, fits it (if needed), and runs a series of
 invariants and sanity checks. It is designed to be run:
 
-- After data updates (via update_btc_daily.py)
+- After data updates (via update_data.py)
 - Manually when investigating model behavior
 - In CI / automated pipelines
 

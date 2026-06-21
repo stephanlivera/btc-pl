@@ -12,7 +12,7 @@ See the root [README.md](README.md) for the most up-to-date instructions.
 **Regular maintenance** is mainly about keeping the price data fresh:
 
 ```bash
-python scripts/update_btc_daily.py
+python scripts/update_data.py
 ```
 
 This single command now automatically:

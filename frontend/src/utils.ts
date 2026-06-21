@@ -21,6 +21,12 @@ export function daysToDate(days: number): Date {
   return new Date(GENESIS.getTime() + days * MS_PER_DAY);
 }
 
+/** Convert YYYY-MM-DD to days since the Bitcoin genesis block. */
+export function dateToDays(dateStr: string): number {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  return Math.floor((d.getTime() - GENESIS.getTime()) / MS_PER_DAY);
+}
+
 export function formatPrice(price: number): string {
   if (price >= 1000000) return '$' + (price / 1000000).toFixed(2) + 'M';
   if (price >= 10000) return '$' + Math.round(price / 1000) + 'k';
@@ -62,6 +68,12 @@ export function quantileLabel(q: number): string {
 }
 
 export function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {
+  // Produces the exact day counts (since 2009-01-03) for the next 10 calendar
+  // year-ends (Dec 31). These day numbers are sent to the backend /curves
+  // endpoint (step=1, parallel=true). The returned Q50 curve points at/near
+  // those days are what appear in the year-end projections table.
+  // The "current regime" latest day comes from /health (or fallback) so the
+  // table stays in sync after data updates + refit.
   const results: { year: number; days: number }[] = [];
   const startDate = daysToDate(latestDays);
   let currentYear = startDate.getUTCFullYear();
@@ -247,4 +259,36 @@ export function percentileRank(values: number[], target: number): number {
   let i = 0;
   while (i < sorted.length && sorted[i] < target) i++;
   return i / sorted.length;
+}
+
+/** Display label for a rolling correlation window in days. */
+export function correlationWindowLabel(days: number): string {
+  if (days === 365) return '1y';
+  return `${days}d`;
+}
+
+/** Format a Pearson correlation coefficient for display. */
+export function formatCorrelation(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}`;
+}
+
+/** Tailwind text color class based on correlation strength/direction. */
+export function correlationColorClass(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return 'text-zinc-400';
+  if (value >= 0.5) return 'text-emerald-400';
+  if (value >= 0.2) return 'text-sky-400';
+  if (value > -0.2) return 'text-zinc-300';
+  if (value > -0.5) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+/** Filter correlation series to dates on/after `startDate` (YYYY-MM-DD). */
+export function filterCorrelationSeriesByDate<T extends { date: string }>(
+  series: T[],
+  startDate: string
+): T[] {
+  if (!series || series.length === 0) return [];
+  return series.filter(p => p.date >= startDate);
 }

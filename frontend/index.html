@@ -344,6 +344,128 @@
       </div>
     </div>
 
+    <!-- Statistical Summary Panel (fit diagnostics + parameter stability) -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5" id="statistical-summary-card">
+      <div class="font-medium text-zinc-300 mb-2 flex items-center justify-between">
+        <span>Statistical Summary — Power Law Fit (Q50)</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Diagnostics on the central trend</span>
+      </div>
+
+      <div class="text-[10px] text-zinc-500 mb-3">
+        Goodness-of-fit and key parameters for the fitted central power law <span class="font-mono">log10(P) = a + β·log10(t)</span>, t = days since 2009-01-03.
+        Current deviation is actual price vs. the model Q50 value on the latest data date.
+      </div>
+
+      <!-- Prominent metrics row -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4" id="stat-metrics">
+        <!-- Populated by JS -->
+        <div class="text-center p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+          <div class="text-[10px] uppercase tracking-wider text-zinc-500">OLS R² (log-log)</div>
+          <div id="stat-ols-r2" class="text-2xl font-semibold font-mono text-emerald-400 tabular-nums mt-0.5">—</div>
+        </div>
+        <div class="text-center p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+          <div class="text-[10px] uppercase tracking-wider text-zinc-500">Correlation (log-log)</div>
+          <div id="stat-corr" class="text-2xl font-semibold font-mono text-emerald-400 tabular-nums mt-0.5">—</div>
+        </div>
+        <div class="text-center p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+          <div class="text-[10px] uppercase tracking-wider text-zinc-500">Exponent β</div>
+          <div id="stat-beta" class="text-2xl font-semibold font-mono text-orange-400 tabular-nums mt-0.5">—</div>
+          <div id="stat-beta-ci" class="text-[10px] text-zinc-500 font-mono">—</div>
+        </div>
+        <div class="text-center p-3 rounded-xl bg-zinc-950 border border-zinc-800 col-span-1 sm:col-span-2 lg:col-span-2">
+          <div class="text-[10px] uppercase tracking-wider text-zinc-500">Fitted Equation</div>
+          <div id="stat-equation" class="text-base sm:text-lg font-semibold font-mono text-zinc-200 mt-0.5 break-all">—</div>
+        </div>
+        <div class="text-center p-3 rounded-xl bg-zinc-950 border border-zinc-800 col-span-1 sm:col-span-2 lg:col-span-1">
+          <div class="text-[10px] uppercase tracking-wider text-zinc-500">Current Deviation</div>
+          <div id="stat-deviation" class="text-2xl font-semibold font-mono text-sky-400 tabular-nums mt-0.5">—</div>
+          <div id="stat-deviation-abs" class="text-[10px] text-zinc-500">—</div>
+        </div>
+      </div>
+
+      <!-- Parameter stability -->
+      <div class="border-t border-zinc-800 pt-3">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-medium text-zinc-300 text-sm">Parameter Stability (β over windows)</div>
+          <div class="text-[10px] text-zinc-500">Trailing windows on the same central Q50 specification</div>
+        </div>
+
+        <!-- Simple window table -->
+        <div class="overflow-x-auto mb-3">
+          <table class="projection-table w-full text-sm">
+            <thead>
+              <tr class="border-b border-zinc-800 text-xs text-zinc-500">
+                <th class="text-left font-normal px-3 py-1.5">Window</th>
+                <th class="text-right font-normal px-3 py-1.5">β</th>
+                <th class="text-right font-normal px-3 py-1.5">Obs</th>
+                <th class="text-left font-normal px-3 py-1.5">Period</th>
+              </tr>
+            </thead>
+            <tbody id="stat-stability-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+              <tr><td colspan="4" class="px-3 py-2 text-zinc-500 text-xs">Loading stability...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Small rolling β chart -->
+        <div>
+          <div class="text-[10px] text-zinc-500 mb-1">Rolling β (≈4-year trailing windows, sampled)</div>
+          <div class="chart-container rounded-xl border border-zinc-800 p-2" style="height: 160px;">
+            <canvas id="beta-stability-chart"></canvas>
+          </div>
+          <div class="mt-1 text-[10px] text-zinc-500">A relatively flat line indicates that the estimated long-term exponent has been stable across recent history.</div>
+        </div>
+      </div>
+
+      <div class="mt-3 text-[10px] text-zinc-500">
+        R² from auxiliary OLS on log10(price) ~ log10(days). β CI from the quantile regression covariance. Rolling windows are re-estimated on the trailing slice only. All numbers update automatically after a data refit.
+      </div>
+    </div>
+
+    <!-- Bitcoin vs Major Asset Classes — Rolling Correlations -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5" id="asset-correlations-card">
+      <div class="font-medium text-zinc-300 mb-2 flex items-center justify-between">
+        <span>Bitcoin vs Major Asset Classes — Rolling Correlations</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Daily log-return Pearson correlation</span>
+      </div>
+
+      <div class="text-[10px] text-zinc-500 mb-3">
+        How closely Bitcoin daily returns have moved with stocks (SPY), gold (GLD), bonds (AGG), and US real estate (VNQ) over rolling windows.
+        <span id="corr-now-date" class="text-zinc-400"></span>
+      </div>
+
+      <!-- Window + chart range controls (populated by JS) -->
+      <div id="corr-window-controls" class="flex flex-wrap items-center gap-1 mb-2 text-xs"></div>
+      <div id="corr-range-controls" class="flex flex-wrap items-center gap-1 mb-3 text-xs"></div>
+
+      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 300px;">
+        <canvas id="asset-correlations-chart"></canvas>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr class="border-b border-zinc-800 text-xs text-zinc-500" id="corr-table-head">
+              <th class="text-left font-normal px-4 py-2">Asset Class</th>
+              <th class="text-right font-normal px-4 py-2">30d</th>
+              <th class="text-right font-normal px-4 py-2">90d</th>
+              <th class="text-right font-normal px-4 py-2">180d</th>
+              <th class="text-right font-normal px-4 py-2">1y</th>
+            </tr>
+          </thead>
+          <tbody id="asset-correlations-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+            <tr>
+              <td colspan="5" class="px-4 py-3 text-zinc-500">Loading rolling correlations...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 text-[10px] text-zinc-500">
+        Correlations range from −1 (opposite moves) to +1 (lockstep). Computed on overlapping trading days from <code>/correlations</code>. Property proxy = VNQ (US REITs). Updates with <code>scripts/update_data.py</code>.
+      </div>
+    </div>
+
     <div class="mt-8 text-center text-[10px] text-zinc-600">
       Bitcoin power law and regression analysis
     </div>

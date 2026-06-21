@@ -108,3 +108,17 @@ def test_historical_endpoint():
     data = response.json()
     assert "points" in data
     assert isinstance(data["points"], list)
+
+
+def test_correlations_endpoint():
+    response = client.get("/correlations?window=90&step=7")
+    assert response.status_code == 200
+    data = response.json()
+    assert "meta" in data
+    assert "current" in data
+    assert "series" in data
+    assert len(data["current"]) == 4
+    assert "stocks" in data["series"]
+    for row in data["current"]:
+        assert "windows" in row
+        assert "90" in row["windows"]
