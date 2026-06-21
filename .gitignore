@@ -51,3 +51,21 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Local databases / caches
+*.sqlite3
+*.db
+
+# Vercel local
+.vercel/
