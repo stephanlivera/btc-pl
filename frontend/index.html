@@ -12,6 +12,101 @@
     .font-display { font-family: 'Space Grotesk', 'Inter', system_ui, sans-serif; font-weight: 600; }
     .chart-container { position: relative; background: #0a0c10; }
 
+    /* Loading indicators (cold-start / slow backend) */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes loading-pulse {
+      0%, 100% { opacity: 0.55; }
+      50% { opacity: 1; }
+    }
+
+    .loading-spinner {
+      width: 1.75rem;
+      height: 1.75rem;
+      border: 2px solid rgba(251, 146, 60, 0.2);
+      border-top-color: #fb923c;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    .loading-spinner-sm {
+      width: 1.125rem;
+      height: 1.125rem;
+      border-width: 2px;
+    }
+
+    .loading-spinner-xs {
+      width: 0.875rem;
+      height: 0.875rem;
+      border-width: 1.5px;
+    }
+
+    .loading-pulse {
+      animation: loading-pulse 1.6s ease-in-out infinite;
+    }
+
+    .app-loading-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.875rem 1rem;
+      margin-bottom: 1.5rem;
+      background: rgba(24, 24, 27, 0.95);
+      border: 1px solid rgba(63, 63, 70, 0.85);
+      border-radius: 1rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    }
+
+    .app-loading-banner.is-hidden {
+      display: none;
+    }
+
+    .app-loading-message {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #e4e4e7;
+      line-height: 1.35;
+    }
+
+    .app-loading-hint {
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
+      color: #a1a1aa;
+      line-height: 1.4;
+    }
+
+    .chart-loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.625rem;
+      background: rgba(10, 12, 16, 0.88);
+      border-radius: inherit;
+      z-index: 10;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .chart-loading-overlay.is-visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .chart-loading-message {
+      font-size: 0.8125rem;
+      color: #a1a1aa;
+      text-align: center;
+      max-width: 16rem;
+      line-height: 1.4;
+    }
+
     /* Projection tables (year-end + quantile grid) */
     .projection-table tr:nth-child(even) {
       background-color: rgba(63, 63, 70, 0.12);
@@ -37,6 +132,15 @@
 </head>
 <body class="bg-zinc-950 text-zinc-200">
   <div class="max-w-[1100px] mx-auto px-6 py-10">
+    <!-- Global loading banner (shown during backend cold-start) -->
+    <div id="app-loading-banner" class="app-loading-banner" role="status" aria-live="polite">
+      <div class="loading-spinner loading-spinner-sm mt-0.5" aria-hidden="true"></div>
+      <div>
+        <p id="app-loading-message" class="app-loading-message">Connecting to analysis server…</p>
+        <p id="app-loading-hint" class="app-loading-hint hidden">The analysis server may be waking from sleep. First load can take up to a minute.</p>
+      </div>
+    </div>
+
     <!-- Header -->
     <div class="flex items-center justify-between mb-8">
       <div class="flex items-center gap-x-3">
@@ -94,6 +198,10 @@
       </div>
 
       <div class="chart-container rounded-2xl border border-zinc-800 p-3" style="height: 520px;">
+        <div id="main-chart-loading" class="chart-loading-overlay is-visible" aria-hidden="false">
+          <div class="loading-spinner" aria-hidden="true"></div>
+          <p class="chart-loading-message">Loading power law chart and price data…</p>
+        </div>
         <canvas id="chart"></canvas>
       </div>
 
@@ -153,7 +261,9 @@
           </thead>
           <tbody id="quantile-grid-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
             <tr>
-              <td colspan="5" class="px-4 py-3 text-zinc-500">Loading quantile grid...</td>
+              <td colspan="5" class="px-4 py-3 text-zinc-500">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading quantile grid…</span></span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -193,7 +303,9 @@
           </thead>
           <tbody id="current-quantile-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
             <tr>
-              <td colspan="6" class="px-4 py-3 text-zinc-500">Loading current quantile position...</td>
+              <td colspan="6" class="px-4 py-3 text-zinc-500">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading current quantile position…</span></span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -222,7 +334,9 @@
           </thead>
           <tbody id="bitcoin-stats-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
             <tr>
-              <td colspan="3" class="px-4 py-3 text-zinc-500">Loading Bitcoin stats...</td>
+              <td colspan="3" class="px-4 py-3 text-zinc-500">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading Bitcoin stats…</span></span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -250,6 +364,10 @@
       </div>
 
       <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 260px;">
+        <div id="mayer-chart-loading" class="chart-loading-overlay" aria-hidden="true">
+          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
+          <p class="chart-loading-message">Loading Mayer Multiple history…</p>
+        </div>
         <canvas id="mayer-multiple-chart"></canvas>
       </div>
 
@@ -291,7 +409,9 @@
           </thead>
           <tbody id="bitcoin-cagr-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
             <tr>
-              <td colspan="4" class="px-4 py-3 text-zinc-500">Loading Bitcoin CAGR...</td>
+              <td colspan="4" class="px-4 py-3 text-zinc-500">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading Bitcoin CAGR…</span></span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -320,6 +440,10 @@
       <div id="gold-flip-current" class="text-[10px] text-zinc-400 mb-2 px-1"></div>
 
       <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 320px;">
+        <div id="gold-flip-chart-loading" class="chart-loading-overlay" aria-hidden="true">
+          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
+          <p class="chart-loading-message">Loading gold crossover analysis…</p>
+        </div>
         <canvas id="gold-flip-chart"></canvas>
       </div>
 
@@ -332,7 +456,9 @@
           </thead>
           <tbody id="gold-flip-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
             <tr>
-              <td colspan="6" class="px-4 py-3 text-zinc-500">Loading crossover projections...</td>
+              <td colspan="6" class="px-4 py-3 text-zinc-500">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading crossover projections…</span></span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -402,7 +528,9 @@
               </tr>
             </thead>
             <tbody id="stat-stability-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
-              <tr><td colspan="4" class="px-3 py-2 text-zinc-500 text-xs">Loading stability...</td></tr>
+              <tr><td colspan="4" class="px-3 py-2 text-zinc-500 text-xs">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading fit diagnostics…</span></span>
+              </td></tr>
             </tbody>
           </table>
         </div>
@@ -439,6 +567,10 @@
       <div id="corr-range-controls" class="flex flex-wrap items-center gap-1 mb-3 text-xs"></div>
 
       <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 300px;">
+        <div id="corr-chart-loading" class="chart-loading-overlay" aria-hidden="true">
+          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
+          <p class="chart-loading-message">Loading rolling correlations…</p>
+        </div>
         <canvas id="asset-correlations-chart"></canvas>
       </div>
 
@@ -455,7 +587,9 @@
           </thead>
           <tbody id="asset-correlations-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
             <tr>
-              <td colspan="5" class="px-4 py-3 text-zinc-500">Loading rolling correlations...</td>
+              <td colspan="5" class="px-4 py-3 text-zinc-500">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading rolling correlations…</span></span>
+              </td>
             </tr>
           </tbody>
         </table>

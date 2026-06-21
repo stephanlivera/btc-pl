@@ -534,12 +534,7 @@ async function loadAndRender(range: 'all' | '5y' | '3y' | '1y') {
   const ranges = getVisibleRanges(range);
   const requestedQuantiles = getRequestedQuantiles();
 
-  // Subtle loading state on the chart container
-  const chartContainer = document.querySelector('.chart-container') as HTMLElement;
-  if (chartContainer) {
-    chartContainer.style.transition = 'opacity 0.15s ease';
-    chartContainer.style.opacity = '0.65';
-  }
+  setChartLoading('main-chart-loading', true, 'Loading power law chart and price data…');
 
   try {
     const [curvesData, historicalData] = await Promise.all([
@@ -549,16 +544,71 @@ async function loadAndRender(range: 'all' | '5y' | '3y' | '1y') {
 
     renderChart(curvesData, historicalData, ranges.curveStart, ranges.curveEnd);
     updateProjectionsInfo(curvesData);
-
-    // Restore full opacity after render
-    if (chartContainer) {
-      chartContainer.style.opacity = '1';
-    }
+    setChartLoading('main-chart-loading', false);
   } catch (err) {
     console.error(err);
-    alert('Failed to load data from backend. Is the backend running on port 8000?');
-    if (chartContainer) chartContainer.style.opacity = '1';
+    showAppLoading('Could not load chart data. The server may still be waking up — try refreshing in a moment.');
+    setChartLoading('main-chart-loading', true, 'Failed to load — try refreshing');
   }
+}
+
+// --- Loading Indicators (cold-start / slow backend) ---
+
+const SLOW_LOAD_MS = 8000;
+let slowLoadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function loadingTableRow(colspan: number, message: string, cellClass = 'px-4 py-3'): string {
+  return `<tr><td colspan="${colspan}" class="${cellClass} text-zinc-500">
+    <span class="inline-flex items-center gap-2">
+      <span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span>
+      <span class="loading-pulse">${message}</span>
+    </span>
+  </td></tr>`;
+}
+
+function startSlowLoadHint() {
+  if (slowLoadTimer) clearTimeout(slowLoadTimer);
+  slowLoadTimer = setTimeout(() => {
+    const hint = document.getElementById('app-loading-hint');
+    hint?.classList.remove('hidden');
+  }, SLOW_LOAD_MS);
+}
+
+function clearSlowLoadHint() {
+  if (slowLoadTimer) {
+    clearTimeout(slowLoadTimer);
+    slowLoadTimer = null;
+  }
+}
+
+function setAppLoadingMessage(message: string) {
+  const el = document.getElementById('app-loading-message');
+  if (el) el.textContent = message;
+}
+
+function showAppLoading(message?: string) {
+  const banner = document.getElementById('app-loading-banner');
+  banner?.classList.remove('is-hidden');
+  if (message) setAppLoadingMessage(message);
+  startSlowLoadHint();
+}
+
+function hideAppLoading() {
+  const banner = document.getElementById('app-loading-banner');
+  banner?.classList.add('is-hidden');
+  clearSlowLoadHint();
+  document.getElementById('app-loading-hint')?.classList.add('hidden');
+}
+
+function setChartLoading(overlayId: string, visible: boolean, message?: string) {
+  const overlay = document.getElementById(overlayId);
+  if (!overlay) return;
+  if (message) {
+    const msgEl = overlay.querySelector('.chart-loading-message');
+    if (msgEl) msgEl.textContent = message;
+  }
+  overlay.classList.toggle('is-visible', visible);
+  overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
 }
 
 // --- UI Helpers ---
@@ -638,7 +688,7 @@ async function loadQuantileHorizonTable() {
     nowDateEl.textContent = ` (Now = ${currentDataEndDate})`;
   }
 
-  tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-zinc-500">Loading quantile grid...</td></tr>`;
+  tableBody.innerHTML = loadingTableRow(colCount, 'Loading quantile grid…');
 
   const startDays = horizons[0].days - 5;
   const endDays = horizons[horizons.length - 1].days + 5;
@@ -692,7 +742,7 @@ async function loadCurrentQuantileCard() {
     nowDateEl.textContent = ` (Now = ${currentDataEndDate})`;
   }
 
-  tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-zinc-500">Loading current quantile position...</td></tr>`;
+  tableBody.innerHTML = loadingTableRow(colCount, 'Loading current quantile position…');
 
   try {
     const posData = await fetchCurrentPosition();
@@ -805,8 +855,7 @@ async function loadYearEndProjections() {
   });
   tableHead.innerHTML = headHtml;
 
-  // Loading state
-  tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-zinc-500">Loading projections...</td></tr>`;
+  tableBody.innerHTML = loadingTableRow(colCount, 'Loading projections…');
 
   const yearEnds = getNextTenYearEnds(currentLatestDays);
   const startDays = yearEnds[0].days - 100;
@@ -1220,7 +1269,7 @@ async function loadBitcoinStatsCard() {
   const tableBody = document.getElementById('bitcoin-stats-table') as HTMLElement | null;
   if (!tableBody) return;
 
-  tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 text-zinc-500">Loading Bitcoin stats...</td></tr>`;
+  tableBody.innerHTML = loadingTableRow(3, 'Loading Bitcoin stats…');
 
   try {
     const points = await fetchRecentHistoricalForStats();
@@ -1272,7 +1321,7 @@ async function loadBitcoinCAGRCard() {
   const nowDateEl = document.getElementById('bitcoin-cagr-now-date');
   if (!tableBody) return;
 
-  tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-zinc-500">Loading Bitcoin CAGR...</td></tr>`;
+  tableBody.innerHTML = loadingTableRow(4, 'Loading Bitcoin CAGR…');
 
   try {
     const points = await fetchHistoricalForCAGR();
@@ -1328,7 +1377,7 @@ async function loadStatisticalSummaryPanel() {
   const tableBody = document.getElementById('stat-stability-table') as HTMLElement | null;
   const canvas = document.getElementById('beta-stability-chart') as HTMLCanvasElement | null;
 
-  if (tableBody) tableBody.innerHTML = `<tr><td colspan="4" class="px-3 py-2 text-zinc-500 text-xs">Loading fit diagnostics...</td></tr>`;
+  if (tableBody) tableBody.innerHTML = loadingTableRow(4, 'Loading fit diagnostics…', 'px-3 py-2 text-xs');
 
   let data: any = null;
   try {
@@ -1479,13 +1528,16 @@ async function loadGoldFlipCard() {
     });
   }
 
+  setChartLoading('gold-flip-chart-loading', true);
   try {
     await renderGoldFlipChart(selectedGoldCagr);
     populateGoldFlipTable(selectedGoldCagr);
   } catch (err) {
     console.error('Failed to load gold flip card:', err);
     const tbl = document.getElementById('gold-flip-table');
-    if (tbl) tbl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 text-red-400">Failed to load (is backend running?)</td></tr>`;
+    if (tbl) tbl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 text-red-400">Failed to load (server may still be waking up)</td></tr>`;
+  } finally {
+    setChartLoading('gold-flip-chart-loading', false);
   }
 }
 
@@ -1732,9 +1784,10 @@ async function loadAssetCorrelationsCard() {
   const dateEl = document.getElementById('corr-now-date') as HTMLElement | null;
   if (!tableBody) return;
 
-  tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-zinc-500">Loading rolling correlations...</td></tr>`;
+  tableBody.innerHTML = loadingTableRow(5, 'Loading rolling correlations…');
 
   const refreshChart = async () => {
+    setChartLoading('corr-chart-loading', true, 'Updating correlations…');
     try {
       if (!corrDataCache || corrDataCache.meta?.chart_window !== corrWindow) {
         corrDataCache = await fetchCorrelations(corrWindow, 7);
@@ -1746,12 +1799,15 @@ async function loadAssetCorrelationsCard() {
       }
     } catch (err) {
       console.error('Failed to refresh correlations chart', err);
+    } finally {
+      setChartLoading('corr-chart-loading', false);
     }
   };
 
   setupCorrWindowControls(() => refreshChart());
   setupCorrRangeControls(() => renderAssetCorrelationsChart(corrDataCache));
 
+  setChartLoading('corr-chart-loading', true);
   try {
     corrDataCache = await fetchCorrelations(corrWindow, 7);
     renderAssetCorrelationsChart(corrDataCache);
@@ -1761,7 +1817,9 @@ async function loadAssetCorrelationsCard() {
     }
   } catch (err) {
     console.error('Failed to load asset correlations card', err);
-    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">Failed to load (run scripts/update_data.py and ensure backend is running)</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">Failed to load (server may still be waking up)</td></tr>`;
+  } finally {
+    setChartLoading('corr-chart-loading', false);
   }
 }
 
@@ -1949,7 +2007,8 @@ async function loadMayerMultipleCard() {
   if (!valueEl || !contextEl || !canvas) return;
 
   valueEl.textContent = '…';
-  contextEl.textContent = 'Loading Mayer Multiple history...';
+  contextEl.textContent = 'Loading Mayer Multiple history…';
+  setChartLoading('mayer-chart-loading', true);
 
   try {
     const points = await fetchHistoricalForMayer();
@@ -1991,7 +2050,9 @@ async function loadMayerMultipleCard() {
   } catch (err) {
     console.error('Failed to load Mayer Multiple card', err);
     valueEl.textContent = '—';
-    contextEl.textContent = 'Failed to load (is backend running?)';
+    contextEl.textContent = 'Failed to load (server may still be waking up)';
+  } finally {
+    setChartLoading('mayer-chart-loading', false);
   }
 }
 
@@ -2037,6 +2098,7 @@ function setupControls() {
 
 async function init() {
   setupControls();
+  showAppLoading('Connecting to analysis server…');
 
   // Fetch the real latest day from the backend first.
   // This makes time ranges and projections automatically stay fresh
@@ -2045,34 +2107,26 @@ async function init() {
 
   // Update freshness indicators in the UI with the real date
   updateDataFreshnessDisplay();
+  setAppLoadingMessage('Loading power law chart and price data…');
 
   // Default to 1y view (as we did in the old site)
   await loadAndRender('1y');
 
-  // Load projection tables
-  loadYearEndProjections();
-  loadQuantileHorizonTable();
+  setAppLoadingMessage('Loading analysis panels…');
 
-  // Current quantile position + short-term statistical outlook card (new)
-  loadCurrentQuantileCard();
+  await Promise.allSettled([
+    loadYearEndProjections(),
+    loadQuantileHorizonTable(),
+    loadCurrentQuantileCard(),
+    loadBitcoinStatsCard(),
+    loadMayerMultipleCard(),
+    loadBitcoinCAGRCard(),
+    loadGoldFlipCard(),
+    loadStatisticalSummaryPanel(),
+    loadAssetCorrelationsCard(),
+  ]);
 
-  // Bitcoin stats at a glance (current MAs + Mayer)
-  loadBitcoinStatsCard();
-
-  // Mayer Multiple full-history chart + current indicator (new)
-  loadMayerMultipleCard();
-
-  // Bitcoin CAGR (1y/3y/5y/10y historical)
-  loadBitcoinCAGRCard();
-
-  // Gold market cap flip card at bottom
-  loadGoldFlipCard();
-
-  // Statistical summary / model diagnostics (R², β, stability)
-  loadStatisticalSummaryPanel();
-
-  // Rolling correlations vs major asset classes — bottom of page
-  loadAssetCorrelationsCard();
+  hideAppLoading();
 }
 
 init();
