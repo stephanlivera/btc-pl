@@ -1,0 +1,47 @@
+# Daily market data update: fetch prices, validate model, commit CSVs, push.
+# Render auto-redeploys on push to main (enable in Render dashboard).
+name: Update market data
+
+on:
+  schedule:
+    # 08:00 UTC daily (~3am US Eastern). Adjust as you like.
+    - cron: "0 8 * * *"
+  workflow_dispatch: # manual "Run workflow" button in GitHub
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Fetch and write CSV updates
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+        run: python scripts/update_data.py --no-refit --no-sense-check
+
+      - name: Run model sense checker
+        run: python -m backend.sense_check
+
+      - name: Commit and push if data changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add btc_daily.csv assets_daily.csv
+          if git diff --staged --quiet; then
+            echo "No new data to commit."
+            exit 0
+          fi
+          git commit -m "chore: update btc and asset daily data [automated]"
+          git push
