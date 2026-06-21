@@ -272,3 +272,11 @@ def get_historical(
         },
         "points": points,
     }
+
+
+# Vercel Services mounts this backend at /api. Wrap routes so /api/health works
+# while local dev and tests keep using unprefixed paths (e.g. /health).
+if os.getenv("VERCEL_ENV"):
+    _api = app
+    app = FastAPI(title="Bitcoin Power Law Quantile Curves")
+    app.mount("/api", _api)
