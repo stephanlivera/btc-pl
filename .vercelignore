@@ -1,0 +1,10 @@
+backend/
+scripts/
+.venv/
+venv/
+frontend/node_modules/
+frontend/dist/
+.pytest_cache/
+archive/
+btc_daily.csv
+assets_daily.csv
