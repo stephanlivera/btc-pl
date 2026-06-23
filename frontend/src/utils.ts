@@ -137,28 +137,66 @@ export function getNextTenYearEnds(latestDays: number): { year: number; days: nu
   return results;
 }
 
+/** Calendar Jan-1 tick positions — good for moderate spans on a log x-axis. */
+function getAnnualTimeTicks(startDays: number, endDays: number): number[] {
+  const ticks: number[] = [];
+  const startYear = Math.floor(2009 + startDays / 365.25);
+  const endYear = Math.ceil(2009 + endDays / 365.25);
+
+  for (let y = startYear; y <= endYear; y++) {
+    const jan1 = new Date(Date.UTC(y, 0, 1));
+    const daysSince = Math.floor((jan1.getTime() - GENESIS.getTime()) / MS_PER_DAY);
+    if (daysSince >= startDays && daysSince <= endDays) {
+      ticks.push(daysSince);
+    }
+  }
+  return ticks;
+}
+
+/**
+ * Log-uniform tick positions for very wide views (e.g. All → 2035).
+ * Calendar-year ticks bunch up on the right of a logarithmic axis; spacing
+ * evenly in log(day) keeps labels legible across history + projections.
+ */
+function getLogSpacedTimeTicks(startDays: number, endDays: number, targetCount: number): number[] {
+  if (startDays >= endDays) return [startDays];
+
+  const logMin = Math.log10(Math.max(startDays, 1));
+  const logMax = Math.log10(endDays);
+  const ticks: number[] = [];
+  const seenYears = new Set<number>();
+
+  const addTick = (day: number) => {
+    const clamped = Math.max(startDays, Math.min(endDays, day));
+    const year = daysToDate(clamped).getUTCFullYear();
+    if (!seenYears.has(year)) {
+      seenYears.add(year);
+      ticks.push(clamped);
+    }
+  };
+
+  // Anchor the scale ends, then fill interior positions evenly in log-space.
+  addTick(startDays);
+  const interiorCount = Math.max(0, targetCount - 2);
+  for (let i = 1; i <= interiorCount; i++) {
+    const t = i / (interiorCount + 1);
+    const day = Math.round(10 ** (logMin + t * (logMax - logMin)));
+    addTick(day);
+  }
+  addTick(endDays);
+
+  return ticks.sort((a, b) => a - b);
+}
+
 /**
  * Returns sensible tick positions for the x-axis.
  */
 export function getTimeTickValues(startDays: number, endDays: number): number[] {
-  const ticks: number[] = [];
   const spanDays = endDays - startDays;
   const spanYears = spanDays / 365.25;
 
-  const useAnnualTicks = spanYears > 2.2;
-
-  if (useAnnualTicks) {
-    const startYear = Math.floor(2009 + startDays / 365.25);
-    const endYear = Math.ceil(2009 + endDays / 365.25);
-
-    for (let y = startYear; y <= endYear; y++) {
-      const jan1 = new Date(Date.UTC(y, 0, 1));
-      const daysSince = Math.floor((jan1.getTime() - GENESIS.getTime()) / MS_PER_DAY);
-      if (daysSince >= startDays && daysSince <= endDays) {
-        ticks.push(daysSince);
-      }
-    }
-  } else {
+  if (spanYears <= 2.2) {
+    const ticks: number[] = [];
     let current = new Date(daysToDate(startDays));
     current.setUTCDate(1);
 
@@ -177,9 +215,21 @@ export function getTimeTickValues(startDays: number, endDays: number): number[] 
       }
       current.setUTCMonth(current.getUTCMonth() + 2);
     }
+    return ticks;
   }
 
-  return ticks;
+  // Wide "All" view: annual ticks crowd on the projection side of a log scale.
+  if (spanYears > 12) {
+    const targetCount = Math.min(13, Math.max(9, Math.round(spanYears / 2.2)));
+    return getLogSpacedTimeTicks(startDays, endDays, targetCount);
+  }
+
+  return getAnnualTimeTicks(startDays, endDays);
+}
+
+/** Year label for a genesis-day tick (used by chart x-axis callbacks). */
+export function yearLabelForTickDay(day: number): string {
+  return daysToDate(day).getUTCFullYear().toString();
 }
 
 export function findNearestPoint(

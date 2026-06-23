@@ -3,6 +3,8 @@ import {
   formatPrice,
   getNextTenYearEnds,
   getTimeTickValues,
+  yearLabelForTickDay,
+  END_OF_2035_DAYS,
   findNearestPoint,
   getCurveValue,
   getHorizonTargets,
@@ -113,12 +115,11 @@ describe('getNextTenYearEnds', () => {
 });
 
 describe('getTimeTickValues', () => {
-  it('returns annual ticks for wide views (3y+)', () => {
+  it('returns annual ticks for moderate wide views (3y/5y scale)', () => {
     const ticks = getTimeTickValues(5000, 7200); // ~6 year span
     expect(ticks.length).toBeGreaterThan(3);
 
-    // All ticks should be roughly on Jan 1 of different years
-    const years = ticks.map(d => Math.round(2009 + d / 365.25));
+    const years = ticks.map(d => yearLabelForTickDay(d));
     const uniqueYears = new Set(years);
     expect(uniqueYears.size).toBeGreaterThan(3);
   });
@@ -126,6 +127,24 @@ describe('getTimeTickValues', () => {
   it('returns more frequent ticks for 1y view', () => {
     const ticks = getTimeTickValues(6100, 6500); // ~1 year span
     expect(ticks.length).toBeGreaterThan(4);
+  });
+
+  it('uses log-spaced ticks for the All view so recent years do not crowd', () => {
+    const ticks = getTimeTickValues(800, END_OF_2035_DAYS);
+    const annualCount = Math.ceil(2009 + END_OF_2035_DAYS / 365.25) - Math.floor(2009 + 800 / 365.25) + 1;
+
+    expect(ticks.length).toBeLessThan(annualCount);
+    expect(ticks.length).toBeGreaterThanOrEqual(8);
+
+    const interiorGaps = ticks.slice(2).map((v, i) => Math.log10(v) - Math.log10(ticks[i + 1]));
+    const minGap = Math.min(...interiorGaps);
+    const maxGap = Math.max(...interiorGaps);
+    expect(maxGap / minGap).toBeLessThan(1.35);
+
+    const years = ticks.map(yearLabelForTickDay).map(Number);
+    expect(new Set(years).size).toBe(years.length);
+    expect(Math.min(...years)).toBeLessThanOrEqual(2012);
+    expect(Math.max(...years)).toBeGreaterThanOrEqual(2030);
   });
 });
 

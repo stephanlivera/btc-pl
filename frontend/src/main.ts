@@ -7,6 +7,7 @@ import {
   formatPrice,
   getNextTenYearEnds,
   getTimeTickValues,
+  yearLabelForTickDay,
   findNearestPoint,
   getCurveValue,
   ANALYST_QUANTILES,
@@ -407,11 +408,10 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
                 const spanYears = (max - min) / 365.25;
                 const onlyYears = spanYears > 2.2;
 
-                const year = Math.round(2009 + value / 365.25);
-
                 if (onlyYears) {
-                  return year.toString();
+                  return yearLabelForTickDay(value);
                 } else {
+                  const year = Math.round(2009 + value / 365.25);
                   const d = daysToDate(value);
                   const month = d.getUTCMonth();
                   if (month === 0) {
@@ -423,8 +423,8 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
                 }
               },
             },
-            // Force the exact tick positions we calculated (one per year for 3y/5y/All,
-            // bi-monthly for 1y). This defeats Chart.js's automatic extra tick generation
+            // Force the exact tick positions we calculated (log-spaced for All, annual
+            // for 3y/5y, bi-monthly for 1y). This defeats Chart.js's automatic extra tick
             // on logarithmic scales that was causing duplicate year labels.
             afterBuildTicks: (axis: any) => {
               const desired = (axis.chart as any)._desiredXTicks;
