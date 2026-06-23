@@ -58,12 +58,12 @@ let chart: any = null;
 
 // Gold flip card state
 let goldFlipChart: any = null;
-let selectedGoldCagr = 0.06;
+let selectedGoldCagr = 0.08;
 let longTermCurvesCache: any = null;
 
 // Mayer Multiple history card state
 let mayerChart: any = null;
-let mayerRange: 'all' | '5y' | '2y' = 'all';
+let mayerRange: 'all' | '5y' | '2y' = '2y';
 let fullMayerSeries: Array<{ x: number; y: number }> = [];
 
 // Asset correlations card state
