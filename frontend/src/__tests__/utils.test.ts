@@ -8,6 +8,8 @@ import {
   getHorizonTargets,
   getShortHorizonTargets,
   quantileLabel,
+  buildTimeBelowQuantileExplanation,
+  formatTimeBelowQuantileSubtext,
   ANALYST_QUANTILES,
   calculateCAGR,
   findPriceAtYearsAgo,
@@ -53,6 +55,44 @@ describe('quantileLabel', () => {
     expect(quantileLabel(0.99)).toBe('Q99');
     expect(quantileLabel(0.5)).toBe('Q50');
     expect(quantileLabel(0.01)).toBe('Q1');
+  });
+});
+
+describe('time below quantile helpers', () => {
+  it('formats the day-count subtext', () => {
+    expect(formatTimeBelowQuantileSubtext(22, 5288)).toBe('22 of 5,288 days since 2012');
+  });
+
+  it('describes a low quantile as historically rare', () => {
+    const text = buildTimeBelowQuantileExplanation({
+      currentQuantile: 0.004,
+      quantileLabel: 'Q0',
+      timeBelowPct: 0.4,
+    });
+    expect(text).toContain('0th percentile (Q0)'); // 0 uses "th"
+    expect(text).toContain('0.4% of trading days');
+    expect(text).toContain('99.6% of the time');
+    expect(text).toContain('richer versus the model');
+  });
+
+  it('describes a high quantile as historically common', () => {
+    const text = buildTimeBelowQuantileExplanation({
+      currentQuantile: 0.82,
+      quantileLabel: 'Q82',
+      timeBelowPct: 78.5,
+    });
+    expect(text).toContain('82nd percentile (Q82)');
+    expect(text).toContain('78.5% of trading days');
+    expect(text).toContain('cheaper versus the model');
+  });
+
+  it('uses neutral wording near the median', () => {
+    const text = buildTimeBelowQuantileExplanation({
+      currentQuantile: 0.5,
+      quantileLabel: 'Q50',
+      timeBelowPct: 50,
+    });
+    expect(text).toContain('similar level versus the model');
   });
 });
 

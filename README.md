@@ -7,7 +7,7 @@ Interactive visualization of Bitcoin's long-term power law trend using Giovanni 
 - **Core model**: Quantile regression (Q25 / Q50 / Q75) fit on log-log daily Bitcoin closes (`log10(price) ~ log10(days_since_2009-01-03)`).
 - **Data source**: `btc_daily.csv` (daily closes back to ~2012, kept fresh via script).
 - **Bands**: Residual-based parallel bands around the central (Q50) fit for stability. Long-term projections use **simple time-based decay** (Option 1) so the Q75/Q50 ratio compresses naturally toward ~1.3–1.45× by the early 2030s (matching how many analysts present maturing power law corridors).
-- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 bands, fully dynamic axes, 10-year year-end projections table, Bitcoin CAGR table (1y/3y/5y/10y), current quantile position + short-term outlook card, year + month tooltips.
+- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 bands, fully dynamic axes, 10-year year-end projections table, Bitcoin CAGR table (1y/3y/5y/10y), current quantile position + short-term outlook card, **Time Spent Below Quantile** card (historical context for today's power-law rank), Mayer Multiple history, rolling asset-class correlations, gold market-cap flip projections, year + month tooltips.
 
 The old single-file `index.html` (root) is the legacy prototype. The current production experience lives in `frontend/` + `backend/`.
 
@@ -50,6 +50,17 @@ This produces stable, non-crossing bands whose width narrows in the far future w
 - Which columns appear (Q10/Q25/Q50/Q75/Q90) is determined dynamically by the band toggles on the main chart, so the table always matches what you are looking at.
 
 You can inspect the live fitted coefficients and decay settings at the `/parameters` endpoint (or via the health + curves responses). The sense checker (`backend/sense_check.py`) and the test suite enforce that Q50 stays between the bands and that decay is applied only to future non-central points.
+
+### Time Spent Below Quantile (new analysis card)
+The **Time Spent Below Quantile** card answers: "How unusual is today's position versus the power-law model, and how often has Bitcoin been this cheap (or cheaper) relative to the trend?"
+
+1. Take today's actual close and compute its **empirical quantile rank** against the full historical distribution of log-residuals around the central Q50 fit (same method as the Current Quantile Position card).
+2. For every trading day since **2012-01-01**, compute that day's rank the same way.
+3. Count the share of those days whose rank is **at or below** today's rank.
+
+Example: if Bitcoin is currently at the 42nd percentile (Q42), and 38% of days since 2012 were also at or below Q42, the card shows **Time Below: 38%**. The remaining 62% of days traded richer versus the model than today.
+
+The metric is returned by `GET /current` as `time_below_quantile` and rendered in the frontend with large readouts plus a plain-English explanation.
 
 ## Alignment with Giovanni Santostasi's Power Law Model
 
@@ -213,7 +224,9 @@ The legacy single-file version is archived in `archive/old-single-file/`.
 - `GET /historical?start_days=...&end_days=...` — Actual daily close prices (for the blue line).
 - `POST /refit` — Reload CSV and refit all quantile models (use after data updates).
 - `GET /parameters` — Fitted coefficients + current residual quantiles + decay settings.
-- `GET /current` — Latest actual price + its empirical quantile rank (0-1) vs historical residuals around Q50, plus context (for the "current quantile position" card + short-term outlook).
+- `GET /current` — Latest actual price + its empirical quantile rank (0-1) vs historical residuals around Q50, short-term historical-analog projections, and `time_below_quantile` stats for the Time Spent Below Quantile card.
+- `GET /stats` — Optional fit diagnostics (OLS R², β stability windows, rolling β series). Not shown in the UI; useful for debugging and analysis.
+- `GET /correlations` — Rolling log-return correlations between Bitcoin and major asset classes (SPY, GLD, AGG, VNQ).
 - `GET /health` — Simple health check + `data_end_date`. Used by the frontend to keep time ranges and freshness display up to date automatically.
 
 Full interactive docs: http://localhost:8000/docs (when backend is running).
@@ -286,7 +299,7 @@ npm run test:run      # Run once
 npm test              # Watch mode
 ```
 
-Tests pure utility functions (tick generation, price formatting, nearest-point lookup, CAGR calculation, historical price lookup for periods, etc.) that were extracted into `src/utils.ts` for testability. The new Bitcoin CAGR card uses `calculateCAGR` and `findPriceAtYearsAgo`.
+Tests pure utility functions (tick generation, price formatting, nearest-point lookup, CAGR calculation, historical price lookup for periods, Mayer Multiple helpers, time-below-quantile explanation text, etc.) that were extracted into `src/utils.ts` for testability.
 
 ### API Smoke Tests (standalone)
 
@@ -336,6 +349,8 @@ simplepowerlaw/
 
 ## Recent Major Changes
 
+- New **Time Spent Below Quantile** card: shows today's power-law quantile rank and the percentage of trading days since 2012 at or below that same rank. Backend logic lives in `QuantilePowerLawModel.get_time_below_quantile()` and is exposed via `/current`; frontend copy is built by testable helpers in `src/utils.ts`.
+- Removed the **Statistical Summary — Power Law Fit (Q50)** UI panel. The underlying `GET /stats` diagnostics endpoint remains available for debugging.
 - New **Bitcoin CAGR card/table** in the UI: historical compound annual growth rates for 1y/3y/5y/10y, computed client-side from `/historical` data using pure `calculateCAGR` + `findPriceAtYearsAgo` utils (with Vitest coverage).
 - **Testing & Safety Infrastructure** (v3.4):
   - New model **sense checker** (`backend/sense_check.py`) that validates key invariants (no quantile crossing, correct decay behavior, etc.).

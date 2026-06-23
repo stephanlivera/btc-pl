@@ -208,6 +208,8 @@ def test_get_current_position_returns_sensible_values(fitted_model):
 
 def test_get_time_below_quantile(fitted_model):
     """Time-below stats should be consistent with current quantile and 2012+ sample."""
+    import datetime as dt
+
     pos = fitted_model.get_current_position()
     stats = fitted_model.get_time_below_quantile()
 
@@ -219,6 +221,19 @@ def test_get_time_below_quantile(fitted_model):
     assert 0 <= stats["days_at_or_below"] <= stats["total_days"]
     assert 0.0 <= stats["time_below_pct"] <= 100.0
     assert abs(stats["time_below_pct"] - (stats["days_at_or_below"] / stats["total_days"] * 100)) < 0.15
+    assert stats["data_end_date"] == str(fitted_model.data_end_date)
+
+    # Recompute the day count independently to guard against drift in the helper.
+    central_res = fitted_model.results[0.5]
+    central_a = float(central_res.params["const"])
+    central_b = float(central_res.params["log_days"])
+    subset = fitted_model.df[fitted_model.df["Date"].dt.date >= dt.date(2012, 1, 1)].copy()
+    central_log = central_a + central_b * subset["log_days"].astype(float)
+    residuals = subset["log_close"].astype(float).to_numpy() - central_log.to_numpy()
+    ranks = (fitted_model._log_residuals[:, np.newaxis] <= residuals[np.newaxis, :]).mean(axis=0)
+    manual_count = int((ranks <= pos["quantile"]).sum())
+    assert stats["days_at_or_below"] == manual_count
+    assert stats["total_days"] == len(subset)
 
 
 def test_get_historical_analog_projections(fitted_model):

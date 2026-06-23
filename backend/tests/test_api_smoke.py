@@ -51,11 +51,15 @@ def test_current_endpoint_returns_position_and_quantile():
     assert data["meta"].get("ref_days") is not None
 
     tbq = data["time_below_quantile"]
-    if tbq:
-        assert "current_quantile" in tbq and 0.0 <= tbq["current_quantile"] <= 1.0
-        assert "time_below_pct" in tbq and 0.0 <= tbq["time_below_pct"] <= 100.0
-        assert "days_at_or_below" in tbq and tbq["days_at_or_below"] <= tbq["total_days"]
-        assert tbq.get("since_date") == "2012-01-01"
+    assert tbq is not None
+    assert "current_quantile" in tbq and 0.0 <= tbq["current_quantile"] <= 1.0
+    assert tbq["current_quantile"] == pos["quantile"]
+    assert tbq["quantile_label"] == pos["quantile_label"]
+    assert "time_below_pct" in tbq and 0.0 <= tbq["time_below_pct"] <= 100.0
+    assert "days_at_or_below" in tbq and tbq["days_at_or_below"] <= tbq["total_days"]
+    assert tbq["total_days"] > 1000
+    assert tbq.get("since_date") == "2012-01-01"
+    assert abs(tbq["time_below_pct"] - (tbq["days_at_or_below"] / tbq["total_days"] * 100)) < 0.15
 
     ap = data["analog_projections"]
     if ap:
@@ -116,6 +120,19 @@ def test_historical_endpoint():
     data = response.json()
     assert "points" in data
     assert isinstance(data["points"], list)
+
+
+def test_stats_endpoint_returns_fit_summary():
+    """Optional diagnostics endpoint (no longer surfaced in the UI)."""
+    response = client.get("/stats")
+    assert response.status_code == 200
+    data = response.json()
+    assert "fit" in data
+    assert "stability" in data
+    fit = data["fit"]
+    assert "beta" in fit
+    assert "ols_r2" in fit
+    assert "current_deviation_pct" in fit
 
 
 def test_correlations_endpoint():

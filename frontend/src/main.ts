@@ -13,6 +13,9 @@ import {
   getHorizonTargets,
   getShortHorizonTargets,
   quantileLabel,
+  buildTimeBelowQuantileExplanation,
+  formatTimeBelowQuantileSubtext,
+  formatQuantilePercentileSubtext,
   END_OF_2035_DAYS as IMPORTED_END_OF_2035_DAYS,
   getEndOfYearDays,
   calculateCAGR,
@@ -755,27 +758,23 @@ async function loadTimeBelowQuantileCard() {
     }
 
     const qLabel = stats.quantile_label || pos.quantile_label || 'Q??';
-    const qPct = Math.round((stats.current_quantile ?? pos.quantile ?? 0) * 100);
     const timeBelow = stats.time_below_pct;
 
     if (quantileEl) quantileEl.textContent = qLabel;
-    if (quantileSubEl) quantileSubEl.textContent = `${qPct}th percentile vs model`;
+    if (quantileSubEl) {
+      quantileSubEl.textContent = formatQuantilePercentileSubtext(stats.current_quantile ?? pos.quantile ?? 0);
+    }
     if (pctEl) pctEl.textContent = `${timeBelow.toFixed(1)}%`;
-    if (pctSubEl) {
-      pctSubEl.textContent = `${stats.days_at_or_below?.toLocaleString() ?? '—'} of ${stats.total_days?.toLocaleString() ?? '—'} days since 2012`;
+    if (pctSubEl && stats.days_at_or_below != null && stats.total_days != null) {
+      pctSubEl.textContent = formatTimeBelowQuantileSubtext(stats.days_at_or_below, stats.total_days);
     }
 
     if (explanationEl) {
-      const abovePct = (100 - timeBelow).toFixed(1);
-      const richness = timeBelow < 50
-        ? 'richer versus the model than it does today'
-        : timeBelow > 50
-          ? 'cheaper versus the model than it does today'
-          : 'at a similar level versus the model as today';
-      explanationEl.textContent =
-        `Bitcoin is currently at the ${qPct}th percentile (${qLabel}) of historical deviations from the central power-law trend. ` +
-        `Since 2012, price has been at or below this relative level on ${timeBelow.toFixed(1)}% of trading days — ` +
-        `meaning ${abovePct}% of the time, BTC has traded ${richness}.`;
+      explanationEl.textContent = buildTimeBelowQuantileExplanation({
+        currentQuantile: stats.current_quantile ?? pos.quantile ?? 0,
+        quantileLabel: qLabel,
+        timeBelowPct: timeBelow,
+      });
     }
   } catch (err) {
     console.error('Failed to load time-below quantile card', err);

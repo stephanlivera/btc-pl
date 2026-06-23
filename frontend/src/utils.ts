@@ -67,6 +67,52 @@ export function quantileLabel(q: number): string {
   return `Q${Math.round(q * 100)}`;
 }
 
+export interface TimeBelowQuantileInput {
+  currentQuantile: number;
+  quantileLabel: string;
+  timeBelowPct: number;
+}
+
+export function ordinal(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+
+/** Plain-English summary for the Time Spent Below Quantile card. */
+export function buildTimeBelowQuantileExplanation({
+  currentQuantile,
+  quantileLabel: label,
+  timeBelowPct,
+}: TimeBelowQuantileInput): string {
+  const qPct = Math.round(currentQuantile * 100);
+  const abovePct = (100 - timeBelowPct).toFixed(1);
+  const richness =
+    timeBelowPct < 50
+      ? 'richer versus the model than it does today'
+      : timeBelowPct > 50
+        ? 'cheaper versus the model than it does today'
+        : 'at a similar level versus the model as today';
+  return (
+    `Bitcoin is currently at the ${ordinal(qPct)} percentile (${label}) of historical deviations from the central power-law trend. ` +
+    `Since 2012, price has been at or below this relative level on ${timeBelowPct.toFixed(1)}% of trading days — ` +
+    `meaning ${abovePct}% of the time, BTC has traded ${richness}.`
+  );
+}
+
+export function formatTimeBelowQuantileSubtext(daysAtOrBelow: number, totalDays: number): string {
+  return `${daysAtOrBelow.toLocaleString()} of ${totalDays.toLocaleString()} days since 2012`;
+}
+
+export function formatQuantilePercentileSubtext(quantile: number): string {
+  return `${ordinal(Math.round(quantile * 100))} percentile vs model`;
+}
+
 export function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {
   // Produces the exact day counts (since 2009-01-03) for the next 10 calendar
   // year-ends (Dec 31). These day numbers are sent to the backend /curves
