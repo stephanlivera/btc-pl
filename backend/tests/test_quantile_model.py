@@ -206,6 +206,21 @@ def test_get_current_position_returns_sensible_values(fitted_model):
         assert 0.4 <= pos["quantile"] <= 0.6
 
 
+def test_get_time_below_quantile(fitted_model):
+    """Time-below stats should be consistent with current quantile and 2012+ sample."""
+    pos = fitted_model.get_current_position()
+    stats = fitted_model.get_time_below_quantile()
+
+    assert isinstance(stats, dict)
+    assert stats["current_quantile"] == pos["quantile"]
+    assert stats["quantile_label"] == pos["quantile_label"]
+    assert stats["since_date"] == "2012-01-01"
+    assert stats["total_days"] > 1000
+    assert 0 <= stats["days_at_or_below"] <= stats["total_days"]
+    assert 0.0 <= stats["time_below_pct"] <= 100.0
+    assert abs(stats["time_below_pct"] - (stats["days_at_or_below"] / stats["total_days"] * 100)) < 0.15
+
+
 def test_get_historical_analog_projections(fitted_model):
     """Analog projections should return multiplier stats (median_mult etc.) for requested horizons based on similar-residual history."""
     pos = fitted_model.get_current_position()

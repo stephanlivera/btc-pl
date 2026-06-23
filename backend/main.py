@@ -212,6 +212,11 @@ def get_current():
     except Exception:
         analog_projections = None
 
+    try:
+        time_below_quantile = model.get_time_below_quantile()
+    except Exception:
+        time_below_quantile = None
+
     return {
         "meta": {
             "data_end_date": str(model.data_end_date),
@@ -220,6 +225,7 @@ def get_current():
         },
         "position": position,
         "analog_projections": analog_projections,
+        "time_below_quantile": time_below_quantile,
         "note": "quantile (0-1) is the empirical CDF rank of the latest log-residual vs full historical _log_residuals around Q50 central (parallel bands + decay). 'analog_projections' provides historical *multipliers* (gains) from k-nearest similar-residual regimes; scaled_* fields apply those multipliers to today's actual price.",
     }
 

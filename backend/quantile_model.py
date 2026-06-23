@@ -450,6 +450,48 @@ class QuantilePowerLawModel:
             "quantile_label": quantile_label,
         }
 
+    def get_time_below_quantile(self, since_date: dt.date | None = None) -> dict:
+        """Share of days since `since_date` when price was at or below today's quantile rank.
+
+        For each day, the empirical quantile rank is computed the same way as
+        get_current_position(): log-residual vs the Q50 central fit, ranked against
+        the full historical residual distribution.
+        """
+        if self.df is None or self.df.empty:
+            raise RuntimeError("Data not loaded")
+        if 0.5 not in self.results or not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
+            raise RuntimeError("Central model or residuals not available; fit the model first.")
+
+        position = self.get_current_position()
+        current_quantile = float(position["quantile"])
+
+        since = since_date or dt.date(2012, 1, 1)
+        central_res = self.results[0.5]
+        central_a = float(central_res.params["const"])
+        central_b = float(central_res.params["log_days"])
+
+        subset = self.df[self.df["Date"].dt.date >= since].copy()
+        if subset.empty:
+            raise ValueError(f"No data on or after {since}")
+
+        central_log = central_a + central_b * subset["log_days"].astype(float)
+        residuals = subset["log_close"].astype(float).to_numpy() - central_log.to_numpy()
+        ranks = (self._log_residuals[:, np.newaxis] <= residuals[np.newaxis, :]).mean(axis=0)
+
+        days_at_or_below = int((ranks <= current_quantile).sum())
+        total_days = int(len(subset))
+        time_below_pct = (days_at_or_below / total_days) * 100.0
+
+        return {
+            "current_quantile": round(current_quantile, 4),
+            "quantile_label": position["quantile_label"],
+            "time_below_pct": round(time_below_pct, 1),
+            "days_at_or_below": days_at_or_below,
+            "total_days": total_days,
+            "since_date": str(since),
+            "data_end_date": str(self.data_end_date) if self.data_end_date else None,
+        }
+
     def get_historical_analog_projections(
         self, quantile: float, horizons: list[int], k: int = 40
     ) -> dict:

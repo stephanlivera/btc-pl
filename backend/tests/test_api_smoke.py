@@ -39,6 +39,7 @@ def test_current_endpoint_returns_position_and_quantile():
     assert "meta" in data
     assert "position" in data
     assert "analog_projections" in data
+    assert "time_below_quantile" in data
     assert "note" in data
 
     pos = data["position"]
@@ -48,6 +49,13 @@ def test_current_endpoint_returns_position_and_quantile():
     assert "deviation_pct" in pos
     assert "model_q50" in pos
     assert data["meta"].get("ref_days") is not None
+
+    tbq = data["time_below_quantile"]
+    if tbq:
+        assert "current_quantile" in tbq and 0.0 <= tbq["current_quantile"] <= 1.0
+        assert "time_below_pct" in tbq and 0.0 <= tbq["time_below_pct"] <= 100.0
+        assert "days_at_or_below" in tbq and tbq["days_at_or_below"] <= tbq["total_days"]
+        assert tbq.get("since_date") == "2012-01-01"
 
     ap = data["analog_projections"]
     if ap:

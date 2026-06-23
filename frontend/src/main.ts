@@ -730,6 +730,64 @@ async function loadQuantileHorizonTable() {
   }
 }
 
+async function loadTimeBelowQuantileCard() {
+  const card = document.getElementById('time-below-quantile-card');
+  if (!card) return;
+
+  const quantileEl = document.getElementById('time-below-current-quantile');
+  const quantileSubEl = document.getElementById('time-below-current-quantile-sub');
+  const pctEl = document.getElementById('time-below-pct');
+  const pctSubEl = document.getElementById('time-below-pct-sub');
+  const explanationEl = document.getElementById('time-below-explanation');
+  const nowDateEl = document.getElementById('time-below-quantile-now-date');
+
+  if (nowDateEl && currentDataEndDate) {
+    nowDateEl.textContent = ` (through ${currentDataEndDate})`;
+  }
+
+  try {
+    const data = await fetchCurrentPosition();
+    const stats = data.time_below_quantile;
+    const pos = data.position || {};
+
+    if (!stats) {
+      throw new Error('time_below_quantile missing from /current response');
+    }
+
+    const qLabel = stats.quantile_label || pos.quantile_label || 'Q??';
+    const qPct = Math.round((stats.current_quantile ?? pos.quantile ?? 0) * 100);
+    const timeBelow = stats.time_below_pct;
+
+    if (quantileEl) quantileEl.textContent = qLabel;
+    if (quantileSubEl) quantileSubEl.textContent = `${qPct}th percentile vs model`;
+    if (pctEl) pctEl.textContent = `${timeBelow.toFixed(1)}%`;
+    if (pctSubEl) {
+      pctSubEl.textContent = `${stats.days_at_or_below?.toLocaleString() ?? '—'} of ${stats.total_days?.toLocaleString() ?? '—'} days since 2012`;
+    }
+
+    if (explanationEl) {
+      const abovePct = (100 - timeBelow).toFixed(1);
+      const richness = timeBelow < 50
+        ? 'richer versus the model than it does today'
+        : timeBelow > 50
+          ? 'cheaper versus the model than it does today'
+          : 'at a similar level versus the model as today';
+      explanationEl.textContent =
+        `Bitcoin is currently at the ${qPct}th percentile (${qLabel}) of historical deviations from the central power-law trend. ` +
+        `Since 2012, price has been at or below this relative level on ${timeBelow.toFixed(1)}% of trading days — ` +
+        `meaning ${abovePct}% of the time, BTC has traded ${richness}.`;
+    }
+  } catch (err) {
+    console.error('Failed to load time-below quantile card', err);
+    if (quantileEl) quantileEl.textContent = '—';
+    if (pctEl) pctEl.textContent = '—';
+    if (explanationEl) {
+      explanationEl.textContent = 'Failed to load time-below quantile stats (is the backend running?).';
+      explanationEl.classList.add('text-red-400');
+    }
+  }
+}
+
 async function loadCurrentQuantileCard() {
   const tableBody = document.getElementById('current-quantile-table') as HTMLElement | null;
   const nowDateEl = document.getElementById('current-quantile-now-date');
@@ -1361,144 +1419,6 @@ async function loadBitcoinCAGRCard() {
   }
 }
 
-async function loadStatisticalSummaryPanel() {
-  const card = document.getElementById('statistical-summary-card');
-  if (!card) return;
-
-  const metrics = {
-    r2: document.getElementById('stat-ols-r2'),
-    corr: document.getElementById('stat-corr'),
-    beta: document.getElementById('stat-beta'),
-    betaCi: document.getElementById('stat-beta-ci'),
-    equation: document.getElementById('stat-equation'),
-    dev: document.getElementById('stat-deviation'),
-    devAbs: document.getElementById('stat-deviation-abs'),
-  };
-  const tableBody = document.getElementById('stat-stability-table') as HTMLElement | null;
-  const canvas = document.getElementById('beta-stability-chart') as HTMLCanvasElement | null;
-
-  if (tableBody) tableBody.innerHTML = loadingTableRow(4, 'Loading fit diagnostics…', 'px-3 py-2 text-xs');
-
-  let data: any = null;
-  try {
-    const res = await fetch('/api/stats');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    data = await res.json();
-  } catch (e) {
-    console.error('Failed to load /stats', e);
-    if (tableBody) tableBody.innerHTML = `<tr><td colspan="4" class="px-3 py-2 text-red-400 text-xs">Failed to load statistical summary (is backend running?)</td></tr>`;
-    return;
-  }
-
-  const fit = data.fit || {};
-  const stability = data.stability || {};
-
-  // Prominent metrics
-  if (metrics.r2) metrics.r2.textContent = fit.ols_r2 != null ? fit.ols_r2.toFixed(4) : '—';
-  if (metrics.corr) metrics.corr.textContent = fit.correlation != null ? fit.correlation.toFixed(4) : '—';
-  if (metrics.beta) metrics.beta.textContent = fit.beta != null ? fit.beta.toFixed(3) : '—';
-  if (metrics.betaCi) {
-    if (fit.beta_ci && fit.beta_ci.length === 2) {
-      metrics.betaCi.textContent = `[${fit.beta_ci[0].toFixed(3)}, ${fit.beta_ci[1].toFixed(3)}]`;
-    } else {
-      metrics.betaCi.textContent = '';
-    }
-  }
-  if (metrics.equation) metrics.equation.textContent = fit.equation || '—';
-
-  const devSign = (fit.current_deviation_pct ?? 0) >= 0 ? '+' : '';
-  if (metrics.dev) {
-    metrics.dev.textContent = fit.current_deviation_pct != null
-      ? `${devSign}${fit.current_deviation_pct.toFixed(1)}%`
-      : '—';
-    metrics.dev.className = `text-2xl font-semibold font-mono tabular-nums mt-0.5 ${(fit.current_deviation_pct ?? 0) >= 0 ? 'text-sky-400' : 'text-emerald-400'}`;
-  }
-  if (metrics.devAbs) {
-    const absStr = fit.current_deviation_abs != null ? `$${Math.abs(fit.current_deviation_abs).toLocaleString()} ${fit.current_deviation_abs >= 0 ? 'above' : 'below'} Q50` : '';
-    metrics.devAbs.textContent = absStr;
-  }
-
-  // Stability table
-  if (tableBody) {
-    const rows = (stability.windows || []).map((w: any) => `
-      <tr>
-        <td class="px-3 py-1.5 font-medium">${w.label}</td>
-        <td class="px-3 py-1.5 text-right font-mono text-orange-400">${w.beta.toFixed(3)}</td>
-        <td class="px-3 py-1.5 text-right font-mono text-zinc-400">${w.n}</td>
-        <td class="px-3 py-1.5 text-xs text-zinc-500">${w.period || ''}</td>
-      </tr>
-    `).join('');
-    tableBody.innerHTML = rows || `<tr><td colspan="4" class="px-3 py-2 text-zinc-500 text-xs">No stability data</td></tr>`;
-  }
-
-  // Small rolling β line chart
-  if (canvas && (stability.rolling_beta_4y || []).length > 1) {
-    const pts = stability.rolling_beta_4y as Array<{x: number; beta: number}>;
-    // Destroy previous if any (reuse pattern from other charts)
-    const prev = (canvas as any)._chartInstance;
-    if (prev && typeof prev.destroy === 'function') prev.destroy();
-
-    const labels = pts.map(p => {
-      const yr = 2009 + p.x / 365.25;
-      return yr.toFixed(1);
-    });
-    const values = pts.map(p => p.beta);
-
-    const ch = new Chart(canvas, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'β (4y trailing)',
-          data: values,
-          borderColor: '#f59e0b',
-          borderWidth: 2,
-          pointRadius: 1.5,
-          pointHoverRadius: 3,
-          tension: 0.15,
-          fill: false,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 200 },
-        scales: {
-          x: {
-            title: { display: true, text: 'Year (end of window)', color: '#71717a', font: { size: 10 } },
-            ticks: { color: '#71717a', font: { size: 9 }, maxTicksLimit: 8 },
-            grid: { color: 'rgba(63,63,70,0.3)' },
-          },
-          y: {
-            title: { display: true, text: 'β', color: '#71717a', font: { size: 10 } },
-            ticks: { color: '#71717a', font: { size: 9 } },
-            grid: { color: 'rgba(63,63,70,0.3)' },
-          },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx: any) => `β = ${Number(ctx.raw).toFixed(3)}`,
-            },
-          },
-        },
-        elements: { point: { hitRadius: 6 } },
-      },
-    });
-    (canvas as any)._chartInstance = ch;
-  } else if (canvas) {
-    // Placeholder text if not enough data
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#52525b';
-      ctx.font = '12px Inter, system-ui, sans-serif';
-      ctx.fillText('Insufficient history for rolling β series', 10, 20);
-    }
-  }
-}
-
 async function loadGoldFlipCard() {
   // Setup the segmented controls for gold growth rate (affects chart gold line)
   const controls = document.getElementById('gold-growth-controls');
@@ -2118,11 +2038,11 @@ async function init() {
     loadYearEndProjections(),
     loadQuantileHorizonTable(),
     loadCurrentQuantileCard(),
+    loadTimeBelowQuantileCard(),
     loadBitcoinStatsCard(),
     loadMayerMultipleCard(),
     loadBitcoinCAGRCard(),
     loadGoldFlipCard(),
-    loadStatisticalSummaryPanel(),
     loadAssetCorrelationsCard(),
   ]);
 
