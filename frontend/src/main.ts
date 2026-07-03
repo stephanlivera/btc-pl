@@ -252,17 +252,42 @@ function getVisibleRanges(range: 'all' | '5y' | '3y' | '1y') {
 
 // --- Chart Rendering ---
 
-function renderChart(curvesData: any, historicalData: any, startDays: number, endDays: number) {
-  // Capture full source data for robust tooltip lookups (independent of Chart.js hit detection)
-  lastHistoricalPoints = historicalData?.points ?? [];
-  lastCurves = curvesData?.curves ?? {};
+const MAIN_CHART_INNER_FILL_ORDER = 5;
+const MAIN_CHART_OUTER_FILL_ORDER = 6;
 
-  const ctx = document.getElementById('chart') as HTMLCanvasElement;
-  if (!ctx) return;
+/** Shaded corridor between an upper and lower quantile curve (fill targets previous dataset). */
+function addCorridorFill(
+  datasets: any[],
+  upper: Array<{ x: number; y: number }>,
+  lower: Array<{ x: number; y: number }>,
+  fillColor: string,
+  order: number
+): void {
+  datasets.push({
+    label: '_corridor_upper',
+    data: upper,
+    borderWidth: 0,
+    pointRadius: 0,
+    borderColor: 'transparent',
+    fill: false,
+    order,
+  });
+  datasets.push({
+    label: '_corridor_fill',
+    data: lower,
+    borderWidth: 0,
+    pointRadius: 0,
+    borderColor: 'transparent',
+    backgroundColor: fillColor,
+    fill: { target: '-1', above: fillColor },
+    order,
+  });
+}
 
+function buildMainChartDatasets(curvesData: any, historicalData: any): any[] {
   const datasets: any[] = [];
+  const curves = curvesData?.curves ?? {};
 
-  // Historical price (blue) - like the original site
   if (historicalData?.points?.length) {
     datasets.push({
       label: 'Historical Price',
@@ -277,11 +302,30 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
     });
   }
 
-  // Central line (Q50)
-  if (curvesData.curves?.[0.5]) {
+  if (showOuterBands && curves[0.9] && curves[0.1]) {
+    addCorridorFill(
+      datasets,
+      curves[0.9],
+      curves[0.1],
+      'rgba(245, 158, 11, 0.07)',
+      MAIN_CHART_OUTER_FILL_ORDER
+    );
+  }
+
+  if (showBands && curves[0.75] && curves[0.25]) {
+    addCorridorFill(
+      datasets,
+      curves[0.75],
+      curves[0.25],
+      'rgba(245, 158, 11, 0.14)',
+      MAIN_CHART_INNER_FILL_ORDER
+    );
+  }
+
+  if (curves[0.5]) {
     datasets.push({
       label: 'Central (Q50)',
-      data: curvesData.curves[0.5],
+      data: curves[0.5],
       borderColor: '#f59e0b',
       borderWidth: 3,
       pointRadius: 0,
@@ -290,41 +334,36 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
     });
   }
 
-  // Outer bands (Q10 / Q90) with dynamic alpha for fade on toggle
-  if (curvesData.curves?.[0.1]) {
-    const outerAlpha = showOuterBands ? 0.35 : 0.06;
+  if (showOuterBands && curves[0.1]) {
     datasets.push({
       label: 'Q10 (Lower)',
-      data: curvesData.curves[0.1],
-      borderColor: `rgba(245, 158, 11, ${outerAlpha})`,
+      data: curves[0.1],
+      borderColor: 'rgba(245, 158, 11, 0.35)',
       borderWidth: 1.5,
       borderDash: [2, 4],
       pointRadius: 0,
       tension: 0,
-      order: 4,
+      order: 3,
     });
   }
-  if (curvesData.curves?.[0.9]) {
-    const outerAlpha = showOuterBands ? 0.35 : 0.06;
+  if (showOuterBands && curves[0.9]) {
     datasets.push({
       label: 'Q90 (Upper)',
-      data: curvesData.curves[0.9],
-      borderColor: `rgba(245, 158, 11, ${outerAlpha})`,
+      data: curves[0.9],
+      borderColor: 'rgba(245, 158, 11, 0.35)',
       borderWidth: 1.5,
       borderDash: [2, 4],
       pointRadius: 0,
       tension: 0,
-      order: 0,
+      order: 1,
     });
   }
 
-  // Inner bands (Q25 / Q75) with dynamic alpha for fade on toggle
-  if (curvesData.curves?.[0.25]) {
-    const innerAlpha = showBands ? 0.55 : 0.08;
+  if (showBands && curves[0.25]) {
     datasets.push({
       label: 'Q25 (Lower)',
-      data: curvesData.curves[0.25],
-      borderColor: `rgba(245, 158, 11, ${innerAlpha})`,
+      data: curves[0.25],
+      borderColor: 'rgba(245, 158, 11, 0.55)',
       borderWidth: 2,
       borderDash: [5, 3],
       pointRadius: 0,
@@ -332,12 +371,11 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
       order: 3,
     });
   }
-  if (curvesData.curves?.[0.75]) {
-    const innerAlpha = showBands ? 0.55 : 0.08;
+  if (showBands && curves[0.75]) {
     datasets.push({
       label: 'Q75 (Upper)',
-      data: curvesData.curves[0.75],
-      borderColor: `rgba(245, 158, 11, ${innerAlpha})`,
+      data: curves[0.75],
+      borderColor: 'rgba(245, 158, 11, 0.55)',
       borderWidth: 2,
       borderDash: [5, 3],
       pointRadius: 0,
@@ -345,6 +383,69 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
       order: 1,
     });
   }
+
+  return datasets;
+}
+
+const mainChartDecorationsPlugin = {
+  id: 'mainChartDecorations',
+  beforeDatasetsDraw(chart: any) {
+    const xScale = chart.scales?.x;
+    const { chartArea } = chart;
+    if (!xScale || !chartArea) return;
+
+    const todayPx = xScale.getPixelForValue(currentLatestDays);
+    const ctx = chart.ctx;
+
+    ctx.save();
+
+    if (todayPx < chartArea.right) {
+      const left = Math.max(todayPx, chartArea.left);
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.035)';
+      ctx.fillRect(left, chartArea.top, chartArea.right - left, chartArea.bottom - chartArea.top);
+    }
+
+    if (todayPx >= chartArea.left && todayPx <= chartArea.right) {
+      ctx.strokeStyle = 'rgba(161, 161, 170, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(todayPx, chartArea.top);
+      ctx.lineTo(todayPx, chartArea.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+  },
+  afterDatasetsDraw(chart: any) {
+    const xScale = chart.scales?.x;
+    const { chartArea } = chart;
+    if (!xScale || !chartArea) return;
+
+    const todayPx = xScale.getPixelForValue(currentLatestDays);
+    if (todayPx < chartArea.left + 28 || todayPx > chartArea.right - 4) return;
+
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = '600 10px Inter, system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(161, 161, 170, 0.8)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Today', todayPx, chartArea.top + 8);
+    ctx.restore();
+  },
+};
+
+function renderChart(curvesData: any, historicalData: any, startDays: number, endDays: number) {
+  // Capture full source data for robust tooltip lookups (independent of Chart.js hit detection)
+  lastHistoricalPoints = historicalData?.points ?? [];
+  lastCurves = curvesData?.curves ?? {};
+
+  const ctx = document.getElementById('chart') as HTMLCanvasElement;
+  if (!ctx) return;
+
+  const datasets = buildMainChartDatasets(curvesData, historicalData);
 
   const timeTicks = getTimeTickValues(startDays, endDays);
 
@@ -408,6 +509,7 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
   } else {
     chart = new Chart(ctx, {
       type: 'line',
+      plugins: [mainChartDecorationsPlugin],
       data: { datasets },
       options: {
         responsive: true,
@@ -463,7 +565,13 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
           y: yScaleOptions,
         },
         plugins: {
-          legend: { display: true, position: 'top' },
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              filter: (item: any) => !String(item.text).startsWith('_'),
+            },
+          },
           tooltip: {
             // Use 'nearest' + axis:'x' so the tooltip follows the mouse position
             // along the x-axis as closely as possible (the behavior the user wants).
@@ -473,6 +581,7 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
             mode: 'nearest',
             axis: 'x',
             intersect: false,
+            filter: (item: any) => !String(item.dataset.label).startsWith('_'),
             backgroundColor: 'rgba(24, 24, 27, 0.95)',
             borderColor: '#3f3f46',
             borderWidth: 1,

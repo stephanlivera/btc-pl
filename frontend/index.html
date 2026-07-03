@@ -12,6 +12,10 @@
     .font-display { font-family: 'Space Grotesk', 'Inter', system_ui, sans-serif; font-weight: 600; }
     .chart-container { position: relative; background: #0a0c10; }
 
+    #main-chart-container {
+      height: min(70vh, 720px);
+    }
+
     #main-chart-card:fullscreen,
     #main-chart-card:-webkit-full-screen {
       width: 100%;
@@ -232,7 +236,7 @@
         </div>
       </div>
 
-      <div id="main-chart-container" class="chart-container rounded-2xl border border-zinc-800 p-3" style="height: 520px;">
+      <div id="main-chart-container" class="chart-container rounded-2xl border border-zinc-800 p-3">
         <div id="main-chart-loading" class="chart-loading-overlay is-visible" aria-hidden="false">
           <div class="loading-spinner" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading power law chart and price data…</p>
