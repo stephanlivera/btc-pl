@@ -28,6 +28,9 @@ def test_health_endpoint():
     data = response.json()
     assert "status" in data
     assert "data_end_date" in data or data.get("status") == "ok"
+    if data.get("data_start_date"):
+        assert data["data_start_date"] <= "2010-07-18"
+        assert data["data_end_date"] >= data["data_start_date"]
 
 
 def test_current_endpoint_returns_position_and_quantile():
@@ -145,6 +148,11 @@ def test_correlations_endpoint():
     assert "series" in data
     assert len(data["current"]) == 4
     assert "stocks" in data["series"]
+    meta = data["meta"]
+    assert meta["observations"] > 3000
+    assert meta["start_date"] < "2012-01-01"
     for row in data["current"]:
         assert "windows" in row
         assert "90" in row["windows"]
+    for pts in data["series"].values():
+        assert len(pts) > 100

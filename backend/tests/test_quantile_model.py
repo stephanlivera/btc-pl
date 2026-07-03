@@ -44,6 +44,14 @@ def test_model_fits_without_error(fitted_model):
     assert 0.5 in fitted_model.results
 
 
+def test_btc_csv_covers_history_from_2010(fitted_model):
+    """Live btc_daily.csv should include Habrador-era rows back to July 2010."""
+    assert fitted_model.df is not None
+    assert len(fitted_model.df) > 5800
+    earliest = fitted_model.df["Date"].min().date()
+    assert earliest.isoformat() == "2010-07-18"
+
+
 def test_no_quantile_crossing_recent_and_future(fitted_model):
     """Q10 < Q25 < Q50 < Q75 < Q90 at multiple points in time."""
     quantiles = [0.1, 0.25, 0.5, 0.75, 0.9]

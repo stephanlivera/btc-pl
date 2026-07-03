@@ -24,7 +24,8 @@ def corr_model():
 def test_load_returns_aligned_series(corr_model):
     returns = corr_model.returns_df
     assert returns is not None
-    assert len(returns) > 500
+    assert len(returns) > 3000
+    assert returns.index[0].strftime("%Y-%m-%d") < "2012-01-01"
     for col in ["btc", "stocks", "gold", "bonds", "property"]:
         assert col in returns.columns
 
@@ -56,7 +57,9 @@ def test_correlation_series_varies_over_time(corr_model):
 
 def test_summary_contract(corr_model):
     summary = corr_model.get_summary(window=90, step=7)
-    assert summary["meta"]["observations"] > 0
+    meta = summary["meta"]
+    assert meta["observations"] > 3000
+    assert meta["start_date"] < "2012-01-01"
     assert len(summary["current"]) == 4
-    assert len(summary["series"]["stocks"]) > 0
-    assert summary["meta"]["default_windows"] == DEFAULT_WINDOWS
+    assert len(summary["series"]["stocks"]) > 100
+    assert meta["default_windows"] == DEFAULT_WINDOWS

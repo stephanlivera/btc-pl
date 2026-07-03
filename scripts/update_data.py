@@ -3,8 +3,8 @@
 Unified data updater for Bitcoin and major asset-class CSV files.
 
 Updates:
-  - btc_daily.csv      (CoinGecko daily Bitcoin closes)
-  - assets_daily.csv   (Yahoo Finance ETF proxies: SPY, GLD, AGG, VNQ)
+  - btc_daily.csv      (Habrador backfill to 2010-07-18 when needed + CoinGecko appends)
+  - assets_daily.csv   (Yahoo Finance ETF proxies: SPY, GLD, AGG, VNQ; aligned to BTC dates)
 
 After updating, automatically triggers backend model refit, correlation reload,
 and the model sense checker (unless disabled).
@@ -14,7 +14,7 @@ Usage:
 
     COINGECKO_API_KEY=your_demo_key python scripts/update_data.py
     python scripts/update_data.py --btc-days 90
-    python scripts/update_data.py --asset-days 3650
+    python scripts/update_data.py --no-backfill
     python scripts/update_data.py --no-refit
     python scripts/update_data.py --no-sense-check
 """
@@ -55,12 +55,20 @@ def main() -> int:
         "--asset-days",
         type=int,
         default=DEFAULT_ASSET_DAYS,
-        help=f"Days of ETF history to fetch from Yahoo Finance (default: {DEFAULT_ASSET_DAYS})",
+        help=(
+            f"Days of ETF history to fetch from Yahoo Finance "
+            f"(default: {DEFAULT_ASSET_DAYS}, ~15 years)"
+        ),
     )
     parser.add_argument(
         "--backend-url",
         default=os.getenv("BACKEND_URL", "http://localhost:8000"),
         help="Base URL of the backend (default: http://localhost:8000 or $BACKEND_URL)",
+    )
+    parser.add_argument(
+        "--no-backfill",
+        action="store_true",
+        help="Skip Habrador pre-2012 BTC backfill check (default: run when CSV starts after 2010-07-18).",
     )
     parser.add_argument(
         "--no-refit",
@@ -86,6 +94,8 @@ def main() -> int:
 
     api_key = os.getenv("COINGECKO_API_KEY")
     print("Updating market data...")
+    if not args.no_backfill:
+        print("  [0/2] Bitcoin history backfill (Habrador, if CSV starts after 2010-07-18)")
     print("  [1/2] Bitcoin (CoinGecko)")
     if api_key:
         print(f"        Using API key (last {args.btc_days} days)")
@@ -102,6 +112,7 @@ def main() -> int:
             asset_days=args.asset_days,
             backend_url=args.backend_url,
             api_key=api_key,
+            backfill_btc=not args.no_backfill,
             skip_refit=args.no_refit,
             skip_sense_check=args.no_sense_check,
         )
@@ -109,13 +120,22 @@ def main() -> int:
         print(f"\nError: {exc}")
         return 1
 
+    backfill = summary.backfill
     btc = summary.btc
     assets = summary.assets
 
+    if backfill.rows_prepended:
+        print(
+            f"\nBitcoin backfill: prepended {backfill.rows_prepended} row(s) "
+            f"(history now reaches 2010-07-18)"
+        )
+    elif not args.no_backfill:
+        print("\nBitcoin backfill: not needed (history already at or before 2010-07-18)")
+
     if btc.rows_added:
-        print(f"\nBitcoin: appended {btc.rows_added} new row(s) to btc_daily.csv")
+        print(f"Bitcoin: appended {btc.rows_added} new row(s) to btc_daily.csv")
     else:
-        print("\nBitcoin: no new rows (already up to date)")
+        print("Bitcoin: no new rows (already up to date)")
     if btc.duplicates_removed:
         print(f"Bitcoin: removed {btc.duplicates_removed} duplicate date(s)")
 
@@ -124,10 +144,12 @@ def main() -> int:
         f"({assets.start_date} → {assets.end_date})"
     )
 
+    btc_changed = btc.rows_added > 0 or backfill.rows_prepended > 0
+
     if not args.no_refit:
-        if btc.rows_added and summary.refit_date:
+        if btc_changed and summary.refit_date:
             print(f"\nBackend refit complete. Model data through {summary.refit_date}.")
-        elif btc.rows_added:
+        elif btc_changed:
             print("\nWarning: Bitcoin CSV updated but automatic refit failed.")
             print(f"  Try manually: curl -X POST {args.backend_url.rstrip('/')}/refit")
 
@@ -139,12 +161,12 @@ def main() -> int:
                 f"  Try manually: curl -X POST {args.backend_url.rstrip('/')}/correlations/reload"
             )
 
-        if btc.rows_added and not args.no_sense_check:
+        if btc_changed and not args.no_sense_check:
             print("\nRunning model sense checker...")
             code = run_sense_check()
             if code != 0:
                 print("Sense checker reported issues (see output above).")
-        elif args.no_sense_check and btc.rows_added:
+        elif args.no_sense_check and btc_changed:
             print("\nSense checker skipped (--no-sense-check).")
     else:
         print("\nAutomatic backend refresh skipped (--no-refit).")

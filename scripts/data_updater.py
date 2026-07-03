@@ -1,7 +1,11 @@
 """
 Shared data update logic for Bitcoin and major asset-class CSV files.
 
-Used by scripts/update_data.py and backend tests.
+BTC history target: daily closes back to 2010-07-18 (Habrador backfill for pre-2012
+rows; CoinGecko appends recent days). Asset rows are rebuilt from Yahoo Finance ETFs
+aligned to BTC dates (default lookback: DEFAULT_ASSET_DAYS).
+
+Used by scripts/update_data.py, scripts/backfill_btc_history.py, and backend tests.
 """
 
 from __future__ import annotations
@@ -41,6 +45,11 @@ ASSET_SYMBOLS: Dict[str, str] = {
 
 
 @dataclass
+class BtcBackfillResult:
+    rows_prepended: int
+
+
+@dataclass
 class BtcUpdateResult:
     rows_added: int
     duplicates_removed: int
@@ -55,6 +64,7 @@ class AssetsUpdateResult:
 
 @dataclass
 class DataUpdateSummary:
+    backfill: BtcBackfillResult
     btc: BtcUpdateResult
     assets: AssetsUpdateResult
     refit_date: Optional[str]
@@ -119,6 +129,30 @@ def backfill_btc_csv(
         writer.writerow(["Date", "Close"])
         writer.writerows(merged)
     return len(candidate_rows)
+
+
+def read_btc_earliest_date(btc_csv_path: Path) -> Optional[dt.date]:
+    """Return the earliest date in btc_daily.csv, or None if empty."""
+    dates = read_btc_dates(btc_csv_path)
+    if not dates:
+        return None
+    return dt.date.fromisoformat(dates[0])
+
+
+def maybe_backfill_btc_csv(
+    btc_csv_path: Path = BTC_CSV_PATH,
+    session: Optional[requests.Session] = None,
+) -> BtcBackfillResult:
+    """Prepend Habrador rows when the CSV starts after EARLIEST_BTC_BACKFILL_DATE."""
+    if not btc_csv_path.exists():
+        return BtcBackfillResult(rows_prepended=0)
+
+    earliest = read_btc_earliest_date(btc_csv_path)
+    if earliest is None or earliest <= EARLIEST_BTC_BACKFILL_DATE:
+        return BtcBackfillResult(rows_prepended=0)
+
+    added = backfill_btc_csv(btc_csv_path=btc_csv_path, session=session)
+    return BtcBackfillResult(rows_prepended=added)
 
 
 def fetch_btc_daily_closes(
@@ -373,12 +407,18 @@ def run_update(
     assets_csv_path: Path = ASSETS_CSV_PATH,
     backend_url: str = "http://localhost:8000",
     api_key: Optional[str] = None,
+    backfill_btc: bool = True,
     skip_refit: bool = False,
     skip_correlations_reload: bool = False,
     skip_sense_check: bool = False,
     session: Optional[requests.Session] = None,
 ) -> DataUpdateSummary:
     """Update BTC + asset CSVs, then refresh backend state."""
+    backfill_result = (
+        maybe_backfill_btc_csv(btc_csv_path=btc_csv_path, session=session)
+        if backfill_btc
+        else BtcBackfillResult(rows_prepended=0)
+    )
     btc_result = update_btc_csv(
         btc_csv_path=btc_csv_path,
         days=btc_days,
@@ -394,7 +434,7 @@ def run_update(
 
     refit_date: Optional[str] = None
     correlations_reloaded = False
-    btc_changed = btc_result.rows_added > 0
+    btc_changed = btc_result.rows_added > 0 or backfill_result.rows_prepended > 0
 
     if not skip_refit:
         if btc_changed:
@@ -410,6 +450,7 @@ def run_update(
                 correlations_reloaded = False
 
     return DataUpdateSummary(
+        backfill=backfill_result,
         btc=btc_result,
         assets=assets_result,
         refit_date=refit_date,

@@ -25,7 +25,9 @@ def test_module_imports_expected_symbols():
     }
     assert data_updater.DEFAULT_BTC_DAYS == 180
     assert data_updater.DEFAULT_ASSET_DAYS == 5500
+    assert data_updater.EARLIEST_BTC_BACKFILL_DATE.isoformat() == "2010-07-18"
     assert callable(data_updater.run_update)
+    assert callable(data_updater.maybe_backfill_btc_csv)
 
 
 def test_backfill_btc_csv_prepends_only_older_rows(tmp_path: Path):
@@ -51,6 +53,48 @@ def test_backfill_btc_csv_prepends_only_older_rows(tmp_path: Path):
     assert rows[1] == ["2010-07-18", "0.09"]
     assert rows[2] == ["2010-07-19", "0.08"]
     assert rows[3] == ["2012-01-01", "5.0"]
+
+
+def test_fetch_habrador_btc_daily_closes_parses_csv():
+    session = MagicMock()
+    session.get.return_value.text = "\n".join(
+        [
+            "Date,Price",
+            "2010-07-17,0.01",
+            "2010-07-18,0.09",
+            "2010-07-19,0.08",
+        ]
+    )
+    session.get.return_value.raise_for_status = MagicMock()
+
+    rows = data_updater.fetch_habrador_btc_daily_closes(session=session)
+    assert rows == [("2010-07-18", 0.09), ("2010-07-19", 0.08)]
+
+
+def test_maybe_backfill_btc_csv_skips_when_history_already_extended(tmp_path: Path):
+    btc_csv = tmp_path / "btc_daily.csv"
+    btc_csv.write_text("Date,Close\n2010-07-18,0.09\n2012-01-01,5.0\n")
+
+    with patch.object(data_updater, "backfill_btc_csv") as mock_backfill:
+        result = data_updater.maybe_backfill_btc_csv(btc_csv_path=btc_csv)
+        mock_backfill.assert_not_called()
+    assert result.rows_prepended == 0
+
+
+def test_maybe_backfill_btc_csv_runs_when_csv_starts_after_2010(tmp_path: Path):
+    btc_csv = tmp_path / "btc_daily.csv"
+    btc_csv.write_text("Date,Close\n2012-01-01,5.0\n")
+
+    with patch.object(data_updater, "backfill_btc_csv", return_value=532) as mock_backfill:
+        result = data_updater.maybe_backfill_btc_csv(btc_csv_path=btc_csv)
+        mock_backfill.assert_called_once_with(btc_csv_path=btc_csv, session=None)
+    assert result.rows_prepended == 532
+
+
+def test_read_btc_earliest_date(tmp_path: Path):
+    btc_csv = tmp_path / "btc_daily.csv"
+    btc_csv.write_text("Date,Close\n2010-07-18,0.09\n2012-01-01,5.0\n")
+    assert data_updater.read_btc_earliest_date(btc_csv).isoformat() == "2010-07-18"
 
 
 def test_fetch_btc_daily_closes_parses_coingecko_payload():
@@ -160,7 +204,9 @@ def test_write_assets_csv_has_expected_header(tmp_path: Path):
 @patch.object(data_updater, "trigger_refit", return_value="2024-01-02")
 @patch.object(data_updater, "update_assets_csv")
 @patch.object(data_updater, "update_btc_csv")
+@patch.object(data_updater, "maybe_backfill_btc_csv")
 def test_run_update_triggers_backend_refresh(
+    mock_backfill,
     mock_btc,
     mock_assets,
     mock_refit,
@@ -171,6 +217,7 @@ def test_run_update_triggers_backend_refresh(
     assets_csv = tmp_path / "assets_daily.csv"
     btc_csv.write_text("Date,Close\n2024-01-01,100.0\n")
 
+    mock_backfill.return_value = data_updater.BtcBackfillResult(rows_prepended=0)
     mock_btc.return_value = data_updater.BtcUpdateResult(rows_added=1, duplicates_removed=0)
     mock_assets.return_value = data_updater.AssetsUpdateResult(
         rows_written=2,
@@ -184,6 +231,7 @@ def test_run_update_triggers_backend_refresh(
         skip_sense_check=True,
     )
 
+    mock_backfill.assert_called_once()
     mock_btc.assert_called_once()
     mock_assets.assert_called_once()
     mock_refit.assert_called_once()
@@ -192,17 +240,52 @@ def test_run_update_triggers_backend_refresh(
     assert summary.correlations_reloaded is True
 
 
-@patch.object(data_updater, "trigger_correlations_reload")
-@patch.object(data_updater, "trigger_refit")
+@patch.object(data_updater, "trigger_correlations_reload", return_value=True)
+@patch.object(data_updater, "trigger_refit", return_value="2012-01-02")
 @patch.object(data_updater, "update_assets_csv")
 @patch.object(data_updater, "update_btc_csv")
-def test_run_update_skips_refit_when_no_new_btc_rows(
+@patch.object(data_updater, "maybe_backfill_btc_csv")
+def test_run_update_triggers_refit_after_backfill(
+    mock_backfill,
     mock_btc,
     mock_assets,
     mock_refit,
     mock_corr_reload,
     tmp_path: Path,
 ):
+    mock_backfill.return_value = data_updater.BtcBackfillResult(rows_prepended=532)
+    mock_btc.return_value = data_updater.BtcUpdateResult(rows_added=0, duplicates_removed=0)
+    mock_assets.return_value = data_updater.AssetsUpdateResult(
+        rows_written=3806,
+        start_date="2011-05-13",
+        end_date="2026-07-02",
+    )
+
+    summary = data_updater.run_update(
+        btc_csv_path=tmp_path / "btc_daily.csv",
+        assets_csv_path=tmp_path / "assets_daily.csv",
+        skip_sense_check=True,
+    )
+
+    mock_refit.assert_called_once()
+    assert summary.refit_date == "2012-01-02"
+    assert summary.backfill.rows_prepended == 532
+
+
+@patch.object(data_updater, "trigger_correlations_reload")
+@patch.object(data_updater, "trigger_refit")
+@patch.object(data_updater, "update_assets_csv")
+@patch.object(data_updater, "update_btc_csv")
+@patch.object(data_updater, "maybe_backfill_btc_csv")
+def test_run_update_skips_refit_when_no_btc_changes(
+    mock_backfill,
+    mock_btc,
+    mock_assets,
+    mock_refit,
+    mock_corr_reload,
+    tmp_path: Path,
+):
+    mock_backfill.return_value = data_updater.BtcBackfillResult(rows_prepended=0)
     mock_btc.return_value = data_updater.BtcUpdateResult(rows_added=0, duplicates_removed=0)
     mock_assets.return_value = data_updater.AssetsUpdateResult(
         rows_written=10,
@@ -220,3 +303,33 @@ def test_run_update_skips_refit_when_no_new_btc_rows(
     mock_refit.assert_not_called()
     mock_corr_reload.assert_called_once()
     assert summary.refit_date is None
+
+
+@patch.object(data_updater, "trigger_correlations_reload", return_value=True)
+@patch.object(data_updater, "trigger_refit")
+@patch.object(data_updater, "update_assets_csv")
+@patch.object(data_updater, "update_btc_csv")
+def test_run_update_skips_backfill_when_disabled(
+    mock_btc,
+    mock_assets,
+    mock_refit,
+    mock_corr_reload,
+    tmp_path: Path,
+):
+    mock_btc.return_value = data_updater.BtcUpdateResult(rows_added=0, duplicates_removed=0)
+    mock_assets.return_value = data_updater.AssetsUpdateResult(
+        rows_written=10,
+        start_date="2024-01-01",
+        end_date="2024-01-10",
+    )
+
+    with patch.object(data_updater, "maybe_backfill_btc_csv") as mock_backfill:
+        summary = data_updater.run_update(
+            btc_csv_path=tmp_path / "btc_daily.csv",
+            assets_csv_path=tmp_path / "assets_daily.csv",
+            backfill_btc=False,
+            skip_sense_check=True,
+        )
+        mock_backfill.assert_not_called()
+
+    assert summary.backfill.rows_prepended == 0
