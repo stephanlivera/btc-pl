@@ -450,32 +450,58 @@ export function percentileRank(values: number[], target: number): number {
   return i / sorted.length;
 }
 
-/** Empirical power-law quantile rank for a historical price vs the Q50 curve. */
-export function computePointQuantileRank(
+export interface Q50ModelParams {
+  intercept: number;
+  slope: number;
+}
+
+/** log10(price) residual around the fitted central Q50 power law (matches backend). */
+export function logResidualFromQ50(
+  days: number,
+  price: number,
+  model: Q50ModelParams
+): number | null {
+  if (price <= 0 || days <= 0) return null;
+  const centralLog = model.intercept + model.slope * Math.log10(days);
+  return Math.log10(price) - centralLog;
+}
+
+/** Build the full-history log-residual reference distribution for empirical ranks. */
+export function buildLogResiduals(
   historicalPoints: Array<{ x: number; y: number }>,
-  curves: Record<string, Array<{ x: number; y: number }>>,
+  model: Q50ModelParams
+): number[] {
+  const residuals: number[] = [];
+  for (const p of historicalPoints) {
+    const residual = logResidualFromQ50(p.x, p.y, model);
+    if (residual != null) residuals.push(residual);
+  }
+  return residuals;
+}
+
+/** Empirical CDF rank using <= (same rule as backend get_current_position). */
+export function empiricalQuantileRank(referenceResiduals: number[], targetResidual: number): number {
+  if (!referenceResiduals.length) return 0;
+  let count = 0;
+  for (const r of referenceResiduals) {
+    if (r <= targetResidual) count++;
+  }
+  return count / referenceResiduals.length;
+}
+
+/** Empirical power-law quantile rank for a price vs the full fitted residual distribution. */
+export function computePointQuantileRank(
+  referenceResiduals: number[],
+  model: Q50ModelParams,
   targetX: number,
   targetPrice: number
 ): { quantile: number; label: string } | null {
-  if (!historicalPoints.length || targetPrice <= 0) return null;
+  if (referenceResiduals.length < 10) return null;
 
-  const q50curve = curveByQuantile(curves, 0.5);
-  if (!q50curve) return null;
+  const targetResidual = logResidualFromQ50(targetX, targetPrice, model);
+  if (targetResidual == null) return null;
 
-  const residuals: number[] = [];
-  for (const p of historicalPoints) {
-    if (p.y <= 0) continue;
-    const q50 = getCurveValue(q50curve, p.x, 30);
-    if (q50 == null || q50 <= 0) continue;
-    residuals.push(Math.log10(p.y) - Math.log10(q50));
-  }
-  if (residuals.length < 10) return null;
-
-  const q50At = getCurveValue(q50curve, targetX, 30);
-  if (q50At == null || q50At <= 0) return null;
-
-  const targetResidual = Math.log10(targetPrice) - Math.log10(q50At);
-  const quantile = percentileRank(residuals, targetResidual);
+  const quantile = empiricalQuantileRank(referenceResiduals, targetResidual);
   return { quantile, label: quantileLabel(quantile) };
 }
 

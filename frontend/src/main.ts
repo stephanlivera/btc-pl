@@ -31,6 +31,8 @@ import {
   dateToDays,
   computeChartYAxisLimits,
   computePointQuantileRank,
+  buildLogResiduals,
+  type Q50ModelParams,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -85,6 +87,11 @@ let corrDataCache: any = null;
 let lastHistoricalPoints: Array<{x: number; y: number}> = [];
 let lastCurves: Record<string, Array<{x: number; y: number}>> = {};
 
+// Full-history context for tooltip quantile ranks (must match backend methodology)
+let q50Model: Q50ModelParams | null = null;
+let fullLogResiduals: number[] = [];
+let quantileContextKey: string | null = null;
+
 // --- API Helpers ---
 
 async function fetchCurves(
@@ -116,6 +123,34 @@ async function fetchCurrentPosition() {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Backend error: ${res.status}`);
   return res.json();
+}
+
+async function fetchModelParameters() {
+  const res = await fetch('/api/parameters');
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  return res.json();
+}
+
+/** Load Q50 coefficients + full-history residuals for tooltip quantile ranks. */
+async function ensureQuantileRankContext() {
+  const cacheKey = `${currentLatestDays}:${currentDataEndDate ?? ''}`;
+  if (quantileContextKey === cacheKey && fullLogResiduals.length > 0 && q50Model) {
+    return;
+  }
+
+  const [paramsData, histData] = await Promise.all([
+    fetchModelParameters(),
+    fetchHistorical(800, currentLatestDays, 1),
+  ]);
+
+  const q50 = paramsData?.parameters?.[0.5] ?? paramsData?.parameters?.['0.5'];
+  if (!q50 || typeof q50.a !== 'number' || typeof q50.b !== 'number') {
+    throw new Error('Q50 model parameters unavailable from /parameters');
+  }
+
+  q50Model = { intercept: q50.a, slope: q50.b };
+  fullLogResiduals = buildLogResiduals(histData?.points ?? [], q50Model);
+  quantileContextKey = cacheKey;
 }
 
 // --- Gold Flip Helpers ---
@@ -738,16 +773,18 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
                 const lines: string[] = [];
                 if (hist) {
                   lines.push(`Historical: $${hist.y.toLocaleString()}`);
-                  const rank = computePointQuantileRank(
-                    lastHistoricalPoints,
-                    lastCurves,
-                    hist.x,
-                    hist.y
-                  );
-                  if (rank) {
-                    lines.push(
-                      `Position: ${rank.label} (${formatQuantilePercentileSubtext(rank.quantile)})`
+                  if (q50Model && fullLogResiduals.length > 0) {
+                    const rank = computePointQuantileRank(
+                      fullLogResiduals,
+                      q50Model,
+                      hist.x,
+                      hist.y
                     );
+                    if (rank) {
+                      lines.push(
+                        `Position: ${rank.label} (${formatQuantilePercentileSubtext(rank.quantile)})`
+                      );
+                    }
                   }
                 }
                 for (const m of modelLines) {
@@ -785,6 +822,7 @@ async function loadAndRender(range: 'all' | '5y' | '3y' | '1y') {
     const [curvesData, historicalData] = await Promise.all([
       fetchCurves(ranges.curveStart, ranges.curveEnd, 7, requestedQuantiles, true),
       fetchHistorical(ranges.historyStart, ranges.historyEnd, 1),
+      ensureQuantileRankContext(),
     ]);
 
     renderChart(curvesData, historicalData, ranges.curveStart, ranges.curveEnd);
