@@ -29,6 +29,7 @@ import {
   correlationWindowLabel,
   filterCorrelationSeriesByDate,
   dateToDays,
+  computeChartYAxisLimits,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -352,6 +353,30 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
   // beyond what we put in `values`, leading to duplicate year labels in 3y/5y views.
   const desiredXTicks = timeTicks;
 
+  const yLimits = computeChartYAxisLimits(
+    lastHistoricalPoints,
+    lastCurves,
+    startDays,
+    endDays,
+    currentRange,
+    { includeInnerBands: showBands, includeOuterBands: showOuterBands }
+  );
+
+  const yScaleOptions = {
+    type: 'logarithmic' as const,
+    min: yLimits.min,
+    max: yLimits.max,
+    title: { display: true, text: 'Price (USD)', color: '#a1a1aa' },
+    grid: { color: '#27272a' },
+    border: { color: '#3f3f46' },
+    ticks: {
+      color: '#71717a',
+      font: { size: 11 },
+      padding: 6,
+      callback: (value: number) => formatPrice(value),
+    },
+  };
+
   if (chart) {
     // Reuse existing chart for smooth transitions instead of destroying + recreating
     const isRangeChange = chart.options.scales.x.min !== startDays || chart.options.scales.x.max !== endDays;
@@ -360,6 +385,8 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
     chart.options.scales.x.min = startDays;
     chart.options.scales.x.max = endDays;
     chart.options.scales.x.ticks.values = timeTicks;
+    chart.options.scales.y.min = yLimits.min;
+    chart.options.scales.y.max = yLimits.max;
     (chart as any)._desiredXTicks = desiredXTicks;
 
     // Make sure the enforcement hook exists on updates
@@ -433,11 +460,7 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
               }
             },
           },
-          y: {
-            type: 'logarithmic',
-            title: { display: true, text: 'Price (USD)', color: '#a1a1aa' },
-            grid: { color: '#27272a' },
-          },
+          y: yScaleOptions,
         },
         plugins: {
           legend: { display: true, position: 'top' },
@@ -1977,7 +2000,41 @@ async function loadMayerMultipleCard() {
 
 // --- Event Listeners ---
 
+function setupMainChartFullscreen() {
+  const chartCard = document.getElementById('main-chart-card');
+  const btn = document.getElementById('chart-fullscreen-btn') as HTMLButtonElement | null;
+  if (!chartCard || !btn) return;
+
+  const expandIcon = btn.querySelector('[data-icon="expand"]');
+  const compressIcon = btn.querySelector('[data-icon="compress"]');
+
+  const updateButtonState = () => {
+    const isFullscreen = document.fullscreenElement === chartCard;
+    btn.setAttribute('aria-pressed', String(isFullscreen));
+    btn.setAttribute(
+      'aria-label',
+      isFullscreen ? 'Exit fullscreen' : 'Expand chart to fullscreen'
+    );
+    btn.title = isFullscreen ? 'Exit fullscreen (Esc)' : 'Expand chart to fullscreen';
+    expandIcon?.classList.toggle('hidden', isFullscreen);
+    compressIcon?.classList.toggle('hidden', !isFullscreen);
+    chart?.resize();
+  };
+
+  btn.addEventListener('click', () => {
+    if (document.fullscreenElement === chartCard) {
+      document.exitFullscreen();
+    } else {
+      chartCard.requestFullscreen().catch(err => console.error('Fullscreen failed:', err));
+    }
+  });
+
+  document.addEventListener('fullscreenchange', updateButtonState);
+}
+
 function setupControls() {
+  setupMainChartFullscreen();
+
   // Range buttons
   document.querySelectorAll('.range-btn').forEach(btn => {
     btn.addEventListener('click', () => {

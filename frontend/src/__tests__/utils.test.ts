@@ -24,6 +24,7 @@ import {
   computeMayerMultipleSeries,
   computeMayerStats,
   percentileRank,
+  computeChartYAxisLimits,
 } from '../utils';
 
 describe('formatPrice', () => {
@@ -321,5 +322,57 @@ describe('computeMayerStats + percentileRank', () => {
     expect(percentileRank(vals, 1.0)).toBeCloseTo(1 / 5); // 0.2 (strictly less)
     expect(percentileRank(vals, 2.5)).toBeCloseTo(4 / 5);
     expect(percentileRank(vals, 3.0)).toBeCloseTo(1);
+  });
+});
+
+describe('computeChartYAxisLimits', () => {
+  const history = [
+    { x: 6000, y: 50_000 },
+    { x: 6100, y: 70_000 },
+    { x: 6200, y: 90_000 },
+  ];
+  const curves = {
+    '0.5': [
+      { x: 6000, y: 55_000 },
+      { x: 6200, y: 95_000 },
+    ],
+    '0.25': [
+      { x: 6000, y: 40_000 },
+      { x: 6200, y: 75_000 },
+    ],
+    '0.75': [
+      { x: 6000, y: 70_000 },
+      { x: 6200, y: 120_000 },
+    ],
+  };
+
+  it('uses tighter bounds on short windows', () => {
+    const limits = computeChartYAxisLimits(history, curves, 6000, 6200, '1y', {
+      includeInnerBands: true,
+      includeOuterBands: false,
+    });
+    expect(limits.min).toBeGreaterThanOrEqual(200);
+    expect(limits.max).toBeGreaterThan(120_000);
+    expect(limits.max).toBeLessThan(1_000_000);
+  });
+
+  it('allows deeper lows on the full-history view', () => {
+    const limits = computeChartYAxisLimits(history, curves, 6000, 6200, 'all', {
+      includeInnerBands: false,
+      includeOuterBands: false,
+    });
+    expect(limits.min).toBeLessThanOrEqual(0.01);
+  });
+
+  it('includes band curves when toggled on', () => {
+    const withoutBands = computeChartYAxisLimits(history, curves, 6000, 6200, '1y', {
+      includeInnerBands: false,
+      includeOuterBands: false,
+    });
+    const withBands = computeChartYAxisLimits(history, curves, 6000, 6200, '1y', {
+      includeInnerBands: true,
+      includeOuterBands: false,
+    });
+    expect(withBands.max).toBeGreaterThan(withoutBands.max);
   });
 });

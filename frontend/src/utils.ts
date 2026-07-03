@@ -263,6 +263,99 @@ export function getCurveValue(
   return p ? p.y : null;
 }
 
+export type ChartRange = 'all' | '5y' | '3y' | '1y';
+
+export interface ChartYAxisOptions {
+  includeInnerBands: boolean;
+  includeOuterBands: boolean;
+}
+
+function curveByQuantile(
+  curves: Record<string, Array<{ x: number; y: number }>>,
+  quantile: number
+): Array<{ x: number; y: number }> | undefined {
+  return curves[String(quantile)] ?? (curves as Record<number, Array<{ x: number; y: number }>>)[quantile];
+}
+
+function yValuesInRange(
+  points: Array<{ x: number; y: number }> | undefined,
+  startDays: number,
+  endDays: number
+): number[] {
+  if (!points?.length) return [];
+  return points
+    .filter(p => p.x >= startDays && p.x <= endDays && p.y > 0)
+    .map(p => p.y);
+}
+
+function niceLogUpperBound(val: number): number {
+  if (val <= 0) return 1;
+  const exp = Math.floor(Math.log10(val));
+  const base = Math.pow(10, exp);
+  const mantissa = val / base;
+
+  if (mantissa <= 1.2) return base * 1.2;
+  if (mantissa <= 2) return base * 2;
+  if (mantissa <= 5) return base * 5;
+  return base * 10;
+}
+
+/**
+ * Data-driven log-scale Y limits for the main power-law chart.
+ * Tighter padding on short windows; generous headroom on the full-history view.
+ */
+export function computeChartYAxisLimits(
+  historicalPoints: Array<{ x: number; y: number }>,
+  curves: Record<string, Array<{ x: number; y: number }>>,
+  startDays: number,
+  endDays: number,
+  range: ChartRange,
+  options: ChartYAxisOptions
+): { min: number; max: number } {
+  const allY: number[] = yValuesInRange(historicalPoints, startDays, endDays);
+
+  const quantiles = [0.5];
+  if (options.includeInnerBands) quantiles.push(0.25, 0.75);
+  if (options.includeOuterBands) quantiles.push(0.1, 0.9);
+
+  for (const q of quantiles) {
+    allY.push(...yValuesInRange(curveByQuantile(curves, q), startDays, endDays));
+  }
+
+  if (allY.length === 0) {
+    return { min: 0.01, max: 10_000_000 };
+  }
+
+  const dataMin = Math.min(...allY);
+  const dataMax = Math.max(...allY);
+  const isShortWindow = range !== 'all';
+  const minPad = isShortWindow ? 1.4 : 2.8;
+  const maxPad = isShortWindow ? 1.7 : 3.2;
+
+  let yMin = dataMin / minPad;
+  let yMax = dataMax * maxPad;
+
+  if (range === 'all') {
+    yMin = Math.min(yMin, 0.01);
+    const q50 = curveByQuantile(curves, 0.5);
+    const farVal = getCurveValue(q50, endDays, 60);
+    if (farVal != null) {
+      yMax = Math.max(yMax, farVal * 3);
+    }
+  } else {
+    yMin = Math.max(yMin, 200);
+  }
+
+  yMax = niceLogUpperBound(yMax);
+  const minExp = Math.floor(Math.log10(Math.max(yMin, 0.001)));
+  const niceMin = Math.pow(10, minExp);
+
+  return {
+    min: Math.max(0.01, niceMin),
+    max: yMax,
+  };
+}
+
 /**
  * Calculate CAGR (Compound Annual Growth Rate) as a decimal (e.g. 0.65 for 65%).
  * Pure function for testability.
