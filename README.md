@@ -7,7 +7,7 @@ Interactive visualization of Bitcoin's long-term power law trend using Giovanni 
 - **Core model**: Quantile regression (Q25 / Q50 / Q75) fit on log-log daily Bitcoin closes (`log10(price) ~ log10(days_since_2009-01-03)`).
 - **Data source**: `btc_daily.csv` (daily closes back to ~2012, kept fresh via script).
 - **Bands**: Residual-based parallel bands around the central (Q50) fit for stability. Long-term projections use **simple time-based decay** (Option 1) so the Q75/Q50 ratio compresses naturally toward ~1.3–1.45× by the early 2030s (matching how many analysts present maturing power law corridors).
-- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 bands, fully dynamic axes, 10-year year-end projections table, Bitcoin CAGR table (1y/3y/5y/10y), current quantile position + short-term outlook card, **Time Spent Below Quantile** card (historical context for today's power-law rank), Mayer Multiple history, rolling asset-class correlations, gold market-cap flip projections, year + month tooltips.
+- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 and Q10–Q90 bands with shaded corridors, main chart fullscreen + PNG download/copy, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic log-scale Y-axis with readable price ticks, 10-year year-end projections table, Bitcoin CAGR table (1y/3y/5y/10y), current quantile position + short-term outlook card, **Time Spent Below Quantile** card (historical context for today's power-law rank), Mayer Multiple history, rolling asset-class correlations, gold market-cap flip projections, year + month tooltips.
 
 The old single-file `index.html` (root) is the legacy prototype. The current production experience lives in `frontend/` + `backend/`.
 
@@ -134,13 +134,17 @@ The Vite dev server automatically proxies `/api/*` → `http://localhost:8000/*`
 
 - **Normal restart**: Press `Ctrl+C` in the backend terminal, then run `python backend/run.py` again.
 - **After code changes**: Usually unnecessary — the `--reload` flag in `run.py` picks up most Python file changes automatically.
-- **After updating price data**: The unified updater (`update_data.py`) automatically refreshes Bitcoin + asset CSVs, triggers a backend refit, reloads correlations, and runs the sense checker. In most cases you only need:
+- **After updating price data**: Run the unified updater (`update_data.py`). It refreshes Bitcoin + asset CSVs, reloads correlations, and runs the sense checker when new Bitcoin rows are appended. In most cases:
 
   ```bash
   python scripts/update_data.py
   ```
 
-  Then refresh the frontend. The curves, time ranges, projections, correlations, and data freshness display will update automatically.
+  Then refresh the frontend. If `btc_daily.csv` was already current but the backend is stale, trigger a manual refit:
+
+  ```bash
+  curl -X POST http://localhost:8000/refit
+  ```
 
 ## Updating the Price Data
 
@@ -151,8 +155,10 @@ python scripts/update_data.py
 The updater:
 1. Fetches recent Bitcoin daily closes from CoinGecko (default: last 180 days) and appends only new dates to `btc_daily.csv`
 2. Fetches ETF proxies for stocks/gold/bonds/property from Yahoo Finance and rebuilds `assets_daily.csv` aligned to BTC dates
-3. Triggers backend `/refit` and `/correlations/reload` (unless disabled)
-4. Runs the model **sense checker** (unless disabled)
+3. Triggers backend `/refit` when new Bitcoin rows were appended, and always attempts `/correlations/reload` (unless disabled)
+4. Runs the model **sense checker** after a successful refit (unless disabled)
+
+If the CSV is already up to date, automatic `/refit` is skipped — run `curl -X POST http://localhost:8000/refit` manually so the live backend reloads the latest file.
 
 Optional flags:
 - Use a free CoinGecko API key for more reliability:
@@ -220,7 +226,7 @@ The legacy single-file version is archived in `archive/old-single-file/`.
 
 ## Key API Endpoints (Backend)
 
-- `GET /curves?start_days=...&end_days=...&parallel=true` — Main endpoint. Returns Q25/Q50/Q75 curves.
+- `GET /curves?start_days=...&end_days=...&parallel=true` — Main endpoint. Returns requested quantile curves (typically Q50; Q25/Q75 and Q10/Q90 when band toggles are on).
 - `GET /historical?start_days=...&end_days=...` — Actual daily close prices (for the blue line).
 - `POST /refit` — Reload CSV and refit all quantile models (use after data updates).
 - `GET /parameters` — Fitted coefficients + current residual quantiles + decay settings.
@@ -245,8 +251,10 @@ python scripts/update_data.py
 
 It will automatically:
 1. Append new Bitcoin price data and refresh asset-class ETF data
-2. Trigger a backend model refit and correlation reload
-3. Run the **sense checker**
+2. Trigger a backend model refit (when new Bitcoin rows were added) and correlation reload
+3. Run the **sense checker** (after a successful refit)
+
+If Bitcoin data was already current, run `curl -X POST http://localhost:8000/refit` manually to refresh the live backend.
 
 This is the safest and simplest way to keep everything healthy.
 
@@ -299,7 +307,7 @@ npm run test:run      # Run once
 npm test              # Watch mode
 ```
 
-Tests pure utility functions (tick generation, price formatting, nearest-point lookup, CAGR calculation, historical price lookup for periods, Mayer Multiple helpers, time-below-quantile explanation text, etc.) that were extracted into `src/utils.ts` for testability.
+Tests pure utility functions (tick generation, price formatting, chart Y-axis limits, point quantile rank, nearest-point lookup, CAGR calculation, historical price lookup for periods, Mayer Multiple helpers, time-below-quantile explanation text, etc.) that were extracted into `src/utils.ts` for testability.
 
 ### API Smoke Tests (standalone)
 
@@ -349,18 +357,19 @@ simplepowerlaw/
 
 ## Recent Major Changes
 
+- **Main chart UX** (2026): fullscreen mode, PNG download + clipboard copy, shaded quantile corridors, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic Y-axis limits with `$k`/`$M` ticks, responsive chart height (`min(70vh, 720px)`).
 - New **Time Spent Below Quantile** card: shows today's power-law quantile rank and the percentage of trading days since 2012 at or below that same rank. Backend logic lives in `QuantilePowerLawModel.get_time_below_quantile()` and is exposed via `/current`; frontend copy is built by testable helpers in `src/utils.ts`.
 - Removed the **Statistical Summary — Power Law Fit (Q50)** UI panel. The underlying `GET /stats` diagnostics endpoint remains available for debugging.
 - New **Bitcoin CAGR card/table** in the UI: historical compound annual growth rates for 1y/3y/5y/10y, computed client-side from `/historical` data using pure `calculateCAGR` + `findPriceAtYearsAgo` utils (with Vitest coverage).
 - **Testing & Safety Infrastructure** (v3.4):
   - New model **sense checker** (`backend/sense_check.py`) that validates key invariants (no quantile crossing, correct decay behavior, etc.).
-  - The updater (`update_btc_daily.py`) now **automatically runs the sense checker** after data updates + refit.
+  - The updater (`scripts/update_data.py`) now **automatically runs the sense checker** after data updates + refit.
   - Full test suites: pytest model + API tests, Vitest frontend tests.
   - New root convenience script: `./run-tests.sh`.
 - X-axis tick improvements on 3y/5y views (strict one-tick-per-year enforcement on log scale via `afterBuildTicks`).
 - Year-end projections table now dynamically matches the active chart band toggles.
 - Tooltip improvements: prioritizes real historical prices when near data points, always shows Q50, conditionally shows other quantiles, and auto-sorts them low-to-high.
-- Major improvements to `scripts/update_btc_daily.py`: safer 180-day default, `COINGECKO_API_KEY` support, `--days` flag, automatic deduplication, better error handling, and now automatic sense checking.
+- Major improvements to `scripts/update_data.py`: safer 180-day default, `COINGECKO_API_KEY` support, `--btc-days` / `--asset-days` flags, automatic deduplication, better error handling, and automatic sense checking after refit.
 - Frontend now dynamically fetches the real latest data date from `/health` (no more stale hardcoded `LATEST_DAYS`).
 
 Older major changes:

@@ -29,7 +29,7 @@ Vite runs on port 5173 and proxies `/api/*` → backend (port 8000).
 
 The real application code is in `src/main.ts`.
 
-It provides time-range controls, Chart.js rendering (historical prices + power law curves + bands), the 10-year year-end projections table, Bitcoin CAGR table (1y/3y/5y/10y), current quantile position card, Time Spent Below Quantile card, Mayer Multiple history, rolling asset correlations, gold flip projections, and dynamic axes.
+It provides time-range controls, Chart.js rendering (historical prices + power law curves + Q25–Q75 / Q10–Q90 bands with shaded corridors), main chart fullscreen plus PNG download/copy, today marker and projection shading, hover crosshair, quantile rank tooltips, dynamic log-scale axes, the 10-year year-end projections table, Bitcoin CAGR table (1y/3y/5y/10y), current quantile position card, Time Spent Below Quantile card, Mayer Multiple history, rolling asset correlations, gold flip projections, and dynamic axes.
 
 All the quantile regression fitting and time-based decay logic lives in the Python backend.
 
