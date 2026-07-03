@@ -68,6 +68,9 @@ describe('quantileLabel', () => {
 describe('time below quantile helpers', () => {
   it('formats the day-count subtext', () => {
     expect(formatTimeBelowQuantileSubtext(22, 5288)).toBe('22 of 5,288 days since 2012');
+    expect(formatTimeBelowQuantileSubtext(22, 5288, '2010-07-18')).toBe(
+      '22 of 5,288 days since 2010',
+    );
   });
 
   it('describes a low quantile as historically rare', () => {
@@ -75,8 +78,10 @@ describe('time below quantile helpers', () => {
       currentQuantile: 0.004,
       quantileLabel: 'Q0',
       timeBelowPct: 0.4,
+      sinceDate: '2010-07-18',
     });
     expect(text).toContain('0th percentile (Q0)'); // 0 uses "th"
+    expect(text).toContain('Since 2010');
     expect(text).toContain('0.4% of trading days');
     expect(text).toContain('99.6% of the time');
     expect(text).toContain('richer versus the model');

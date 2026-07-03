@@ -4,6 +4,7 @@
 
 import {
   daysToDate,
+  dateToDays,
   formatPrice,
   getNextTenYearEnds,
   getTimeTickValues,
@@ -28,7 +29,6 @@ import {
   correlationColorClass,
   correlationWindowLabel,
   filterCorrelationSeriesByDate,
-  dateToDays,
   computeChartYAxisLimits,
   computePointQuantileRank,
   buildLogResiduals,
@@ -1046,7 +1046,11 @@ async function loadTimeBelowQuantileCard() {
     }
     if (pctEl) pctEl.textContent = `${timeBelow.toFixed(1)}%`;
     if (pctSubEl && stats.days_at_or_below != null && stats.total_days != null) {
-      pctSubEl.textContent = formatTimeBelowQuantileSubtext(stats.days_at_or_below, stats.total_days);
+      pctSubEl.textContent = formatTimeBelowQuantileSubtext(
+        stats.days_at_or_below,
+        stats.total_days,
+        stats.since_date,
+      );
     }
 
     if (explanationEl) {
@@ -1054,6 +1058,7 @@ async function loadTimeBelowQuantileCard() {
         currentQuantile: stats.current_quantile ?? pos.quantile ?? 0,
         quantileLabel: qLabel,
         timeBelowPct: timeBelow,
+        sinceDate: stats.since_date,
       });
     }
   } catch (err) {
@@ -1991,11 +1996,11 @@ async function loadAssetCorrelationsCard() {
       if (!corrDataCache || corrDataCache.meta?.chart_window !== corrWindow) {
         corrDataCache = await fetchCorrelations(corrWindow, 7);
       }
-      renderAssetCorrelationsChart(corrDataCache);
       populateAssetCorrelationsTable(corrDataCache);
       if (dateEl && corrDataCache.meta?.data_end_date) {
         dateEl.textContent = `(through ${corrDataCache.meta.data_end_date})`;
       }
+      renderAssetCorrelationsChart(corrDataCache);
     } catch (err) {
       console.error('Failed to refresh correlations chart', err);
     } finally {
@@ -2009,14 +2014,18 @@ async function loadAssetCorrelationsCard() {
   setChartLoading('corr-chart-loading', true);
   try {
     corrDataCache = await fetchCorrelations(corrWindow, 7);
-    renderAssetCorrelationsChart(corrDataCache);
     populateAssetCorrelationsTable(corrDataCache);
     if (dateEl && corrDataCache.meta?.data_end_date) {
       dateEl.textContent = `(through ${corrDataCache.meta.data_end_date})`;
     }
+    try {
+      renderAssetCorrelationsChart(corrDataCache);
+    } catch (chartErr) {
+      console.error('Failed to render correlations chart', chartErr);
+    }
   } catch (err) {
     console.error('Failed to load asset correlations card', err);
-    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">Failed to load (server may still be waking up)</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">Failed to load correlation data. Check that the backend is running.</td></tr>`;
   } finally {
     setChartLoading('corr-chart-loading', false);
   }

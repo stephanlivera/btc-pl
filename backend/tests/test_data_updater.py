@@ -24,7 +24,33 @@ def test_module_imports_expected_symbols():
         "property": "VNQ",
     }
     assert data_updater.DEFAULT_BTC_DAYS == 180
+    assert data_updater.DEFAULT_ASSET_DAYS == 5500
     assert callable(data_updater.run_update)
+
+
+def test_backfill_btc_csv_prepends_only_older_rows(tmp_path: Path):
+    btc_csv = tmp_path / "btc_daily.csv"
+    btc_csv.write_text("Date,Close\n2012-01-01,5.0\n2012-01-02,5.1\n")
+
+    session = MagicMock()
+    session.get.return_value.text = "\n".join(
+        [
+            "Date,Price",
+            "2010-07-18,0.09",
+            "2010-07-19,0.08",
+            "2012-01-01,9.99",
+        ]
+    )
+    session.get.return_value.raise_for_status = MagicMock()
+
+    added = data_updater.backfill_btc_csv(btc_csv_path=btc_csv, session=session)
+    assert added == 2
+
+    with btc_csv.open(newline="") as f:
+        rows = list(csv.reader(f))
+    assert rows[1] == ["2010-07-18", "0.09"]
+    assert rows[2] == ["2010-07-19", "0.08"]
+    assert rows[3] == ["2012-01-01", "5.0"]
 
 
 def test_fetch_btc_daily_closes_parses_coingecko_payload():

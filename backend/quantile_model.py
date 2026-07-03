@@ -465,7 +465,7 @@ class QuantilePowerLawModel:
         position = self.get_current_position()
         current_quantile = float(position["quantile"])
 
-        since = since_date or dt.date(2012, 1, 1)
+        since = since_date or self.df["Date"].min().date()
         central_res = self.results[0.5]
         central_a = float(central_res.params["const"])
         central_b = float(central_res.params["log_days"])

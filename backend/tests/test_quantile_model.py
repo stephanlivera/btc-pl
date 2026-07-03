@@ -207,16 +207,15 @@ def test_get_current_position_returns_sensible_values(fitted_model):
 
 
 def test_get_time_below_quantile(fitted_model):
-    """Time-below stats should be consistent with current quantile and 2012+ sample."""
-    import datetime as dt
-
+    """Time-below stats should be consistent with current quantile and full sample."""
     pos = fitted_model.get_current_position()
     stats = fitted_model.get_time_below_quantile()
+    since = fitted_model.df["Date"].min().date()
 
     assert isinstance(stats, dict)
     assert stats["current_quantile"] == pos["quantile"]
     assert stats["quantile_label"] == pos["quantile_label"]
-    assert stats["since_date"] == "2012-01-01"
+    assert stats["since_date"] == str(since)
     assert stats["total_days"] > 1000
     assert 0 <= stats["days_at_or_below"] <= stats["total_days"]
     assert 0.0 <= stats["time_below_pct"] <= 100.0
@@ -227,7 +226,7 @@ def test_get_time_below_quantile(fitted_model):
     central_res = fitted_model.results[0.5]
     central_a = float(central_res.params["const"])
     central_b = float(central_res.params["log_days"])
-    subset = fitted_model.df[fitted_model.df["Date"].dt.date >= dt.date(2012, 1, 1)].copy()
+    subset = fitted_model.df[fitted_model.df["Date"].dt.date >= since].copy()
     central_log = central_a + central_b * subset["log_days"].astype(float)
     residuals = subset["log_close"].astype(float).to_numpy() - central_log.to_numpy()
     ranks = (fitted_model._log_residuals[:, np.newaxis] <= residuals[np.newaxis, :]).mean(axis=0)

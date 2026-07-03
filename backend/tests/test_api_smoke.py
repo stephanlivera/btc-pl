@@ -58,7 +58,8 @@ def test_current_endpoint_returns_position_and_quantile():
     assert "time_below_pct" in tbq and 0.0 <= tbq["time_below_pct"] <= 100.0
     assert "days_at_or_below" in tbq and tbq["days_at_or_below"] <= tbq["total_days"]
     assert tbq["total_days"] > 1000
-    assert tbq.get("since_date") == "2012-01-01"
+    assert tbq.get("since_date")
+    assert tbq["since_date"] <= tbq.get("data_end_date", "9999-12-31")
     assert abs(tbq["time_below_pct"] - (tbq["days_at_or_below"] / tbq["total_days"] * 100)) < 0.15
 
     ap = data["analog_projections"]

@@ -25,9 +25,15 @@ ASSETS_CSV_PATH = ROOT / "assets_daily.csv"
 
 COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+HABRADOR_BTC_URL = (
+    "https://raw.githubusercontent.com/Habrador/Bitcoin-price-visualization/"
+    "main/Bitcoin-price-USD.csv"
+)
 
 DEFAULT_BTC_DAYS = 180
-DEFAULT_ASSET_DAYS = 4000
+# ~15 years of ETF history so assets align with BTC back to 2012 (and beyond).
+DEFAULT_ASSET_DAYS = 5500
+EARLIEST_BTC_BACKFILL_DATE = dt.date(2010, 7, 18)
 
 ASSET_SYMBOLS: Dict[str, str] = {
     asset_id: meta["symbol"] for asset_id, meta in ASSET_DEFINITIONS.items()
@@ -53,6 +59,66 @@ class DataUpdateSummary:
     assets: AssetsUpdateResult
     refit_date: Optional[str]
     correlations_reloaded: bool
+
+
+def fetch_habrador_btc_daily_closes(
+    session: Optional[requests.Session] = None,
+) -> List[Tuple[str, float]]:
+    """Fetch pre-2012 Bitcoin daily closes from the Habrador open dataset."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; simplepowerlaw/1.0)"}
+    http = session or requests
+    resp = http.get(HABRADOR_BTC_URL, headers=headers, timeout=60)
+    resp.raise_for_status()
+
+    closes: List[Tuple[str, float]] = []
+    for row in csv.reader(resp.text.splitlines()):
+        if len(row) < 2 or row[0] in ("Date", "date"):
+            continue
+        try:
+            date = dt.date.fromisoformat(row[0])
+            price = float(row[1])
+        except ValueError:
+            continue
+        if date < EARLIEST_BTC_BACKFILL_DATE:
+            continue
+        closes.append((date.isoformat(), round(price, 2)))
+    closes.sort(key=lambda item: item[0])
+    return closes
+
+
+def backfill_btc_csv(
+    btc_csv_path: Path = BTC_CSV_PATH,
+    session: Optional[requests.Session] = None,
+) -> int:
+    """Prepend Habrador rows before the earliest date already in btc_daily.csv."""
+    if not btc_csv_path.exists() or btc_csv_path.stat().st_size == 0:
+        raise RuntimeError(f"{btc_csv_path} must exist before backfill")
+
+    with btc_csv_path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        existing_rows = [(row["Date"], float(row["Close"])) for row in reader if row.get("Date")]
+
+    if not existing_rows:
+        raise RuntimeError(f"{btc_csv_path} has no data rows")
+
+    existing_rows.sort(key=lambda item: item[0])
+    earliest_existing = existing_rows[0][0]
+    existing_dates = {date for date, _ in existing_rows}
+
+    candidate_rows = [
+        row
+        for row in fetch_habrador_btc_daily_closes(session=session)
+        if row[0] < earliest_existing and row[0] not in existing_dates
+    ]
+    if not candidate_rows:
+        return 0
+
+    merged = candidate_rows + existing_rows
+    with btc_csv_path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Date", "Close"])
+        writer.writerows(merged)
+    return len(candidate_rows)
 
 
 def fetch_btc_daily_closes(

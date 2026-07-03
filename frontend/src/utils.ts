@@ -71,6 +71,7 @@ export interface TimeBelowQuantileInput {
   currentQuantile: number;
   quantileLabel: string;
   timeBelowPct: number;
+  sinceDate?: string;
 }
 
 export function ordinal(n: number): string {
@@ -85,13 +86,21 @@ export function ordinal(n: number): string {
 }
 
 /** Plain-English summary for the Time Spent Below Quantile card. */
+function formatSinceLabel(sinceDate?: string): string {
+  if (!sinceDate) return '2012';
+  const year = Number.parseInt(sinceDate.slice(0, 4), 10);
+  return Number.isFinite(year) ? String(year) : sinceDate;
+}
+
 export function buildTimeBelowQuantileExplanation({
   currentQuantile,
   quantileLabel: label,
   timeBelowPct,
+  sinceDate,
 }: TimeBelowQuantileInput): string {
   const qPct = Math.round(currentQuantile * 100);
   const abovePct = (100 - timeBelowPct).toFixed(1);
+  const sinceLabel = formatSinceLabel(sinceDate);
   const richness =
     timeBelowPct < 50
       ? 'richer versus the model than it does today'
@@ -100,13 +109,17 @@ export function buildTimeBelowQuantileExplanation({
         : 'at a similar level versus the model as today';
   return (
     `Bitcoin is currently at the ${ordinal(qPct)} percentile (${label}) of historical deviations from the central power-law trend. ` +
-    `Since 2012, price has been at or below this relative level on ${timeBelowPct.toFixed(1)}% of trading days — ` +
+    `Since ${sinceLabel}, price has been at or below this relative level on ${timeBelowPct.toFixed(1)}% of trading days — ` +
     `meaning ${abovePct}% of the time, BTC has traded ${richness}.`
   );
 }
 
-export function formatTimeBelowQuantileSubtext(daysAtOrBelow: number, totalDays: number): string {
-  return `${daysAtOrBelow.toLocaleString()} of ${totalDays.toLocaleString()} days since 2012`;
+export function formatTimeBelowQuantileSubtext(
+  daysAtOrBelow: number,
+  totalDays: number,
+  sinceDate?: string,
+): string {
+  return `${daysAtOrBelow.toLocaleString()} of ${totalDays.toLocaleString()} days since ${formatSinceLabel(sinceDate)}`;
 }
 
 export function formatQuantilePercentileSubtext(quantile: number): string {

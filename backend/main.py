@@ -169,8 +169,13 @@ def get_model_stats():
 
 @app.get("/health")
 def health():
+    data_start_date = None
+    if model.df is not None and not model.df.empty:
+        data_start_date = str(model.df["Date"].min().date())
+
     return {
         "status": "ok" if model.results else "model_not_fitted",
+        "data_start_date": data_start_date,
         "data_end_date": str(model.data_end_date) if model.data_end_date else None,
         "last_fit_date": str(model.last_fit_date) if model.last_fit_date else None,
     }
