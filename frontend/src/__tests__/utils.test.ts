@@ -25,6 +25,7 @@ import {
   computeMayerStats,
   percentileRank,
   computeChartYAxisLimits,
+  computePointQuantileRank,
 } from '../utils';
 
 describe('formatPrice', () => {
@@ -374,5 +375,29 @@ describe('computeChartYAxisLimits', () => {
       includeOuterBands: false,
     });
     expect(withBands.max).toBeGreaterThan(withoutBands.max);
+  });
+});
+
+describe('computePointQuantileRank', () => {
+  const history = Array.from({ length: 20 }, (_, i) => ({
+    x: 6000 + i * 10,
+    y: 50_000 + i * 2_000,
+  }));
+  const curves = {
+    '0.5': history.map(p => ({ x: p.x, y: p.y * 1.1 })),
+  };
+
+  it('returns null without enough history', () => {
+    expect(
+      computePointQuantileRank(history.slice(0, 3), curves, 6010, 52_000)
+    ).toBeNull();
+  });
+
+  it('ranks a below-median price lower than an above-median price', () => {
+    const low = computePointQuantileRank(history, curves, 6050, 40_000);
+    const high = computePointQuantileRank(history, curves, 6050, 90_000);
+    expect(low).not.toBeNull();
+    expect(high).not.toBeNull();
+    expect(low!.quantile).toBeLessThan(high!.quantile);
   });
 });

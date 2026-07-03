@@ -30,6 +30,7 @@ import {
   filterCorrelationSeriesByDate,
   dateToDays,
   computeChartYAxisLimits,
+  computePointQuantileRank,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -387,8 +388,68 @@ function buildMainChartDatasets(curvesData: any, historicalData: any): any[] {
   return datasets;
 }
 
+function drawTodayPriceCallout(
+  ctx: CanvasRenderingContext2D,
+  todayPx: number,
+  yPx: number,
+  priceStr: string,
+  dateStr: string,
+  chartArea: { left: number; right: number; top: number; bottom: number }
+): void {
+  const padX = 8;
+  const padY = 5;
+  const boxW = 88;
+  const boxH = 34;
+
+  ctx.beginPath();
+  ctx.arc(todayPx, yPx, 4.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fill();
+  ctx.strokeStyle = '#0ea5e9';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  let left = todayPx + 12;
+  if (left + boxW > chartArea.right - 6) {
+    left = todayPx - boxW - 12;
+  }
+  let top = yPx - boxH / 2;
+  top = Math.max(chartArea.top + 6, Math.min(top, chartArea.bottom - boxH - 6));
+
+  ctx.fillStyle = 'rgba(24, 24, 27, 0.94)';
+  ctx.strokeStyle = 'rgba(63, 63, 70, 0.85)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(left, top, boxW, boxH, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#a1a1aa';
+  ctx.font = '500 9px Inter, system-ui, sans-serif';
+  ctx.fillText(dateStr, left + padX, top + padY);
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = '600 12px Inter, system-ui, sans-serif';
+  ctx.fillText(priceStr, left + padX, top + padY + 13);
+}
+
 const mainChartDecorationsPlugin = {
   id: 'mainChartDecorations',
+  afterEvent(chart: any, args: any) {
+    const event = args.event;
+    if (!args.inChartArea || event.type === 'mouseout') {
+      if ((chart as any)._crosshairX != null) {
+        (chart as any)._crosshairX = null;
+        args.changed = true;
+      }
+      return;
+    }
+    if (event.x != null && (chart as any)._crosshairX !== event.x) {
+      (chart as any)._crosshairX = event.x;
+      args.changed = true;
+    }
+  },
   beforeDatasetsDraw(chart: any) {
     const xScale = chart.scales?.x;
     const { chartArea } = chart;
@@ -420,19 +481,51 @@ const mainChartDecorationsPlugin = {
   },
   afterDatasetsDraw(chart: any) {
     const xScale = chart.scales?.x;
+    const yScale = chart.scales?.y;
     const { chartArea } = chart;
-    if (!xScale || !chartArea) return;
-
-    const todayPx = xScale.getPixelForValue(currentLatestDays);
-    if (todayPx < chartArea.left + 28 || todayPx > chartArea.right - 4) return;
+    if (!xScale || !yScale || !chartArea) return;
 
     const ctx = chart.ctx;
+    const todayPx = xScale.getPixelForValue(currentLatestDays);
+
     ctx.save();
-    ctx.font = '600 10px Inter, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(161, 161, 170, 0.8)';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('Today', todayPx, chartArea.top + 8);
+
+    if (todayPx >= chartArea.left + 28 && todayPx <= chartArea.right - 4) {
+      ctx.font = '600 10px Inter, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(161, 161, 170, 0.8)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('Today', todayPx, chartArea.top + 8);
+    }
+
+    const todayPoint = findNearestPoint(lastHistoricalPoints, currentLatestDays, 3);
+    if (
+      todayPoint &&
+      todayPx >= chartArea.left &&
+      todayPx <= chartArea.right
+    ) {
+      const yPx = yScale.getPixelForValue(todayPoint.y);
+      if (yPx >= chartArea.top + 20 && yPx <= chartArea.bottom - 20) {
+        const dateStr = daysToDate(todayPoint.x).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        });
+        drawTodayPriceCallout(ctx, todayPx, yPx, formatPrice(todayPoint.y), dateStr, chartArea);
+      }
+    }
+
+    const crosshairX = (chart as any)._crosshairX;
+    if (crosshairX != null && crosshairX >= chartArea.left && crosshairX <= chartArea.right) {
+      ctx.strokeStyle = 'rgba(161, 161, 170, 0.32)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(crosshairX, chartArea.top);
+      ctx.lineTo(crosshairX, chartArea.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     ctx.restore();
   },
 };
@@ -568,7 +661,13 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
           legend: {
             display: true,
             position: 'top',
+            align: 'end',
             labels: {
+              color: '#a1a1aa',
+              font: { size: 11 },
+              usePointStyle: true,
+              pointStyle: 'circle',
+              padding: 14,
               filter: (item: any) => !String(item.text).startsWith('_'),
             },
           },
@@ -639,6 +738,17 @@ function renderChart(curvesData: any, historicalData: any, startDays: number, en
                 const lines: string[] = [];
                 if (hist) {
                   lines.push(`Historical: $${hist.y.toLocaleString()}`);
+                  const rank = computePointQuantileRank(
+                    lastHistoricalPoints,
+                    lastCurves,
+                    hist.x,
+                    hist.y
+                  );
+                  if (rank) {
+                    lines.push(
+                      `Position: ${rank.label} (${formatQuantilePercentileSubtext(rank.quantile)})`
+                    );
+                  }
                 }
                 for (const m of modelLines) {
                   lines.push(m.text);
@@ -2109,6 +2219,75 @@ async function loadMayerMultipleCard() {
 
 // --- Event Listeners ---
 
+async function getMainChartPngBlob(): Promise<Blob | null> {
+  if (!chart) return null;
+  const dataUrl = chart.toBase64Image('image/png', 1);
+  const res = await fetch(dataUrl);
+  return res.blob();
+}
+
+function setupMainChartExport() {
+  const btn = document.getElementById('chart-export-btn');
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    const blob = await getMainChartPngBlob();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateSlug = currentDataEndDate ?? new Date().toISOString().slice(0, 10);
+    link.download = `bitcoin-power-law-${dateSlug}.png`;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+function setupMainChartCopy() {
+  const btn = document.getElementById('chart-copy-btn') as HTMLButtonElement | null;
+  if (!btn) return;
+
+  const copyIcon = btn.querySelector('[data-icon="copy"]');
+  const copiedIcon = btn.querySelector('[data-icon="copied"]');
+  const defaultTitle = btn.title;
+  let resetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const showCopiedState = () => {
+    if (resetTimer) clearTimeout(resetTimer);
+    btn.title = 'Copied to clipboard';
+    btn.setAttribute('aria-label', 'Chart image copied');
+    copyIcon?.classList.add('hidden');
+    copiedIcon?.classList.remove('hidden');
+    resetTimer = setTimeout(() => {
+      btn.title = defaultTitle;
+      btn.setAttribute('aria-label', 'Copy chart image to clipboard');
+      copyIcon?.classList.remove('hidden');
+      copiedIcon?.classList.add('hidden');
+      resetTimer = null;
+    }, 2000);
+  };
+
+  btn.addEventListener('click', async () => {
+    try {
+      const blob = await getMainChartPngBlob();
+      if (!blob) return;
+      if (!navigator.clipboard?.write) {
+        throw new Error('Clipboard API unavailable');
+      }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      showCopiedState();
+    } catch (err) {
+      console.error('Failed to copy chart image:', err);
+      btn.title = 'Copy failed — try download instead';
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        btn.title = defaultTitle;
+        resetTimer = null;
+      }, 2500);
+    }
+  });
+}
+
 function setupMainChartFullscreen() {
   const chartCard = document.getElementById('main-chart-card');
   const btn = document.getElementById('chart-fullscreen-btn') as HTMLButtonElement | null;
@@ -2142,6 +2321,8 @@ function setupMainChartFullscreen() {
 }
 
 function setupControls() {
+  setupMainChartExport();
+  setupMainChartCopy();
   setupMainChartFullscreen();
 
   // Range buttons

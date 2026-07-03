@@ -450,6 +450,35 @@ export function percentileRank(values: number[], target: number): number {
   return i / sorted.length;
 }
 
+/** Empirical power-law quantile rank for a historical price vs the Q50 curve. */
+export function computePointQuantileRank(
+  historicalPoints: Array<{ x: number; y: number }>,
+  curves: Record<string, Array<{ x: number; y: number }>>,
+  targetX: number,
+  targetPrice: number
+): { quantile: number; label: string } | null {
+  if (!historicalPoints.length || targetPrice <= 0) return null;
+
+  const q50curve = curveByQuantile(curves, 0.5);
+  if (!q50curve) return null;
+
+  const residuals: number[] = [];
+  for (const p of historicalPoints) {
+    if (p.y <= 0) continue;
+    const q50 = getCurveValue(q50curve, p.x, 30);
+    if (q50 == null || q50 <= 0) continue;
+    residuals.push(Math.log10(p.y) - Math.log10(q50));
+  }
+  if (residuals.length < 10) return null;
+
+  const q50At = getCurveValue(q50curve, targetX, 30);
+  if (q50At == null || q50At <= 0) return null;
+
+  const targetResidual = Math.log10(targetPrice) - Math.log10(q50At);
+  const quantile = percentileRank(residuals, targetResidual);
+  return { quantile, label: quantileLabel(quantile) };
+}
+
 /** Display label for a rolling correlation window in days. */
 export function correlationWindowLabel(days: number): string {
   if (days === 365) return '1y';
