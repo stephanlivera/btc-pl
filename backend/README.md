@@ -43,6 +43,7 @@ PYTHONPATH=. uvicorn backend.main:app --reload --port 8000
 Then open:
 - http://localhost:8000/docs ← Interactive docs (recommended)
 - http://localhost:8000/curves?start_days=6200&end_days=6600
+- http://localhost:8000/conditional-returns
 - http://localhost:8000/health
 
 ### Common Errors & Fixes

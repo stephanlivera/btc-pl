@@ -34,7 +34,7 @@ def test_health_endpoint():
 
 
 def test_current_endpoint_returns_position_and_quantile():
-    """Contract test for the new current position endpoint (current quantile level + context)."""
+    """Contract test for /current (Time Spent Below Quantile card + position fields)."""
     response = client.get("/current")
     assert response.status_code == 200
     data = response.json()
@@ -127,6 +127,7 @@ def test_historical_endpoint():
 
 
 def test_conditional_returns_endpoint():
+    """Contract test for the conditional forward returns card."""
     response = client.get("/conditional-returns?horizons=91&horizons=183&horizons=365&horizons=730")
     assert response.status_code == 200
     data = response.json()
@@ -136,14 +137,30 @@ def test_conditional_returns_endpoint():
     assert len(data["buckets"]) == 4
     assert "quantile" in data["current"]
     assert 0.0 <= data["current"]["quantile"] <= 1.0
+    assert data["current"]["bucket_key"] is not None
+
+    current_row = [b for b in data["buckets"] if b.get("is_current")]
+    assert len(current_row) == 1
+    assert current_row[0]["key"] == data["current"]["bucket_key"]
+
+    # Rank should match /current position (same underlying model method).
+    pos = client.get("/current").json()["position"]
+    assert data["current"]["quantile"] == pos["quantile"]
+    assert data["current"]["quantile_label"] == pos["quantile_label"]
+
     for bucket in data["buckets"]:
         assert "horizons" in bucket
         for key in ["91", "183", "365", "730"]:
             assert key in bucket["horizons"]
             h = bucket["horizons"][key]
             assert "median_return" in h
+            assert "p25_return" in h
+            assert "p75_return" in h
             assert "hit_rate" in h
             assert "count" in h
+            if h["count"] > 0:
+                assert h["median_return"] is not None
+                assert 0.0 <= h["hit_rate"] <= 1.0
 
 
 def test_stats_endpoint_returns_fit_summary():

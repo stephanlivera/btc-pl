@@ -202,8 +202,10 @@ def get_conditional_returns(
 
 @app.get("/current")
 def get_current():
-    """Return the latest price's empirical quantile rank vs the power law model
-    (key for the 'current quantile level' card) plus context for short-term projections.
+    """Return the latest price's empirical quantile rank vs the power law model.
+
+    Powers the Time Spent Below Quantile card (`time_below_quantile`). Also includes
+    optional historical-analog multipliers for API consumers (not used by the UI).
     """
     if not model.results:
         raise HTTPException(

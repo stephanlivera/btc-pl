@@ -51,7 +51,7 @@ export function getHorizonTargets(latestDays: number): { label: string; days: nu
   ];
 }
 
-/** Short-term horizon targets (for the current quantile position + outlook card). */
+/** Short-term horizon targets (+3m / +6m / +1y / +2y from latest data day). */
 export function getShortHorizonTargets(latestDays: number): { label: string; days: number }[] {
   const dpy = DAYS_PER_YEAR;
   return [

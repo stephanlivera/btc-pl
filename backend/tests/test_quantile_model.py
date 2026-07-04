@@ -142,7 +142,7 @@ def test_time_decay_only_applies_to_future(fitted_model):
 
 
 def test_analyst_quantiles_all_returned(fitted_model):
-    """Extended quantile grid (Q99–Q1) is available via empirical residuals."""
+    """Extended analyst quantiles (Q99–Q1) are available via empirical residual offsets."""
     ref = fitted_model.ref_days
     curves = fitted_model.predict_curve(
         start_days=ref,
@@ -246,7 +246,7 @@ def test_get_time_below_quantile(fitted_model):
 def test_get_conditional_forward_returns(fitted_model):
     """Conditional returns should bucket historical days and aggregate forward returns."""
     pos = fitted_model.get_current_position()
-    result = fitted_model.get_conditional_forward_returns(horizons=[91, 365])
+    result = fitted_model.get_conditional_forward_returns(horizons=[91, 183, 365, 730])
 
     assert "meta" in result
     assert "current" in result
@@ -262,8 +262,8 @@ def test_get_conditional_forward_returns(fitted_model):
     for bucket in buckets:
         assert "key" in bucket and "label" in bucket
         assert "horizons" in bucket
-        assert "91" in bucket["horizons"]
-        assert "365" in bucket["horizons"]
+        for key in ["91", "183", "365", "730"]:
+            assert key in bucket["horizons"]
         h91 = bucket["horizons"]["91"]
         assert h91["count"] >= 0
         if h91["count"] > 0:
@@ -272,6 +272,10 @@ def test_get_conditional_forward_returns(fitted_model):
             assert h91["p75_return"] is not None
             assert 0.0 <= h91["hit_rate"] <= 1.0
             total_counts_91 += h91["count"]
+
+        h730 = bucket["horizons"]["730"]
+        if h730["count"] > 0:
+            assert h730["count"] <= h91["count"]
 
     assert total_counts_91 > 1000
 

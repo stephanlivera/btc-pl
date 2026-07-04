@@ -431,7 +431,8 @@ class QuantilePowerLawModel:
 
         Includes the empirical quantile rank of today's log-residual vs the full
         historical distribution of residuals around the central Q50 fit. This is
-        the key 'current quantile level' for the new analysis card.
+        the key metric behind chart tooltips, Time Spent Below Quantile, and
+        conditional-forward-returns highlighting.
         """
         if self.df is None or self.df.empty:
             raise RuntimeError("Data not loaded")
@@ -628,7 +629,7 @@ class QuantilePowerLawModel:
             "description": (
                 "Empirical forward simple returns (P_future/P_start - 1) grouped by the day's "
                 "power-law quantile rank. Rank uses the same full-history residual CDF as the "
-                "Current Quantile Position card. Only episodes with realized prices through each "
+                "Time Spent Below Quantile and conditional returns cards. Only episodes with realized prices through each "
                 "horizon are included."
             ),
         }
