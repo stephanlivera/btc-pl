@@ -771,3 +771,150 @@ body.terminal-bloomberg #main-chart-card:fullscreen,
 body.terminal-bloomberg #main-chart-card:-webkit-full-screen {
   background: var(--tb-bg);
 }
+
+/* Touch devices — hide clipboard copy (unreliable on iOS Safari) */
+@media (hover: none) and (pointer: coarse) {
+  .touch-hide-coarse {
+    display: none !important;
+  }
+}
+
+/* Mobile chart snapshot — visible only on narrow viewports */
+.chart-snapshot {
+  display: none;
+}
+
+.chart-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+.chart-snapshot-value {
+  font-size: 1.125rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.25rem;
+}
+
+.chart-snapshot-sub {
+  font-size: 0.625rem;
+  margin-top: 0.2rem;
+  line-height: 1.35;
+}
+
+.chart-snapshot-hint {
+  margin-top: 0.625rem;
+  font-size: 0.6875rem;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.chart-snapshot-stat {
+  padding: 0.75rem 0.5rem;
+}
+
+/* Horizontal table scroll hint */
+.terminal-table-scroll {
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+}
+
+.terminal-table-scroll::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1.75rem;
+  background: linear-gradient(90deg, transparent, var(--tb-card));
+  pointer-events: none;
+}
+
+/* Safe area for notched phones */
+body.terminal-bloomberg .terminal-shell {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 640px) {
+  /* --- Touch targets (44px minimum) --- */
+  .terminal-seg-btn {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.75rem;
+  }
+
+  .terminal-icon-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .terminal-toggle-btn {
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+  }
+
+  .terminal-control-group {
+    gap: 0.25rem;
+    padding: 0.3rem;
+  }
+
+  .terminal-chart-controls {
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  /* --- Layout & typography --- */
+  .terminal-card {
+    padding: 1rem !important;
+  }
+
+  .terminal-card .terminal-card-title.flex {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .terminal-card-desc,
+  .terminal-footnote {
+    font-size: 0.6875rem;
+  }
+
+  body.terminal-bloomberg .projection-table {
+    font-size: 0.8125rem;
+  }
+
+  body.terminal-bloomberg .projection-table th,
+  body.terminal-bloomberg .projection-table td {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+  }
+
+  #main-chart-container {
+    height: min(55vh, 480px);
+    padding: 0.5rem !important;
+  }
+
+  .chart-snapshot {
+    display: block;
+  }
+
+  .terminal-header-panel {
+    padding: 0.75rem 0.85rem 0.65rem;
+  }
+
+  .terminal-freshness-pill {
+    font-size: 0.625rem;
+  }
+}
+
+@media (min-width: 641px) {
+  .terminal-table-scroll::after {
+    display: none;
+  }
+}

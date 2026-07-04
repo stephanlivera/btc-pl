@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  formatDeviationPct,
   formatPrice,
   getNextTenYearEnds,
   getTimeTickValues,
@@ -40,6 +41,14 @@ import {
   computeBitcoinGlancePriceStats,
   findPriceNearDay,
 } from '../utils';
+
+describe('formatDeviationPct', () => {
+  it('formats positive and negative deviation from Q50', () => {
+    expect(formatDeviationPct(12.3)).toBe('+12.3% vs Q50');
+    expect(formatDeviationPct(-8.5)).toBe('-8.5% vs Q50');
+    expect(formatDeviationPct(0)).toBe('+0.0% vs Q50');
+  });
+});
 
 describe('formatPrice', () => {
   it('formats large prices in millions', () => {

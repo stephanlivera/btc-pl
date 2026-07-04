@@ -9,7 +9,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body class="terminal-bloomberg">
-  <div class="terminal-shell max-w-[1100px] mx-auto px-6 py-10">
+  <div class="terminal-shell max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-10">
     <!-- Global loading banner (shown during backend cold-start) -->
     <div id="app-loading-banner" class="app-loading-banner" role="status" aria-live="polite">
       <div class="loading-spinner loading-spinner-sm mt-0.5" aria-hidden="true"></div>
@@ -22,18 +22,21 @@
     <!-- Header -->
     <header class="terminal-header terminal-reveal-stagger-1 mb-6">
       <div class="terminal-header-panel">
-      <div class="flex items-center justify-between gap-4 mb-3">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-3">
         <div class="flex items-center gap-x-3 min-w-0">
           <div class="terminal-logo w-9 h-9 rounded-md flex items-center justify-center shrink-0">
             <span class="text-white text-2xl font-bold tracking-tighter">₿</span>
           </div>
           <div class="min-w-0">
-            <h1 class="font-display text-3xl tracking-tight text-[var(--tb-text)]">Bitcoin Power Law &amp; Stats Dashboard</h1>
+            <h1 class="font-display text-xl sm:text-3xl tracking-tight text-[var(--tb-text)]">
+              <span class="sm:hidden">BTC Power Law</span>
+              <span class="hidden sm:inline">Bitcoin Power Law &amp; Stats Dashboard</span>
+            </h1>
             <p class="terminal-card-subtitle mt-0.5">Power-law quantiles, historical stats, and forward context</p>
           </div>
         </div>
         <div id="data-freshness-pill"
-             class="terminal-freshness-pill inline-flex items-center gap-1.5 rounded px-3 py-1.5 cursor-default shrink-0"
+             class="terminal-freshness-pill inline-flex items-center gap-1.5 rounded px-3 py-1.5 cursor-default shrink-0 self-start"
              title="Source: btc_daily.csv">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 terminal-text-positive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -54,7 +57,7 @@
     </header>
 
     <!-- Chart Card -->
-    <div id="main-chart-card" class="terminal-card terminal-card-hero terminal-card-accent-hero terminal-reveal-stagger-3 p-6">
+    <div id="main-chart-card" class="terminal-card terminal-card-hero terminal-card-accent-hero terminal-reveal-stagger-3 p-4 sm:p-6">
       <div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-1">
         <div>
           <div class="terminal-card-title">Power Law + Quantile Corridor</div>
@@ -62,7 +65,7 @@
         </div>
 
         <!-- Controls -->
-        <div class="flex flex-wrap items-center gap-2 text-xs">
+        <div class="terminal-chart-controls flex flex-wrap items-center gap-2 text-xs">
           <!-- Time Range -->
           <div class="terminal-control-group">
             <span class="terminal-control-label">RANGE</span>
@@ -74,16 +77,16 @@
 
           <!-- Inner Bands Toggle (Q25–Q75) -->
           <button id="bands-toggle"
-                  class="terminal-toggle-btn terminal-toggle-off">
+                  class="terminal-toggle-btn terminal-toggle-on">
             <span>Show Q25–Q75</span>
-            <div id="bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
+            <div id="bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-on"></div>
           </button>
 
           <!-- Outer Bands Toggle (Q10–Q90) -->
           <button id="outer-bands-toggle"
-                  class="terminal-toggle-btn terminal-toggle-off">
+                  class="terminal-toggle-btn terminal-toggle-on">
             <span>Show Q10–Q90</span>
-            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
+            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-on"></div>
           </button>
 
           <!-- Export PNG -->
@@ -97,10 +100,10 @@
             </svg>
           </button>
 
-          <!-- Copy image -->
+          <!-- Copy image (hidden on touch — unreliable on mobile) -->
           <button id="chart-copy-btn"
                   type="button"
-                  class="terminal-icon-btn"
+                  class="terminal-icon-btn touch-hide-coarse"
                   aria-label="Copy chart image to clipboard"
                   title="Copy chart image to clipboard">
             <svg data-icon="copy" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -136,6 +139,32 @@
         <canvas id="chart"></canvas>
       </div>
 
+      <!-- Mobile today snapshot (price / quantile / Q50 without needing chart tooltips) -->
+      <div id="chart-snapshot" class="chart-snapshot mt-3" aria-live="polite">
+        <div class="chart-snapshot-grid">
+          <div class="terminal-stat-box chart-snapshot-stat">
+            <div class="terminal-stat-label">BTC Price</div>
+            <div id="chart-snapshot-price" class="chart-snapshot-value terminal-text-live">—</div>
+          </div>
+          <div class="terminal-stat-box chart-snapshot-stat">
+            <div class="terminal-stat-label">Power-Law Rank</div>
+            <div id="chart-snapshot-quantile" class="chart-snapshot-value terminal-text-accent">—</div>
+            <div id="chart-snapshot-quantile-sub" class="chart-snapshot-sub terminal-text-muted">—</div>
+          </div>
+          <div class="terminal-stat-box chart-snapshot-stat">
+            <div class="terminal-stat-label">Model Q50</div>
+            <div id="chart-snapshot-q50" class="chart-snapshot-value">—</div>
+            <div id="chart-snapshot-deviation" class="chart-snapshot-sub terminal-text-muted">—</div>
+          </div>
+          <div class="terminal-stat-box chart-snapshot-stat">
+            <div class="terminal-stat-label">Time Below</div>
+            <div id="chart-snapshot-time-below" class="chart-snapshot-value terminal-text-accent">—</div>
+            <div id="chart-snapshot-time-below-sub" class="chart-snapshot-sub terminal-text-muted">—</div>
+          </div>
+        </div>
+        <p class="chart-snapshot-hint terminal-text-muted">Tap and drag on the chart for full details.</p>
+      </div>
+
     </div>
 
     <!-- Year End Projections Table -->
@@ -149,7 +178,7 @@
         The table shows the same bands as the chart. Use the toggles above to show or hide Q25–Q75 and Q10–Q90.
       </div>
       
-      <div class="overflow-x-auto">
+      <div class="terminal-table-scroll overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
             <tr id="projections-table-head" class="border-b border-[var(--tb-border-muted)]">
@@ -181,7 +210,7 @@
 
       <div id="conditional-returns-summary" class="text-[11px] terminal-text-muted mb-3 px-1 font-light"></div>
 
-      <div class="overflow-x-auto">
+      <div class="terminal-table-scroll overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
             <tr id="conditional-returns-table-head" class="border-b border-[var(--tb-border-muted)]">
@@ -249,7 +278,7 @@
         <span class="terminal-card-subtitle font-normal">Computed from on-chain daily close history</span>
       </div>
 
-      <div class="overflow-x-auto">
+      <div class="terminal-table-scroll overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
             <tr class="border-b border-[var(--tb-border-muted)]">
@@ -323,7 +352,7 @@
         <span id="bitcoin-cagr-now-date" class="text-zinc-400"></span>
       </div>
 
-      <div class="overflow-x-auto">
+      <div class="terminal-table-scroll overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
             <tr class="border-b border-[var(--tb-border-muted)]">
@@ -373,7 +402,7 @@
         <canvas id="gold-flip-chart"></canvas>
       </div>
 
-      <div class="overflow-x-auto">
+      <div class="terminal-table-scroll overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
             <tr id="gold-flip-table-head" class="border-b border-[var(--tb-border-muted)]">
@@ -420,7 +449,7 @@
         <canvas id="asset-correlations-chart"></canvas>
       </div>
 
-      <div class="overflow-x-auto">
+      <div class="terminal-table-scroll overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
             <tr class="border-b border-[var(--tb-border-muted)]" id="corr-table-head">

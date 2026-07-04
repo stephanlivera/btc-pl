@@ -99,6 +99,12 @@ export function formatQuantilePercentileSubtext(quantile: number): string {
   return `${ordinal(Math.round(quantile * 100))} percentile vs model`;
 }
 
+/** Signed percent deviation from the central Q50 model price. */
+export function formatDeviationPct(deviationPct: number): string {
+  const sign = deviationPct >= 0 ? '+' : '';
+  return `${sign}${deviationPct.toFixed(1)}% vs Q50`;
+}
+
 export interface ConditionalHorizonStats {
   median_return: number | null;
   p25_return: number | null;

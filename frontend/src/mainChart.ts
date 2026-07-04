@@ -15,7 +15,7 @@ import {
   fetchHistorical,
   ensureQuantileRankContext,
 } from './api';
-import { showAppLoading, setChartLoading, updateRangeButtons, updateProjectionsInfo } from './ui';
+import { showAppLoading, setChartLoading, updateChartSnapshot, updateRangeButtons, updateProjectionsInfo } from './ui';
 import { getRequestedQuantiles } from './api';
 import { terminal as T, terminalChartBackgroundPlugin } from './theme';
 import { chartAnimationDuration, chartUpdateOptions } from './motion';
@@ -360,6 +360,9 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
     { includeInnerBands: state.showBands, includeOuterBands: state.showOuterBands }
   );
 
+  const isNarrowViewport =
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+
   const yScaleOptions = {
     type: 'logarithmic' as const,
     min: yLimits.min,
@@ -410,6 +413,7 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: chartAnimationDuration(300) },
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
         scales: {
           x: {
             type: 'logarithmic',
@@ -462,14 +466,14 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
         plugins: {
           legend: {
             display: true,
-            position: 'top',
-            align: 'end',
+            position: isNarrowViewport ? 'bottom' : 'top',
+            align: isNarrowViewport ? 'center' : 'end',
             labels: {
               color: T.textMuted,
-              font: { family: "'IBM Plex Sans', sans-serif", size: 10 },
+              font: { family: "'IBM Plex Sans', sans-serif", size: isNarrowViewport ? 9 : 10 },
               usePointStyle: true,
               pointStyle: 'circle',
-              padding: 14,
+              padding: isNarrowViewport ? 10 : 14,
               filter: (item: any) => !String(item.text).startsWith('_'),
             },
           },
@@ -593,6 +597,7 @@ export async function loadAndRender(range: 'all' | '5y' | '3y' | '1y') {
     ]);
 
     renderChart(curvesData, historicalData, ranges.curveStart, ranges.curveEnd);
+    updateChartSnapshot();
     updateProjectionsInfo(curvesData);
     setChartLoading('main-chart-loading', false);
   } catch (err) {

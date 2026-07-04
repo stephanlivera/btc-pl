@@ -1,5 +1,12 @@
 import { state } from './state';
 import { terminalUi as tu } from './theme';
+import {
+  computePointQuantileRank,
+  findNearestPoint,
+  formatDeviationPct,
+  formatQuantilePercentileSubtext,
+  getCurveValue,
+} from './utils';
 
 // --- Loading Indicators (cold-start / slow backend) ---
 
@@ -135,4 +142,61 @@ export function updateOuterBandsToggle() {
 
 export function updateProjectionsInfo(data: any) {
   console.log('Projections info updated (now using table)');
+}
+
+/** Mobile snapshot below the main chart — price, quantile, Q50, optional time-below. */
+export function updateChartSnapshot(timeBelowPct?: number | null) {
+  const priceEl = document.getElementById('chart-snapshot-price');
+  const quantileEl = document.getElementById('chart-snapshot-quantile');
+  const quantileSubEl = document.getElementById('chart-snapshot-quantile-sub');
+  const q50El = document.getElementById('chart-snapshot-q50');
+  const deviationEl = document.getElementById('chart-snapshot-deviation');
+  const timeBelowEl = document.getElementById('chart-snapshot-time-below');
+  const timeBelowSubEl = document.getElementById('chart-snapshot-time-below-sub');
+  if (!priceEl) return;
+
+  const todayPoint = findNearestPoint(state.lastHistoricalPoints, state.currentLatestDays, 3);
+  const q50 = getCurveValue(
+    state.lastCurves['0.5'] ?? state.lastCurves[0.5],
+    state.currentLatestDays,
+    3,
+  );
+
+  if (todayPoint) {
+    priceEl.textContent = `$${todayPoint.y.toLocaleString()}`;
+  } else {
+    priceEl.textContent = '—';
+  }
+
+  if (q50 != null) {
+    q50El && (q50El.textContent = `$${q50.toLocaleString()}`);
+    if (todayPoint && deviationEl) {
+      const deviationPct = (todayPoint.y / q50 - 1) * 100;
+      deviationEl.textContent = formatDeviationPct(deviationPct);
+    }
+  } else {
+    q50El && (q50El.textContent = '—');
+    deviationEl && (deviationEl.textContent = '—');
+  }
+
+  if (todayPoint && state.q50Model && state.fullLogResiduals.length > 0) {
+    const rank = computePointQuantileRank(
+      state.fullLogResiduals,
+      state.q50Model,
+      todayPoint.x,
+      todayPoint.y,
+    );
+    if (rank) {
+      quantileEl && (quantileEl.textContent = rank.label);
+      quantileSubEl && (quantileSubEl.textContent = formatQuantilePercentileSubtext(rank.quantile));
+    }
+  } else {
+    quantileEl && (quantileEl.textContent = '—');
+    quantileSubEl && (quantileSubEl.textContent = '—');
+  }
+
+  if (timeBelowPct != null && timeBelowEl) {
+    timeBelowEl.textContent = `${timeBelowPct.toFixed(1)}%`;
+    timeBelowSubEl && (timeBelowSubEl.textContent = 'of history at or below today');
+  }
 }

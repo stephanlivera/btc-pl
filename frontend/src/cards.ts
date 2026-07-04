@@ -44,7 +44,7 @@ import {
   goldMcAt,
   computeBtcMcT,
 } from './api';
-import { loadingTableRow, skeletonTableRows, setChartLoading } from './ui';
+import { loadingTableRow, skeletonTableRows, setChartLoading, updateChartSnapshot } from './ui';
 import { chartAnimationDuration } from './motion';
 import { terminal as T, terminalUi as tu, terminalChartBackgroundPlugin } from './theme';
 
@@ -192,6 +192,8 @@ export async function loadTimeBelowQuantileCard() {
         sinceDate: stats.since_date,
       });
     }
+
+    updateChartSnapshot(timeBelow);
   } catch (err) {
     console.error('Failed to load time-below quantile card', err);
     if (quantileEl) quantileEl.textContent = '—';

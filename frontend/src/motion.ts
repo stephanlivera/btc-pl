@@ -19,9 +19,15 @@ export function chartUpdateOptions(isRangeChange: boolean): { duration: number; 
   };
 }
 
+function isNarrowViewport(): boolean {
+  return window.matchMedia('(max-width: 640px)').matches;
+}
+
 function initStickyHeaderFade(): void {
   const header = document.querySelector<HTMLElement>('.terminal-header');
   if (!header) return;
+
+  if (isNarrowViewport()) return;
 
   header.classList.add('terminal-header--sticky');
 
@@ -91,9 +97,6 @@ export function initMotion(): void {
 
   if (!reducedMotion) {
     initStickyHeaderFade();
-  } else {
-    const header = document.querySelector<HTMLElement>('.terminal-header');
-    header?.classList.add('terminal-header--sticky');
   }
 
   initRevealInView();
