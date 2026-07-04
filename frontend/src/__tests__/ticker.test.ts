@@ -17,7 +17,7 @@ describe('buildTickerStripHtml', () => {
 
     const html = buildTickerStripHtml(stats!, { quantile: 0.62, quantile_label: 'Q62', deviation_pct: 12.4 }, '2026-07-04');
 
-    for (const label of ['BTC', 'AS OF', 'QUANTILE', 'VS Q50', 'VS ATH', 'YTD', '30D', 'MAYER', 'RSI', 'VOL 30D']) {
+    for (const label of ['BTC', 'AS OF', 'QUANTILE', 'VS Q50', 'VS ATH', 'YTD', '30D', 'MAYER', 'RSI (14)', 'VOL 30D']) {
       expect(html).toContain(label);
     }
     expect(html).toContain('Q62');

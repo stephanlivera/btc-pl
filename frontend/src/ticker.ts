@@ -67,7 +67,7 @@ export function buildTickerStripHtml(
     tickerItem('YTD', formatReturnPct(stats.ytdReturn), conditionalReturnColorClass(stats.ytdReturn)),
     tickerItem('30D', formatReturnPct(stats.return30d), conditionalReturnColorClass(stats.return30d)),
     tickerItem('MAYER', stats.mayerMultiple.toFixed(2), tu.textAccent),
-    tickerItem('RSI', stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—', tu.textLive),
+    tickerItem('RSI (14)', stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—', tu.textLive),
     tickerItem('VOL 30D', volLabel, tu.textMuted),
   ];
 
