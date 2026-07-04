@@ -45,6 +45,7 @@ import {
   computeBtcMcT,
 } from './api';
 import { loadingTableRow, setChartLoading } from './ui';
+import { terminal as T, terminalUi as tu } from './theme';
 
 const CONDITIONAL_RETURN_HORIZONS = [91, 183, 365, 730] as const;
 
@@ -56,9 +57,9 @@ export async function fetchConditionalReturns() {
 }
 
 export function conditionalBucketRowColor(low: number): string {
-  if (low < 0.25) return 'text-emerald-400';
-  if (low >= 0.75) return 'text-red-400';
-  return 'text-zinc-200';
+  if (low < 0.25) return tu.textPositive;
+  if (low >= 0.75) return tu.textNegative;
+  return 'text-[var(--tb-text)]';
 }
 
 export async function loadConditionalReturnsCard() {
@@ -87,7 +88,7 @@ export async function loadConditionalReturnsCard() {
     let rowsHtml = '';
     for (const bucket of buckets) {
       const isCurrent = Boolean(bucket.is_current);
-      const rowClass = isCurrent ? 'font-semibold bg-zinc-800/40' : '';
+      const rowClass = isCurrent ? `font-semibold ${tu.rowCurrent}` : '';
       const labelColor = conditionalBucketRowColor(bucket.low ?? 0);
       const episodeCount =
         bucket.horizons?.[String(horizons[horizons.length - 1])]?.count ?? '—';
@@ -105,7 +106,7 @@ export async function loadConditionalReturnsCard() {
         return `
           <td class="px-4 py-2 text-right ${rowClass}">
             <div class="font-mono ${color}">${main}</div>
-            ${sub ? `<div class="text-[10px] text-zinc-500 mt-0.5">${sub}</div>` : ''}
+            ${sub ? `<div class="text-[10px] terminal-text-muted mt-0.5">${sub}</div>` : ''}
           </td>
         `;
       });
@@ -113,9 +114,9 @@ export async function loadConditionalReturnsCard() {
       rowsHtml += `
         <tr class="transition-colors ${rowClass}">
           <td class="px-4 py-2 font-medium ${labelColor} ${rowClass}">
-            ${bucket.label}${isCurrent ? ' <span class="text-[10px] text-sky-400 font-normal">(today)</span>' : ''}
+            ${bucket.label}${isCurrent ? ' <span class="text-[10px] terminal-text-live font-normal">(today)</span>' : ''}
           </td>
-          <td class="px-4 py-2 text-right font-mono text-zinc-400 text-xs ${rowClass}">${typeof episodeCount === 'number' ? episodeCount.toLocaleString() : episodeCount}</td>
+          <td class="px-4 py-2 text-right font-mono terminal-text-muted text-xs ${rowClass}">${typeof episodeCount === 'number' ? episodeCount.toLocaleString() : episodeCount}</td>
           ${cells.join('')}
         </tr>
       `;
@@ -128,7 +129,7 @@ export async function loadConditionalReturnsCard() {
       const sixMonth = currentBucket?.horizons?.['183'] as ConditionalHorizonStats | undefined;
       let extra = '';
       if (sixMonth?.median_return != null) {
-        extra = ` In this bucket, the historical median <span class="font-mono text-orange-400">${formatReturnPct(sixMonth.median_return)}</span> 6-month return was observed across <span class="font-mono">${sixMonth.count?.toLocaleString() ?? '—'}</span> episodes.`;
+        extra = ` In this bucket, the historical median <span class="font-mono terminal-text-accent">${formatReturnPct(sixMonth.median_return)}</span> 6-month return was observed across <span class="font-mono">${sixMonth.count?.toLocaleString() ?? '—'}</span> episodes.`;
       }
       summaryEl.innerHTML =
         `Today is <span class="font-semibold">${current.quantile_label ?? 'Q??'}</span> ` +
@@ -137,7 +138,7 @@ export async function loadConditionalReturnsCard() {
     }
   } catch (err) {
     console.error('Failed to load conditional returns card', err);
-    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-red-400">Failed to load conditional returns (is the backend running?)</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 terminal-text-error">Failed to load conditional returns (is the backend running?)</td></tr>`;
     if (summaryEl) summaryEl.textContent = '';
   }
 }
@@ -196,7 +197,7 @@ export async function loadTimeBelowQuantileCard() {
     if (pctEl) pctEl.textContent = '—';
     if (explanationEl) {
       explanationEl.textContent = 'Failed to load time-below quantile stats (is the backend running?).';
-      explanationEl.classList.add('text-red-400');
+      explanationEl.classList.add('terminal-text-error');
     }
   }
 }
@@ -210,11 +211,11 @@ export async function loadYearEndProjections() {
   // Order them low → central → high for natural reading.
   const columns: Array<{ key: string; label: string; color: string }> = [];
 
-  if (state.showOuterBands) columns.push({ key: '0.1', label: 'Q10 (Lower)', color: 'text-emerald-300' });
-  if (state.showBands)      columns.push({ key: '0.25', label: 'Q25 (Lower)', color: 'text-emerald-400' });
-  columns.push({ key: '0.5', label: 'Central (Q50)', color: 'text-orange-400' });
-  if (state.showBands)      columns.push({ key: '0.75', label: 'Q75 (Upper)', color: 'text-rose-400' });
-  if (state.showOuterBands) columns.push({ key: '0.9', label: 'Q90 (Upper)', color: 'text-rose-300' });
+  if (state.showOuterBands) columns.push({ key: '0.1', label: 'Q10 (Lower)', color: tu.textQ25 });
+  if (state.showBands)      columns.push({ key: '0.25', label: 'Q25 (Lower)', color: tu.textPositive });
+  columns.push({ key: '0.5', label: 'Central (Q50)', color: 'terminal-text-accent' });
+  if (state.showBands)      columns.push({ key: '0.75', label: 'Q75 (Upper)', color: tu.textQ75 });
+  if (state.showOuterBands) columns.push({ key: '0.9', label: 'Q90 (Upper)', color: tu.textQ75 });
 
   const colCount = columns.length + 1; // +1 for Year End column
 
@@ -276,7 +277,7 @@ export async function loadYearEndProjections() {
 
       rowsHtml += `
         <tr class="transition-colors cursor-pointer">
-          <td class="px-4 py-2 text-zinc-300 font-medium">${year}</td>
+          <td class="px-4 py-2 text-[var(--tb-text)] font-medium">${year}</td>
           ${cells.join('')}
         </tr>
       `;
@@ -285,7 +286,7 @@ export async function loadYearEndProjections() {
     tableBody.innerHTML = rowsHtml;
   } catch (err) {
     console.error(err);
-    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-red-400">Failed to load projections</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 terminal-text-error">Failed to load projections</td></tr>`;
   }
 }
 
@@ -396,7 +397,7 @@ export async function renderGoldFlipChart(cagr: number) {
     const nowP = q50Points[0];
     const btcNowMc = computeBtcMcT(nowP.y);
     const gNow = GOLD_MC_T;
-    currentEl.innerHTML = `Today (power law Q50 at data end): <span class="font-mono text-orange-400">BTC ~$${btcNowMc.toFixed(1)}T</span> vs <span class="font-mono text-amber-400">Gold ~$${gNow.toFixed(0)}T</span>`;
+    currentEl.innerHTML = `Today (power law Q50 at data end): <span class="font-mono terminal-text-accent">BTC ~$${btcNowMc.toFixed(1)}T</span> vs <span class="font-mono terminal-text-gold">Gold ~$${gNow.toFixed(0)}T</span>`;
   }
 
   const curve25 = curvesData.curves?.[0.25] ?? [];
@@ -431,7 +432,7 @@ export async function renderGoldFlipChart(cagr: number) {
     {
       label: goldLabel,
       data: goldData,
-      borderColor: '#fbbf24',
+      borderColor: T.gold,
       borderWidth: 2.5,
       pointRadius: 0,
       tension: 0.15,
@@ -440,7 +441,7 @@ export async function renderGoldFlipChart(cagr: number) {
     {
       label: 'BTC Q50 (power law × 21M)',
       data: btcQ50Data,
-      borderColor: '#f59e0b',
+      borderColor: T.accent,
       borderWidth: 3,
       pointRadius: 0,
       tension: 0,
@@ -480,15 +481,15 @@ export async function renderGoldFlipChart(cagr: number) {
       maintainAspectRatio: false,
       scales: {
         x: {
-          title: { display: true, text: 'Year', color: '#71717a', font: { size: 11 } },
-          ticks: { color: '#71717a', maxTicksLimit: 14, autoSkip: true },
+          title: { display: true, text: 'Year', color: T.textDim, font: { size: 11 } },
+          ticks: { color: T.textDim, maxTicksLimit: 14, autoSkip: true },
           grid: { color: 'rgba(63,63,70,0.3)' },
         },
         y: {
           beginAtZero: true,
-          title: { display: true, text: 'Market Cap (USD trillions)', color: '#71717a', font: { size: 11 } },
+          title: { display: true, text: 'Market Cap (USD trillions)', color: T.textDim, font: { size: 11 } },
           ticks: {
-            color: '#71717a',
+            color: T.textDim,
             callback: (v: number) => '$' + v + 'T',
           },
           grid: { color: 'rgba(63,63,70,0.3)' },
@@ -498,7 +499,7 @@ export async function renderGoldFlipChart(cagr: number) {
         legend: {
           position: 'top',
           align: 'end',
-          labels: { color: '#a1a1aa', boxWidth: 10, font: { size: 11 } },
+          labels: { color: T.textMuted, boxWidth: 10, font: { size: 11 } },
         },
         tooltip: {
           mode: 'index',
@@ -588,27 +589,27 @@ export function populateGoldFlipTable(selectedRate?: number) {
     <th class="text-right font-normal px-3 py-2">Gold MC</th>
   `;
 
-  bodyEl.innerHTML = `<tr><td colspan="6" class="px-4 py-3 text-zinc-500">Computing crossovers...</td></tr>`;
+  bodyEl.innerHTML = `<tr><td colspan="6" class="px-4 py-3 terminal-text-muted">Computing crossovers...</td></tr>`;
 
   computeCrossoverTableData().then((rows) => {
     let html = '';
     for (const r of rows) {
       const isSel = selectedRate != null && Math.abs(r.rate - selectedRate) < 0.0001;
-      const cls = isSel ? 'bg-zinc-800/50' : '';
+      const cls = isSel ? tu.rowSelected : '';
       html += `
         <tr class="${cls} transition-colors">
-          <td class="px-3 py-2 font-medium text-zinc-200">${r.label}</td>
-          <td class="px-3 py-2 text-right font-mono text-orange-400">${r.yearQ50}</td>
-          <td class="px-3 py-2 text-right font-mono text-emerald-400">${r.yearQ25}</td>
+          <td class="px-3 py-2 font-medium text-[var(--tb-text)]">${r.label}</td>
+          <td class="px-3 py-2 text-right font-mono terminal-text-accent">${r.yearQ50}</td>
+          <td class="px-3 py-2 text-right font-mono terminal-text-positive">${r.yearQ25}</td>
           <td class="px-3 py-2 text-right font-mono text-rose-400">${r.yearQ75}</td>
           <td class="px-3 py-2 text-right font-mono">${r.mcBtc}</td>
           <td class="px-3 py-2 text-right font-mono">${r.mcGold}</td>
         </tr>`;
     }
-    bodyEl.innerHTML = html || `<tr><td colspan="6" class="px-3 py-2 text-zinc-500">No data</td></tr>`;
+    bodyEl.innerHTML = html || `<tr><td colspan="6" class="px-3 py-2 terminal-text-muted">No data</td></tr>`;
   }).catch((err) => {
     console.error(err);
-    bodyEl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 text-red-400">Failed to compute gold flip table</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 terminal-text-error">Failed to compute gold flip table</td></tr>`;
   });
 }
 
@@ -627,7 +628,7 @@ export async function loadBitcoinStatsCard() {
 
     const stats = computeBitcoinGlancePriceStats(points, asOfDate);
     if (!stats) {
-      tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 text-red-400">Not enough price history</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 terminal-text-error">Not enough price history</td></tr>`;
       return;
     }
 
@@ -679,70 +680,70 @@ export async function loadBitcoinStatsCard() {
 
     const rowsHtml = `
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">Current Price</td>
-        <td class="px-4 py-2 text-right font-mono text-sky-400">${fmtPrice(stats.currentPrice)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">${currentDate}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Current Price</td>
+        <td class="px-4 py-2 text-right font-mono terminal-text-live">${fmtPrice(stats.currentPrice)}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${currentDate}</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">Power-Law Quantile</td>
-        <td class="px-4 py-2 text-right font-mono text-sky-400 font-semibold">${quantileLabel} <span class="text-xs font-normal text-zinc-500">(${quantilePct} pctile)</span></td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">${devPct} vs Q50 · model ${modelQ50}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Power-Law Quantile</td>
+        <td class="px-4 py-2 text-right font-mono terminal-text-live font-semibold">${quantileLabel} <span class="text-xs font-normal terminal-text-muted">(${quantilePct} pctile)</span></td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${devPct} vs Q50 · model ${modelQ50}</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">All-Time High</td>
-        <td class="px-4 py-2 text-right font-mono text-amber-400">${fmtPrice(stats.ath.athPrice)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">${athContext}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">All-Time High</td>
+        <td class="px-4 py-2 text-right font-mono terminal-text-gold">${fmtPrice(stats.ath.athPrice)}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${athContext}</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">YTD Return</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">YTD Return</td>
         <td class="px-4 py-2 text-right font-mono ${retColor(stats.ytdReturn)}">${fmtRet(stats.ytdReturn)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">since Jan 1, ${ytdYear}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">since Jan 1, ${ytdYear}</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">30-Day Return</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">30-Day Return</td>
         <td class="px-4 py-2 text-right font-mono ${retColor(stats.return30d)}">${fmtRet(stats.return30d)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">simple return</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">simple return</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">90-Day Return</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">90-Day Return</td>
         <td class="px-4 py-2 text-right font-mono ${retColor(stats.return90d)}">${fmtRet(stats.return90d)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">simple return</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">simple return</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">200-Day MA (DMA)</td>
-        <td class="px-4 py-2 text-right font-mono text-amber-400">${fmtPrice(stats.dma200)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">${dmaVs.toFixed(1)}% ${dmaVs >= 0 ? 'above' : 'below'}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">200-Day MA (DMA)</td>
+        <td class="px-4 py-2 text-right font-mono terminal-text-gold">${fmtPrice(stats.dma200)}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${dmaVs.toFixed(1)}% ${dmaVs >= 0 ? 'above' : 'below'}</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">200-Week MA (WMA)</td>
-        <td class="px-4 py-2 text-right font-mono text-amber-400">${fmtPrice(stats.wma200)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">≈1400d SMA; ${wmaVs.toFixed(1)}% ${wmaVs >= 0 ? 'above' : 'below'}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">200-Week MA (WMA)</td>
+        <td class="px-4 py-2 text-right font-mono terminal-text-gold">${fmtPrice(stats.wma200)}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">≈1400d SMA; ${wmaVs.toFixed(1)}% ${wmaVs >= 0 ? 'above' : 'below'}</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">Mayer Multiple</td>
-        <td class="px-4 py-2 text-right font-mono text-orange-400 font-semibold">${stats.mayerMultiple.toFixed(2)}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">Price ÷ 200 DMA</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Mayer Multiple</td>
+        <td class="px-4 py-2 text-right font-mono terminal-text-accent font-semibold">${stats.mayerMultiple.toFixed(2)}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">Price ÷ 200 DMA</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">RSI (14)</td>
-        <td class="px-4 py-2 text-right font-mono text-violet-300">${stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—'}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">${stats.rsi14 != null ? rsiContextLabel(stats.rsi14) : '—'}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">RSI (14)</td>
+        <td class="px-4 py-2 text-right font-mono terminal-text-live">${stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—'}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${stats.rsi14 != null ? rsiContextLabel(stats.rsi14) : '—'}</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">30d Realized Vol</td>
-        <td class="px-4 py-2 text-right font-mono text-zinc-200">${volPct}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">annualized from daily log returns</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">30d Realized Vol</td>
+        <td class="px-4 py-2 text-right font-mono text-[var(--tb-text)]">${volPct}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">annualized from daily log returns</td>
       </tr>
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">Halving Cycle</td>
-        <td class="px-4 py-2 text-right font-mono text-zinc-200">Day ${stats.halving.daysSinceHalving.toLocaleString()}</td>
-        <td class="px-4 py-2 text-right text-xs text-zinc-500">post-${ordinal(stats.halving.halvingNumber)} halving (${stats.halving.lastHalvingDate.slice(0, 7)}) · ${halvingContext}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Halving Cycle</td>
+        <td class="px-4 py-2 text-right font-mono text-[var(--tb-text)]">Day ${stats.halving.daysSinceHalving.toLocaleString()}</td>
+        <td class="px-4 py-2 text-right text-xs terminal-text-muted">post-${ordinal(stats.halving.halvingNumber)} halving (${stats.halving.lastHalvingDate.slice(0, 7)}) · ${halvingContext}</td>
       </tr>
     `;
     tableBody.innerHTML = rowsHtml;
   } catch (err) {
     console.error('Failed to load bitcoin stats', err);
-    tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 text-red-400">Failed to load stats (backend /historical?)</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 terminal-text-error">Failed to load stats (backend /historical?)</td></tr>`;
   }
 }
 
@@ -757,7 +758,7 @@ export async function loadBitcoinCAGRCard() {
     const points = await fetchHistoricalForCAGR();
     const cagrData = computeBitcoinCAGRs(points);
     if (!cagrData || cagrData.results.length === 0) {
-      tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-red-400">Not enough price history for CAGR</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 terminal-text-error">Not enough price history for CAGR</td></tr>`;
       return;
     }
 
@@ -777,17 +778,17 @@ export async function loadBitcoinCAGRCard() {
       const startPriceStr = r.startPrice != null ? fmtPrice(r.startPrice) : '—';
       rowsHtml += `
         <tr>
-          <td class="px-4 py-2 text-zinc-300 font-medium">${r.label}</td>
-          <td class="px-4 py-2 text-right font-mono text-emerald-400">${cagrStr}</td>
-          <td class="px-4 py-2 text-right font-mono text-amber-400">${startPriceStr}</td>
-          <td class="px-4 py-2 text-right text-xs text-zinc-500">${startDateStr}</td>
+          <td class="px-4 py-2 text-[var(--tb-text)] font-medium">${r.label}</td>
+          <td class="px-4 py-2 text-right font-mono terminal-text-positive">${cagrStr}</td>
+          <td class="px-4 py-2 text-right font-mono terminal-text-gold">${startPriceStr}</td>
+          <td class="px-4 py-2 text-right text-xs terminal-text-muted">${startDateStr}</td>
         </tr>
       `;
     }
     tableBody.innerHTML = rowsHtml;
   } catch (err) {
     console.error('Failed to load bitcoin CAGR', err);
-    tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-red-400">Failed to load CAGR (backend /historical?)</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 terminal-text-error">Failed to load CAGR (backend /historical?)</td></tr>`;
   }
 }
 
@@ -795,23 +796,23 @@ export async function loadGoldFlipCard() {
   // Setup the segmented controls for gold growth rate (affects chart gold line)
   const controls = document.getElementById('gold-growth-controls');
   if (controls) {
-    controls.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">Gold growth assumption:</span>`;
+    controls.innerHTML = `<span class="terminal-control-label px-2">Gold growth assumption:</span>`;
     GOLD_CAGR_OPTIONS.forEach((opt) => {
       const btn = document.createElement('button');
       const active = Math.abs(opt.rate - state.selectedGoldCagr) < 0.0001;
-      btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${active
-        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
-        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'}`;
+      btn.className = `terminal-seg-btn ${active
+        ? tu.segActive
+        : tu.segIdle}`;
       btn.textContent = opt.label;
       btn.addEventListener('click', () => {
         state.selectedGoldCagr = opt.rate;
         // re-style all
         controls.querySelectorAll('button').forEach((b) => {
-          b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
-          b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+          b.classList.remove(tu.segActive);
+          b.classList.add(tu.segIdle);
         });
-        btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
-        btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+        btn.classList.remove(tu.segIdle);
+        btn.classList.add(tu.segActive);
         // update viz
         renderGoldFlipChart(state.selectedGoldCagr).catch(console.error);
         populateGoldFlipTable(state.selectedGoldCagr);
@@ -827,7 +828,7 @@ export async function loadGoldFlipCard() {
   } catch (err) {
     console.error('Failed to load gold flip card:', err);
     const tbl = document.getElementById('gold-flip-table');
-    if (tbl) tbl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 text-red-400">Failed to load (server may still be waking up)</td></tr>`;
+    if (tbl) tbl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 terminal-text-error">Failed to load (server may still be waking up)</td></tr>`;
   } finally {
     setChartLoading('gold-flip-chart-loading', false);
   }
@@ -868,7 +869,7 @@ function renderAssetCorrelationsChart(data: any) {
     return {
       label: asset.label,
       data: filtered.map(p => ({ x: dateToDays(p.date), y: p.correlation })),
-      borderColor: CORR_ASSET_COLORS[asset.id] || '#a1a1aa',
+      borderColor: CORR_ASSET_COLORS[asset.id] || T.textMuted,
       borderWidth: 1.75,
       pointRadius: filtered.length > 400 ? 0 : 0.6,
       pointHoverRadius: 3,
@@ -890,7 +891,7 @@ function renderAssetCorrelationsChart(data: any) {
   datasets.push({
     label: '0 (uncorrelated)',
     data: refLine,
-    borderColor: '#52525b',
+    borderColor: T.border,
     borderWidth: 1,
     borderDash: [4, 4],
     pointRadius: 0,
@@ -910,10 +911,10 @@ function renderAssetCorrelationsChart(data: any) {
           type: 'linear',
           min: firstX,
           max: lastX,
-          title: { display: true, text: 'Year', color: '#a1a1aa' },
-          grid: { color: '#27272a' },
+          title: { display: true, text: 'Year', color: T.textMuted },
+          grid: { color: T.grid },
           ticks: {
-            color: '#71717a',
+            color: T.textDim,
             font: { size: 10 },
             callback: function (value: number) {
               const year = Math.round(2009 + (value as number) / 365.25);
@@ -932,11 +933,11 @@ function renderAssetCorrelationsChart(data: any) {
           title: {
             display: true,
             text: `Rolling correlation (${correlationWindowLabel(state.corrWindow)})`,
-            color: '#a1a1aa',
+            color: T.textMuted,
           },
-          grid: { color: '#27272a' },
+          grid: { color: T.grid },
           ticks: {
-            color: '#71717a',
+            color: T.textDim,
             font: { size: 10 },
             stepSize: 0.25,
             callback: (v: number) => (v > 0 ? '+' : '') + Number(v).toFixed(2),
@@ -952,8 +953,8 @@ function renderAssetCorrelationsChart(data: any) {
         tooltip: {
           mode: 'nearest',
           intersect: false,
-          backgroundColor: 'rgba(24, 24, 27, 0.95)',
-          borderColor: '#3f3f46',
+          backgroundColor: T.tooltipBg,
+          borderColor: T.tooltipBorder,
           borderWidth: 1,
           callbacks: {
             title: (items: any[]) => {
@@ -984,7 +985,7 @@ export function populateAssetCorrelationsTable(data: any) {
 
   const current = data?.current || [];
   if (!current.length) {
-    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">No correlation data available</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 terminal-text-error">No correlation data available</td></tr>`;
     return;
   }
 
@@ -996,7 +997,7 @@ export function populateAssetCorrelationsTable(data: any) {
     }).join('');
     return `
       <tr>
-        <td class="px-4 py-2 text-zinc-300 font-medium">${row.label}</td>
+        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">${row.label}</td>
         ${cells}
       </tr>
     `;
@@ -1009,14 +1010,14 @@ export function setupCorrWindowControls(onChange: () => void) {
   const container = document.getElementById('corr-window-controls');
   if (!container) return;
 
-  container.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">Rolling window:</span>`;
+  container.innerHTML = `<span class="terminal-control-label px-2">Rolling window:</span>`;
   CORR_WINDOWS.forEach(w => {
     const btn = document.createElement('button');
     const active = w === state.corrWindow;
     btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${
       active
-        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
-        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'
+        ? tu.segActive
+        : tu.segIdle
     }`;
     btn.textContent = correlationWindowLabel(w);
     btn.addEventListener('click', () => {
@@ -1024,11 +1025,11 @@ export function setupCorrWindowControls(onChange: () => void) {
       state.corrWindow = w;
       state.corrDataCache = null;
       container.querySelectorAll('button').forEach(b => {
-        b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
-        b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+        b.classList.remove(tu.segActive);
+        b.classList.add(tu.segIdle);
       });
-      btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
-      btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+      btn.classList.remove(tu.segIdle);
+      btn.classList.add(tu.segActive);
       onChange();
     });
     container.appendChild(btn);
@@ -1046,25 +1047,25 @@ export function setupCorrRangeControls(onChange: () => void) {
     { key: 'all', label: 'All' },
   ];
 
-  container.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">Chart range:</span>`;
+  container.innerHTML = `<span class="terminal-control-label px-2">Chart range:</span>`;
   ranges.forEach(({ key, label }) => {
     const btn = document.createElement('button');
     const active = key === state.corrRange;
     btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${
       active
-        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
-        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'
+        ? tu.segActive
+        : tu.segIdle
     }`;
     btn.textContent = label;
     btn.addEventListener('click', () => {
       if (state.corrRange === key) return;
       state.corrRange = key;
       container.querySelectorAll('button').forEach(b => {
-        b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
-        b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+        b.classList.remove(tu.segActive);
+        b.classList.add(tu.segIdle);
       });
-      btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
-      btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+      btn.classList.remove(tu.segIdle);
+      btn.classList.add(tu.segActive);
       onChange();
     });
     container.appendChild(btn);
@@ -1113,7 +1114,7 @@ export async function loadAssetCorrelationsCard() {
     }
   } catch (err) {
     console.error('Failed to load asset correlations card', err);
-    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 text-red-400">Failed to load correlation data. Check that the backend is running.</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-3 terminal-text-error">Failed to load correlation data. Check that the backend is running.</td></tr>`;
   } finally {
     setChartLoading('corr-chart-loading', false);
   }
@@ -1144,7 +1145,7 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
     {
       label: 'Mayer Multiple',
       data: mmSeries,
-      borderColor: '#f59e0b',
+      borderColor: T.accent,
       borderWidth: 1.75,
       pointRadius: mmSeries.length > 900 ? 0 : 0.7,
       pointHoverRadius: 3,
@@ -1154,7 +1155,7 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
     {
       label: '1.0 (200DMA)',
       data: ref1,
-      borderColor: '#a1a1aa',
+      borderColor: T.textMuted,
       borderWidth: 1,
       borderDash: [3, 3],
       pointRadius: 0,
@@ -1164,7 +1165,7 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
     {
       label: '0.8 (deep value / oversold)',
       data: ref08,
-      borderColor: '#22c55e',
+      borderColor: T.positive,
       borderWidth: 1,
       borderDash: [4, 2],
       pointRadius: 0,
@@ -1174,7 +1175,7 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
     {
       label: '2.4 (classic threshold)',
       data: ref24,
-      borderColor: '#ef4444',
+      borderColor: T.negative,
       borderWidth: 1,
       borderDash: [2, 2],
       pointRadius: 0,
@@ -1197,10 +1198,10 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
           type: 'linear',
           min: firstX,
           max: lastX,
-          title: { display: true, text: 'Year', color: '#a1a1aa' },
-          grid: { color: '#27272a' },
+          title: { display: true, text: 'Year', color: T.textMuted },
+          grid: { color: T.grid },
           ticks: {
-            color: '#71717a',
+            color: T.textDim,
             font: { size: 10 },
             callback: function (value: number) {
               const year = Math.round(2009 + (value as number) / 365.25);
@@ -1217,9 +1218,9 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
           type: 'linear',
           min: 0,
           suggestedMax: ySuggestedMax,
-          title: { display: true, text: 'Mayer Multiple', color: '#a1a1aa' },
-          grid: { color: '#27272a' },
-          ticks: { color: '#71717a', font: { size: 10 }, stepSize: 0.5 },
+          title: { display: true, text: 'Mayer Multiple', color: T.textMuted },
+          grid: { color: T.grid },
+          ticks: { color: T.textDim, font: { size: 10 }, stepSize: 0.5 },
         },
       },
       plugins: {
@@ -1231,8 +1232,8 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
         tooltip: {
           mode: 'nearest',
           intersect: false,
-          backgroundColor: 'rgba(24, 24, 27, 0.95)',
-          borderColor: '#3f3f46',
+          backgroundColor: T.tooltipBg,
+          borderColor: T.tooltipBorder,
           borderWidth: 1,
           callbacks: {
             title: (tooltipItems: any[]) => {
@@ -1266,15 +1267,15 @@ export function setupMayerRangeControls() {
     { key: '2y', label: '2y' },
   ];
 
-  container.innerHTML = `<span class="px-2 text-[11px] text-zinc-500">View:</span>`;
+  container.innerHTML = `<span class="terminal-control-label px-2">View:</span>`;
 
   ranges.forEach(({ key, label }) => {
     const btn = document.createElement('button');
     const isActive = key === state.mayerRange;
     btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${
       isActive
-        ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
-        : 'bg-zinc-950 border-zinc-700 hover:bg-zinc-900 text-zinc-300'
+        ? tu.segActive
+        : tu.segIdle
     }`;
     btn.textContent = label;
     btn.addEventListener('click', () => {
@@ -1283,11 +1284,11 @@ export function setupMayerRangeControls() {
 
       // Update button styles
       container.querySelectorAll('button').forEach(b => {
-        b.classList.remove('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
-        b.classList.add('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
+        b.classList.remove(tu.segActive);
+        b.classList.add(tu.segIdle);
       });
-      btn.classList.remove('bg-zinc-950', 'border-zinc-700', 'text-zinc-300');
-      btn.classList.add('bg-zinc-800', 'border-zinc-600', 'text-zinc-100');
+      btn.classList.remove(tu.segIdle);
+      btn.classList.add(tu.segActive);
 
       renderMayerForCurrentRange();
     });

@@ -130,10 +130,10 @@ export function formatConditionalReturnCell(stats: ConditionalHorizonStats): { m
 }
 
 export function conditionalReturnColorClass(value: number | null): string {
-  if (value == null) return 'text-zinc-500';
-  if (value > 0.05) return 'text-emerald-400';
-  if (value < -0.05) return 'text-red-400';
-  return 'text-zinc-300';
+  if (value == null) return 'terminal-text-muted';
+  if (value > 0.05) return 'terminal-text-positive';
+  if (value < -0.05) return 'terminal-text-negative';
+  return 'text-[var(--tb-text)]';
 }
 
 export function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {
@@ -776,12 +776,12 @@ export function formatCorrelation(value: number | null | undefined): string {
 
 /** Tailwind text color class based on correlation strength/direction. */
 export function correlationColorClass(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return 'text-zinc-400';
-  if (value >= 0.5) return 'text-emerald-400';
-  if (value >= 0.2) return 'text-sky-400';
-  if (value > -0.2) return 'text-zinc-300';
-  if (value > -0.5) return 'text-amber-400';
-  return 'text-red-400';
+  if (value == null || Number.isNaN(value)) return 'terminal-text-muted';
+  if (value >= 0.5) return 'terminal-text-positive';
+  if (value >= 0.2) return 'terminal-text-live';
+  if (value > -0.2) return 'text-[var(--tb-text)]';
+  if (value > -0.5) return 'terminal-text-gold';
+  return 'terminal-text-negative';
 }
 
 /** Filter correlation series to dates on/after `startDate` (YYYY-MM-DD). */

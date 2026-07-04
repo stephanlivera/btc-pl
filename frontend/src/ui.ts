@@ -1,4 +1,5 @@
-import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
+import { state } from './state';
+import { terminalUi as tu } from './theme';
 
 // --- Loading Indicators (cold-start / slow backend) ---
 
@@ -6,7 +7,7 @@ const SLOW_LOAD_MS = 8000;
 let slowLoadTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function loadingTableRow(colspan: number, message: string, cellClass = 'px-4 py-3'): string {
-  return `<tr><td colspan="${colspan}" class="${cellClass} text-zinc-500">
+  return `<tr><td colspan="${colspan}" class="${cellClass} ${tu.textMuted}">
     <span class="inline-flex items-center gap-2">
       <span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span>
       <span class="loading-pulse">${message}</span>
@@ -65,9 +66,11 @@ export function updateRangeButtons() {
   document.querySelectorAll('.range-btn').forEach(btn => {
     const el = btn as HTMLElement;
     if (el.dataset.range === state.currentRange) {
-      el.classList.add('bg-zinc-800', 'font-medium');
+      el.classList.add(tu.segActive);
+      el.classList.remove(tu.segIdle);
     } else {
-      el.classList.remove('bg-zinc-800', 'font-medium');
+      el.classList.remove(tu.segActive);
+      el.classList.add(tu.segIdle);
     }
   });
 }
@@ -77,13 +80,15 @@ export function updateBandsToggle() {
   const indicator = document.getElementById('bands-indicator')!;
 
   if (state.showBands) {
-    btn.classList.add('bg-orange-500/10', 'border-orange-500/40', 'text-orange-400');
-    indicator.classList.remove('bg-zinc-600');
-    indicator.classList.add('bg-orange-400');
+    btn.classList.remove(tu.toggleOff);
+    btn.classList.add(tu.toggleOn);
+    indicator.classList.remove(tu.indicatorOff);
+    indicator.classList.add(tu.indicatorOn);
   } else {
-    btn.classList.remove('bg-orange-500/10', 'border-orange-500/40', 'text-orange-400');
-    indicator.classList.add('bg-zinc-600');
-    indicator.classList.remove('bg-orange-400');
+    btn.classList.remove(tu.toggleOn);
+    btn.classList.add(tu.toggleOff);
+    indicator.classList.add(tu.indicatorOff);
+    indicator.classList.remove(tu.indicatorOn);
   }
 }
 
@@ -92,17 +97,18 @@ export function updateOuterBandsToggle() {
   const indicator = document.getElementById('outer-bands-indicator')!;
 
   if (state.showOuterBands) {
-    btn.classList.add('bg-orange-500/10', 'border-orange-500/40', 'text-orange-400');
-    indicator.classList.remove('bg-zinc-600');
-    indicator.classList.add('bg-orange-400');
+    btn.classList.remove(tu.toggleOff);
+    btn.classList.add(tu.toggleOn);
+    indicator.classList.remove(tu.indicatorOff);
+    indicator.classList.add(tu.indicatorOn);
   } else {
-    btn.classList.remove('bg-orange-500/10', 'border-orange-500/40', 'text-orange-400');
-    indicator.classList.add('bg-zinc-600');
-    indicator.classList.remove('bg-orange-400');
+    btn.classList.remove(tu.toggleOn);
+    btn.classList.add(tu.toggleOff);
+    indicator.classList.add(tu.indicatorOff);
+    indicator.classList.remove(tu.indicatorOn);
   }
 }
 
 export function updateProjectionsInfo(data: any) {
-  // Kept for backward compatibility if needed
   console.log('Projections info updated (now using table)');
 }

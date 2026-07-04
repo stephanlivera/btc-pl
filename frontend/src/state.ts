@@ -1,6 +1,7 @@
 // Shared mutable application state
 import { END_OF_2035_DAYS as IMPORTED_END_OF_2035_DAYS } from './utils';
 import type { Q50ModelParams } from './utils';
+import { terminal } from './theme';
 
 export const state = {
   // Fallback "now" value; overwritten by fetchLatestDataDay() on startup.
@@ -50,8 +51,8 @@ export const GOLD_CAGR_OPTIONS = [
 
 export const CORR_WINDOWS = [30, 90, 180, 365] as const;
 export const CORR_ASSET_COLORS: Record<string, string> = {
-  stocks: '#3b82f6',
-  gold: '#eab308',
-  bonds: '#22c55e',
-  property: '#a855f7',
+  stocks: terminal.stocks,
+  gold: terminal.gold,
+  bonds: terminal.bonds,
+  property: terminal.property,
 };

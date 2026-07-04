@@ -217,9 +217,9 @@ describe('conditional return formatters', () => {
   });
 
   it('colors returns by sign and magnitude', () => {
-    expect(conditionalReturnColorClass(0.2)).toContain('emerald');
-    expect(conditionalReturnColorClass(-0.2)).toContain('red');
-    expect(conditionalReturnColorClass(0.01)).toContain('zinc');
+    expect(conditionalReturnColorClass(0.2)).toContain('terminal-text-positive');
+    expect(conditionalReturnColorClass(-0.2)).toContain('terminal-text-negative');
+    expect(conditionalReturnColorClass(0.01)).toContain('tb-text');
   });
 });
 
@@ -372,10 +372,10 @@ describe('correlation helpers', () => {
   });
 
   it('maps correlation strength to color classes', () => {
-    expect(correlationColorClass(0.6)).toContain('emerald');
-    expect(correlationColorClass(0.3)).toContain('sky');
-    expect(correlationColorClass(0)).toContain('zinc');
-    expect(correlationColorClass(-0.6)).toContain('red');
+    expect(correlationColorClass(0.6)).toContain('terminal-text-positive');
+    expect(correlationColorClass(0.3)).toContain('terminal-text-live');
+    expect(correlationColorClass(0)).toContain('tb-text');
+    expect(correlationColorClass(-0.6)).toContain('terminal-text-negative');
   });
 
   it('labels windows', () => {

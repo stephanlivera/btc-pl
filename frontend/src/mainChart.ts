@@ -17,6 +17,7 @@ import {
 } from './api';
 import { showAppLoading, setChartLoading, updateRangeButtons, updateProjectionsInfo } from './ui';
 import { getRequestedQuantiles } from './api';
+import { terminal as T } from './theme';
 
 // --- Time Range Logic ---
 
@@ -94,8 +95,8 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
     datasets.push({
       label: 'Historical Price',
       data: historicalData.points,
-      borderColor: '#38bdf8',
-      backgroundColor: '#38bdf8',
+      borderColor: T.cyan,
+      backgroundColor: T.cyan,
       borderWidth: 2,
       pointRadius: historicalData.points.length > 400 ? 0 : 1.5,
       pointHoverRadius: 4,
@@ -109,7 +110,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
       datasets,
       curves[0.9],
       curves[0.1],
-      'rgba(245, 158, 11, 0.07)',
+      T.corridorOuter,
       MAIN_CHART_OUTER_FILL_ORDER
     );
   }
@@ -119,7 +120,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
       datasets,
       curves[0.75],
       curves[0.25],
-      'rgba(245, 158, 11, 0.14)',
+      T.corridorInner,
       MAIN_CHART_INNER_FILL_ORDER
     );
   }
@@ -128,7 +129,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
     datasets.push({
       label: 'Central (Q50)',
       data: curves[0.5],
-      borderColor: '#f59e0b',
+      borderColor: T.accent,
       borderWidth: 3,
       pointRadius: 0,
       tension: 0,
@@ -204,9 +205,9 @@ export function drawTodayPriceCallout(
 
   ctx.beginPath();
   ctx.arc(todayPx, yPx, 4.5, 0, Math.PI * 2);
-  ctx.fillStyle = '#38bdf8';
+  ctx.fillStyle = T.cyan;
   ctx.fill();
-  ctx.strokeStyle = '#0ea5e9';
+  ctx.strokeStyle = T.cyanDim;
   ctx.lineWidth = 2;
   ctx.stroke();
 
@@ -217,8 +218,8 @@ export function drawTodayPriceCallout(
   let top = yPx - boxH / 2;
   top = Math.max(chartArea.top + 6, Math.min(top, chartArea.bottom - boxH - 6));
 
-  ctx.fillStyle = 'rgba(24, 24, 27, 0.94)';
-  ctx.strokeStyle = 'rgba(63, 63, 70, 0.85)';
+  ctx.fillStyle = T.calloutBg;
+  ctx.strokeStyle = T.calloutBorder;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.roundRect(left, top, boxW, boxH, 6);
@@ -227,11 +228,11 @@ export function drawTodayPriceCallout(
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillStyle = '#a1a1aa';
-  ctx.font = '500 9px Inter, system-ui, sans-serif';
+  ctx.fillStyle = T.textMuted;
+  ctx.font = '500 9px "IBM Plex Sans", system-ui, sans-serif';
   ctx.fillText(dateStr, left + padX, top + padY);
-  ctx.fillStyle = '#38bdf8';
-  ctx.font = '600 12px Inter, system-ui, sans-serif';
+  ctx.fillStyle = T.cyan;
+  ctx.font = '600 12px "IBM Plex Mono", monospace';
   ctx.fillText(priceStr, left + padX, top + padY + 13);
 }
 
@@ -263,12 +264,12 @@ const mainChartDecorationsPlugin = {
 
     if (todayPx < chartArea.right) {
       const left = Math.max(todayPx, chartArea.left);
-      ctx.fillStyle = 'rgba(245, 158, 11, 0.035)';
+      ctx.fillStyle = T.todayFill;
       ctx.fillRect(left, chartArea.top, chartArea.right - left, chartArea.bottom - chartArea.top);
     }
 
     if (todayPx >= chartArea.left && todayPx <= chartArea.right) {
-      ctx.strokeStyle = 'rgba(161, 161, 170, 0.45)';
+      ctx.strokeStyle = T.todayLine;
       ctx.lineWidth = 1;
       ctx.setLineDash([5, 5]);
       ctx.beginPath();
@@ -293,10 +294,11 @@ const mainChartDecorationsPlugin = {
 
     if (todayPx >= chartArea.left + 28 && todayPx <= chartArea.right - 4) {
       ctx.font = '600 10px Inter, system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(161, 161, 170, 0.8)';
+      ctx.fillStyle = T.textMuted;
+      ctx.font = '600 10px "IBM Plex Mono", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText('Today', todayPx, chartArea.top + 8);
+      ctx.fillText('TODAY', todayPx, chartArea.top + 8);
     }
 
     const todayPoint = findNearestPoint(state.lastHistoricalPoints, state.currentLatestDays, 3);
@@ -317,7 +319,7 @@ const mainChartDecorationsPlugin = {
 
     const crosshairX = (chart as any)._crosshairX;
     if (crosshairX != null && crosshairX >= chartArea.left && crosshairX <= chartArea.right) {
-      ctx.strokeStyle = 'rgba(161, 161, 170, 0.32)';
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
@@ -361,11 +363,12 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
     type: 'logarithmic' as const,
     min: yLimits.min,
     max: yLimits.max,
-    title: { display: true, text: 'Price (USD)', color: '#a1a1aa' },
-    grid: { color: '#27272a' },
-    border: { color: '#3f3f46' },
+    title: { display: true, text: 'Price (USD)', color: T.textMuted, font: { family: "'IBM Plex Sans', sans-serif", size: 11 } },
+    grid: { color: T.grid },
+    border: { color: T.border },
     ticks: {
-      color: '#71717a',
+      color: T.textDim,
+      font: { family: "'IBM Plex Mono', monospace", size: 10 },
       font: { size: 11 },
       padding: 6,
       callback: (value: number) => formatPrice(value),
@@ -414,11 +417,11 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
             type: 'logarithmic',
             min: startDays,
             max: endDays,
-            title: { display: true, text: 'Year', color: '#a1a1aa' },
-            grid: { color: '#27272a' },
+            title: { display: true, text: 'Year', color: T.textMuted, font: { family: "'IBM Plex Sans', sans-serif", size: 11 } },
+            grid: { color: T.grid },
             ticks: {
-              color: '#71717a',
-              font: { size: 11 },
+              color: T.textDim,
+              font: { family: "'IBM Plex Mono', monospace", size: 10 },
               values: timeTicks,
               callback: function (value: number) {
                 // Always compute the decision from the *live* scale bounds.
@@ -464,8 +467,8 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
             position: 'top',
             align: 'end',
             labels: {
-              color: '#a1a1aa',
-              font: { size: 11 },
+              color: T.textMuted,
+              font: { family: "'IBM Plex Sans', sans-serif", size: 10 },
               usePointStyle: true,
               pointStyle: 'circle',
               padding: 14,
@@ -482,11 +485,11 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
             axis: 'x',
             intersect: false,
             filter: (item: any) => !String(item.dataset.label).startsWith('_'),
-            backgroundColor: 'rgba(24, 24, 27, 0.95)',
-            borderColor: '#3f3f46',
+            backgroundColor: T.tooltipBg,
+            borderColor: T.tooltipBorder,
+            titleFont: { family: "'IBM Plex Mono', monospace", size: 12, weight: '600' },
+            bodyFont: { family: "'IBM Plex Mono', monospace", size: 11 },
             borderWidth: 1,
-            titleFont: { size: 13, weight: '600' },
-            bodyFont: { size: 12 },
             padding: 10,
             callbacks: {
               title: (tooltipItems: any[]) => {

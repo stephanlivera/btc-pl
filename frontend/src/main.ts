@@ -1,4 +1,5 @@
 // Application entry point
+import './terminal-bloomberg.css';
 import {
   fetchLatestDataDay,
   updateDataFreshnessDisplay,

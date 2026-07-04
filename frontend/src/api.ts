@@ -156,7 +156,7 @@ export function updateDataFreshnessDisplay() {
     if (pill) {
       const daysOld = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
       if (daysOld <= 7) {
-        pill.classList.add('border-emerald-900/50');
+        pill.classList.add('is-fresh');
       }
     }
   }
