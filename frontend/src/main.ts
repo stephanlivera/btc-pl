@@ -24,6 +24,7 @@ import {
   loadAssetCorrelationsCard,
   renderGoldFlipChart,
 } from './cards';
+import { loadTickerStrip } from './ticker';
 
 // --- Event Listeners ---
 
@@ -176,6 +177,7 @@ async function init() {
   setAppLoadingMessage('Loading analysis panels…');
 
   await Promise.allSettled([
+    loadTickerStrip(),
     loadYearEndProjections(),
     loadConditionalReturnsCard(),
     loadTimeBelowQuantileCard(),

@@ -20,25 +20,36 @@
     </div>
 
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8">
-      <div class="flex items-center gap-x-3">
-        <div class="terminal-logo w-9 h-9 rounded-md flex items-center justify-center">
-          <span class="text-white text-2xl font-bold tracking-tighter">₿</span>
+    <header class="terminal-header mb-6">
+      <div class="flex items-center justify-between gap-4 mb-3">
+        <div class="flex items-center gap-x-3 min-w-0">
+          <div class="terminal-logo w-9 h-9 rounded-md flex items-center justify-center shrink-0">
+            <span class="text-white text-2xl font-bold tracking-tighter">₿</span>
+          </div>
+          <div class="min-w-0">
+            <h1 class="font-display text-3xl tracking-tight text-[var(--tb-text)]">Bitcoin Power Law</h1>
+            <p class="terminal-card-subtitle mt-0.5">Quantile regression · daily close data</p>
+          </div>
         </div>
-        <div>
-          <h1 class="font-display text-3xl tracking-tight text-[var(--tb-text)]">Bitcoin Power Law</h1>
+        <div id="data-freshness-pill"
+             class="terminal-freshness-pill inline-flex items-center gap-1.5 rounded px-3 py-1.5 cursor-default shrink-0"
+             title="Source: btc_daily.csv">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 terminal-text-positive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span>Data through <span class="font-medium text-[var(--tb-text-muted)]" id="data-freshness-date">—</span></span>
         </div>
       </div>
-      <!-- Data Freshness Pill -->
-      <div id="data-freshness-pill"
-           class="terminal-freshness-pill inline-flex items-center gap-1.5 rounded px-3 py-1.5 cursor-default"
-           title="Source: btc_daily.csv">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 terminal-text-positive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-        <span>Data through <span class="font-medium text-[var(--tb-text-muted)]" id="data-freshness-date">—</span></span>
+
+      <!-- Scrolling market tape (v1) -->
+      <div id="terminal-ticker" class="terminal-ticker" aria-label="Market summary ticker" role="region" aria-live="polite">
+        <div class="terminal-ticker-viewport">
+          <div id="terminal-ticker-track" class="terminal-ticker-track">
+            <span class="terminal-ticker-loading">Loading market tape…</span>
+          </div>
+        </div>
       </div>
-    </div>
+    </header>
 
     <!-- Chart Card -->
     <div id="main-chart-card" class="terminal-card terminal-card-hero p-6">
