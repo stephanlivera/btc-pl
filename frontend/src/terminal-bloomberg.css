@@ -105,8 +105,42 @@ body.terminal-bloomberg code {
 
 /* Header */
 .terminal-header {
-  border-bottom: 1px solid var(--tb-border-muted);
-  padding-bottom: 0.75rem;
+  position: relative;
+  border: 1px solid var(--tb-border);
+  border-radius: 0.375rem;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.terminal-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url('/images/header-corridor-abstract.jpg');
+  background-size: cover;
+  background-position: 72% center;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.terminal-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    rgba(12, 14, 18, 0.94) 0%,
+    rgba(12, 14, 18, 0.82) 38%,
+    rgba(12, 14, 18, 0.58) 68%,
+    rgba(12, 14, 18, 0.45) 100%
+  );
+  pointer-events: none;
+}
+
+.terminal-header-panel {
+  position: relative;
+  z-index: 1;
+  padding: 0.85rem 1rem 0.75rem;
 }
 
 .terminal-ticker {
