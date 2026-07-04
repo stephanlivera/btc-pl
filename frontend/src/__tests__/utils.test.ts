@@ -7,12 +7,9 @@ import {
   END_OF_2035_DAYS,
   findNearestPoint,
   getCurveValue,
-  getHorizonTargets,
-  getShortHorizonTargets,
   quantileLabel,
   buildTimeBelowQuantileExplanation,
   formatTimeBelowQuantileSubtext,
-  ANALYST_QUANTILES,
   calculateCAGR,
   findPriceAtYearsAgo,
   formatCorrelation,
@@ -57,16 +54,6 @@ describe('formatPrice', () => {
   it('formats small prices', () => {
     expect(formatPrice(42)).toBe('$42');
     expect(formatPrice(0.5)).toBe('$0.50');
-  });
-});
-
-describe('getHorizonTargets', () => {
-  it('returns four horizon columns with expected labels', () => {
-    const horizons = getHorizonTargets(6359);
-    expect(horizons.map(h => h.label)).toEqual(['Now', '+1 year', '+5 years', '+10 years']);
-    expect(horizons[0].days).toBe(6359);
-    expect(horizons[1].days - horizons[0].days).toBeCloseTo(365.25, 0);
-    expect(horizons[3].days - horizons[0].days).toBe(3653);
   });
 });
 
@@ -236,14 +223,6 @@ describe('conditional return formatters', () => {
   });
 });
 
-describe('ANALYST_QUANTILES', () => {
-  it('has eleven quantiles from Q99 to Q1', () => {
-    expect(ANALYST_QUANTILES.length).toBe(11);
-    expect(ANALYST_QUANTILES[0]).toBe(0.99);
-    expect(ANALYST_QUANTILES[ANALYST_QUANTILES.length - 1]).toBe(0.01);
-  });
-});
-
 describe('getNextTenYearEnds', () => {
   it('returns 10 future year ends', () => {
     const results = getNextTenYearEnds(6200);
@@ -313,19 +292,6 @@ describe('getCurveValue', () => {
   it('returns value from nearest point on curve', () => {
     const val = getCurveValue(curve, 1050, 100);
     expect(val).toBe(80000);
-  });
-});
-
-describe('getShortHorizonTargets', () => {
-  it('returns five horizon columns with expected short-term labels', () => {
-    const horizons = getShortHorizonTargets(6359);
-    expect(horizons.map(h => h.label)).toEqual(['Now', '+3 months', '+6 months', '+1 year', '+2 years']);
-    expect(horizons[0].days).toBe(6359);
-    // ~91, 183, 365, 730 day deltas
-    expect(horizons[1].days - horizons[0].days).toBeCloseTo(91, -1);
-    expect(horizons[2].days - horizons[0].days).toBeCloseTo(183, -1);
-    expect(horizons[3].days - horizons[0].days).toBeCloseTo(365, -1);
-    expect(horizons[4].days - horizons[0].days).toBeCloseTo(730, -1);
   });
 });
 

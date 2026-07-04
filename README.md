@@ -211,8 +211,6 @@ Optional flags:
   BACKEND_URL=http://your-server:8000 python scripts/update_data.py
   ```
 
-Legacy wrappers `update_btc_daily.py` and `update_asset_data.py` still forward to `update_data.py` but are deprecated.
-
 This is the recommended and safest way to update data.
 
 Example success output:
@@ -260,7 +258,7 @@ The legacy single-file version is archived in `archive/old-single-file/`.
 - `POST /refit` — Reload CSV and refit all quantile models (use after data updates).
 - `GET /parameters` — Fitted coefficients + current residual quantiles + decay settings.
 - `GET /conditional-returns` — Empirical forward returns grouped by power-law quantile regime bucket (+3m / +6m / +1y / +2y by default).
-- `GET /current` — Latest actual price + empirical quantile rank (0-1) vs historical residuals around Q50, plus `time_below_quantile` for the Time Spent Below Quantile card. Also returns optional `analog_projections` (k-nearest historical multipliers) for API consumers; not shown in the current UI.
+- `GET /current` — Latest actual price + empirical quantile rank (0-1) vs historical residuals around Q50, plus `time_below_quantile` for the Time Spent Below Quantile card. Pass `include_analogs=true` for optional k-nearest historical multipliers (not used by the UI).
 - `GET /stats` — Optional fit diagnostics (OLS R², β stability windows, rolling β series). Not shown in the UI; useful for debugging and analysis.
 - `GET /correlations` — Rolling log-return correlations between Bitcoin and major asset classes (SPY, GLD, AGG, VNQ).
 - `GET /health` — Simple health check + `data_end_date`. Used by the frontend to keep time ranges and freshness display up to date automatically.
@@ -366,7 +364,12 @@ simplepowerlaw/
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── main.ts               # Main UI (Chart.js, controls, table, etc.)
+│   │   ├── main.ts               # App entry (init, controls)
+│   │   ├── state.ts              # Shared mutable UI state
+│   │   ├── api.ts                # Backend fetch helpers
+│   │   ├── ui.ts                 # Loading overlays, toggles
+│   │   ├── mainChart.ts          # Main power-law chart
+│   │   ├── cards.ts              # Analysis cards (stats, Mayer, gold flip, …)
 │   │   ├── utils.ts              # Pure functions (extracted for testing) — CAGR, glance stats, etc.
 │   │   └── __tests__/            # Vitest tests (CAGR, glance stats, quantile rank, …)
 
@@ -374,9 +377,7 @@ simplepowerlaw/
 │   └── vite.config.ts
 ├── scripts/
 │   ├── update_data.py            # Unified data updater (BTC + assets + refit + sense check)
-│   ├── data_updater.py           # Shared update logic (imported by tests)
-│   ├── update_btc_daily.py       # Deprecated wrapper → update_data.py
-│   └── update_asset_data.py      # Deprecated wrapper → update_data.py
+│   └── data_updater.py           # Shared update logic (imported by tests)
 ├── run-tests.sh                  # Root convenience script for all tests
 ├── archive/
 │   └── old-single-file/          # Legacy single-file version (for reference)

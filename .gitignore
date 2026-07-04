@@ -69,3 +69,6 @@ htmlcov/
 
 # Vercel local
 .vercel/
+
+# Local data backups (not versioned)
+backups/

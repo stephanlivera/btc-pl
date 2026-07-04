@@ -41,8 +41,8 @@ def test_current_endpoint_returns_position_and_quantile():
 
     assert "meta" in data
     assert "position" in data
-    assert "analog_projections" in data
     assert "time_below_quantile" in data
+    assert "analog_projections" not in data
     assert "note" in data
 
     pos = data["position"]
@@ -65,12 +65,17 @@ def test_current_endpoint_returns_position_and_quantile():
     assert tbq["since_date"] <= tbq.get("data_end_date", "9999-12-31")
     assert abs(tbq["time_below_pct"] - (tbq["days_at_or_below"] / tbq["total_days"] * 100)) < 0.15
 
+def test_current_endpoint_include_analogs():
+    """Analog projections are opt-in via include_analogs=true."""
+    response = client.get("/current?include_analogs=true")
+    assert response.status_code == 200
+    data = response.json()
+    assert "analog_projections" in data
     ap = data["analog_projections"]
     if ap:
         assert "horizons" in ap
-        assert "0" in ap["horizons"]  # now
+        assert "0" in ap["horizons"]
         h0 = ap["horizons"]["0"]
-        # h=0 should be multiplier of 1.0 (or scaled to current)
         assert h0.get("median_mult") is not None or h0.get("scaled_median") is not None
 
 

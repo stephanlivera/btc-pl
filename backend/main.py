@@ -7,6 +7,7 @@ This is Option 2 (Full Curve Generation Backend).
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
 
@@ -15,17 +16,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .asset_correlations import AssetCorrelationModel
 from .quantile_model import QuantilePowerLawModel
-
-app = FastAPI(title="Bitcoin Power Law Quantile Curves")
-
-# Allow the frontend to call this API
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Configurable data paths (Docker / Render / Vercel). Repo root = parent of backend/.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -49,8 +39,7 @@ model = QuantilePowerLawModel(quantiles=[0.10, 0.25, 0.50, 0.75, 0.90])
 correlation_model = AssetCorrelationModel(assets_path=ASSETS_PATH, btc_path=DATA_PATH)
 
 
-@app.on_event("startup")
-def load_and_fit_model():
+def _load_and_fit_model() -> None:
     """Load data and fit models on startup."""
     print(f"PROJECT_ROOT: {PROJECT_ROOT}")
     print(f"Loading data from: {DATA_PATH} (exists={DATA_PATH.exists()})")
@@ -63,6 +52,23 @@ def load_and_fit_model():
     except Exception as e:
         print(f"WARNING: Failed to load/fit model on startup: {e}")
         print("The app will start, but /curves will fail until a successful /refit")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _load_and_fit_model()
+    yield
+
+
+app = FastAPI(title="Bitcoin Power Law Quantile Curves", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/refit")
@@ -201,11 +207,16 @@ def get_conditional_returns(
 
 
 @app.get("/current")
-def get_current():
+def get_current(
+    include_analogs: bool = Query(
+        False,
+        description="Include k-nearest historical analog multipliers (expensive; not used by the UI)",
+    ),
+):
     """Return the latest price's empirical quantile rank vs the power law model.
 
-    Powers the Time Spent Below Quantile card (`time_below_quantile`). Also includes
-    optional historical-analog multipliers for API consumers (not used by the UI).
+    Powers the Time Spent Below Quantile card (`time_below_quantile`). Pass
+    `include_analogs=true` for optional historical-analog multipliers (API consumers only).
     """
     if not model.results:
         raise HTTPException(
@@ -217,43 +228,47 @@ def get_current():
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Short-term offsets for historical analog projections (matches the card's 3m/6m/1y/2y)
-    short_horizons = [0, 91, 183, 365, 730]
-    try:
-        analog_projections = model.get_historical_analog_projections(
-            position.get("quantile", 0.5), short_horizons, k=40
-        )
-        # Scale the historical multipliers to the current actual price level.
-        # This produces "how much higher the price is projected to be than it is now",
-        # based on gains seen in similar historical regimes.
-        curr_price = position.get("actual_price")
-        if analog_projections and curr_price and "horizons" in analog_projections:
-            for hkey, stats in analog_projections["horizons"].items():
-                if stats.get("median_mult") is not None:
-                    stats["scaled_median"] = round(curr_price * stats["median_mult"], 2)
-                    if stats.get("p25_mult") is not None:
-                        stats["scaled_p25"] = round(curr_price * stats["p25_mult"], 2)
-                    if stats.get("p75_mult") is not None:
-                        stats["scaled_p75"] = round(curr_price * stats["p75_mult"], 2)
-    except Exception:
-        analog_projections = None
+    analog_projections = None
+    if include_analogs:
+        short_horizons = [0, 91, 183, 365, 730]
+        try:
+            analog_projections = model.get_historical_analog_projections(
+                position.get("quantile", 0.5), short_horizons, k=40
+            )
+            curr_price = position.get("actual_price")
+            if analog_projections and curr_price and "horizons" in analog_projections:
+                for hkey, stats in analog_projections["horizons"].items():
+                    if stats.get("median_mult") is not None:
+                        stats["scaled_median"] = round(curr_price * stats["median_mult"], 2)
+                        if stats.get("p25_mult") is not None:
+                            stats["scaled_p25"] = round(curr_price * stats["p25_mult"], 2)
+                        if stats.get("p75_mult") is not None:
+                            stats["scaled_p75"] = round(curr_price * stats["p75_mult"], 2)
+        except Exception:
+            analog_projections = None
 
     try:
         time_below_quantile = model.get_time_below_quantile()
     except Exception:
         time_below_quantile = None
 
-    return {
+    response = {
         "meta": {
             "data_end_date": str(model.data_end_date),
             "last_fit_date": str(model.last_fit_date),
             "ref_days": model.ref_days,
         },
         "position": position,
-        "analog_projections": analog_projections,
         "time_below_quantile": time_below_quantile,
-        "note": "quantile (0-1) is the empirical CDF rank of the latest log-residual vs full historical _log_residuals around Q50 central (parallel bands + decay). 'analog_projections' provides historical *multipliers* (gains) from k-nearest similar-residual regimes; scaled_* fields apply those multipliers to today's actual price.",
+        "note": "quantile (0-1) is the empirical CDF rank of the latest log-residual vs full historical _log_residuals around Q50 central (parallel bands + decay).",
     }
+    if include_analogs:
+        response["analog_projections"] = analog_projections
+        response["note"] += (
+            " 'analog_projections' provides historical *multipliers* (gains) from k-nearest "
+            "similar-residual regimes; scaled_* fields apply those multipliers to today's actual price."
+        )
+    return response
 
 
 @app.get("/correlations")
@@ -322,5 +337,5 @@ def get_historical(
 # while local dev and tests keep using unprefixed paths (e.g. /health).
 if os.getenv("VERCEL_ENV"):
     _api = app
-    app = FastAPI(title="Bitcoin Power Law Quantile Curves")
+    app = FastAPI(title="Bitcoin Power Law Quantile Curves", lifespan=lifespan)
     app.mount("/api", _api)
