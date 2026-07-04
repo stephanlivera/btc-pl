@@ -7,7 +7,7 @@ Interactive visualization of Bitcoin's long-term power law trend using Giovanni 
 - **Core model**: Quantile regression (Q25 / Q50 / Q75) fit on log-log daily Bitcoin closes (`log10(price) ~ log10(days_since_2009-01-03)`).
 - **Data source**: `btc_daily.csv` (daily closes back to ~2012, kept fresh via script).
 - **Bands**: Residual-based parallel bands around the central (Q50) fit for stability. Long-term projections use **simple time-based decay** (Option 1) so the Q75/Q50 ratio compresses naturally toward ~1.3–1.45× by the early 2030s (matching how many analysts present maturing power law corridors).
-- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 and Q10–Q90 bands with shaded corridors, main chart fullscreen + PNG download/copy, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic log-scale Y-axis with readable price ticks, 10-year year-end projections table, **Conditional Forward Returns by Quantile Regime** card (historical return stats by power-law bucket), **Time Spent Below Quantile** card (today's rank + share of history at or below that level), Bitcoin stats + CAGR tables, Mayer Multiple history, rolling asset-class correlations, gold market-cap flip projections, year + month tooltips.
+- **Features**: Time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 and Q10–Q90 bands with shaded corridors, main chart fullscreen + PNG download/copy, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic log-scale Y-axis with readable price ticks, 10-year year-end projections table, **Conditional Forward Returns by Quantile Regime** card (historical return stats by power-law bucket), **Time Spent Below Quantile** card (today's rank + share of history at or below that level), **Bitcoin Stats at a Glance** (price, power-law quantile, ATH, YTD/30d/90d returns, moving averages, Mayer, RSI, 30d vol, halving cycle), Bitcoin CAGR table, Mayer Multiple history, rolling asset-class correlations, gold market-cap flip projections, year + month tooltips.
 
 The old single-file `index.html` (root) is the legacy prototype. The current production experience lives in `frontend/` + `backend/`.
 
@@ -73,6 +73,23 @@ The **Time Spent Below Quantile** card answers: "How unusual is today's position
 Example: if Bitcoin is currently at the 42nd percentile (Q42), and 38% of days were also at or below Q42, the card shows **Time Below: 38%**. The remaining 62% of days traded richer versus the model than today.
 
 Position + time-below stats are returned by `GET /current` and rendered in the frontend with large readouts plus a plain-English explanation.
+
+### Bitcoin Stats at a Glance
+The **Bitcoin Stats at a Glance** card is a single-screen snapshot combining power-law context with common BTC market metrics. Rows (in order):
+
+| Row | Source | Notes |
+|-----|--------|-------|
+| Current price | `/historical` | Latest daily close |
+| Power-law quantile | `/current` | Empirical rank vs Q50 + % deviation + model Q50 price |
+| All-time high | `/historical` (~2011+) | ATH price, % below ATH, ATH date |
+| YTD / 30d / 90d return | `/historical` | Simple returns (`P_now/P_then - 1`) |
+| 200 DMA / 200 WMA | `/historical` | 200-day SMA; 200-week ≈ 1400-day SMA |
+| Mayer Multiple | `/historical` | Price ÷ 200 DMA |
+| RSI (14) | `/historical` | Simple 14-period RSI on closes |
+| 30d realized vol | `/historical` | Annualized stdev of daily log returns (30d window) |
+| Halving cycle | Calendar | Days since last halving; countdown to estimated next |
+
+Price-only metrics are computed client-side in `computeBitcoinGlancePriceStats()` (`frontend/src/utils.ts`) with Vitest coverage. The card fetches full history from ~2011 so ATH is accurate.
 
 ## Alignment with Giovanni Santostasi's Power Law Model
 
@@ -320,7 +337,7 @@ npm run test:run      # Run once
 npm test              # Watch mode
 ```
 
-Tests pure utility functions (tick generation, price formatting, chart Y-axis limits, point quantile rank, nearest-point lookup, CAGR calculation, historical price lookup for periods, Mayer Multiple helpers, time-below-quantile explanation text, conditional-return formatters, etc.) that were extracted into `src/utils.ts` for testability.
+Tests pure utility functions (tick generation, price formatting, chart Y-axis limits, point quantile rank, nearest-point lookup, CAGR calculation, historical price lookup for periods, Mayer Multiple helpers, time-below-quantile explanation text, conditional-return formatters, bitcoin glance stats — ATH, RSI, realized vol, halving cycle, YTD/lookback returns, etc.) that were extracted into `src/utils.ts` for testability.
 
 ### API Smoke Tests (standalone)
 
@@ -350,8 +367,8 @@ simplepowerlaw/
 ├── frontend/
 │   ├── src/
 │   │   ├── main.ts               # Main UI (Chart.js, controls, table, etc.)
-│   │   ├── utils.ts              # Pure functions (extracted for testing) — includes CAGR helpers
-│   │   └── __tests__/            # Vitest tests (covers new CAGR + historical lookup utils)
+│   │   ├── utils.ts              # Pure functions (extracted for testing) — CAGR, glance stats, etc.
+│   │   └── __tests__/            # Vitest tests (CAGR, glance stats, quantile rank, …)
 
 │   ├── package.json
 │   └── vite.config.ts
@@ -370,6 +387,7 @@ simplepowerlaw/
 
 ## Recent Major Changes
 
+- **Bitcoin Stats at a Glance** expanded (2026): twelve-row snapshot — power-law quantile + Q50 deviation (from `/current`), ATH distance, YTD/30d/90d returns, 200 DMA/WMA, Mayer Multiple, RSI (14), 30d annualized realized vol, and halving-cycle day count. Logic in `computeBitcoinGlancePriceStats()` with Vitest tests.
 - **Conditional Forward Returns card** (2026): new `GET /conditional-returns` endpoint and dashboard table showing median historical forward returns (with P25–P75 and hit rate) for each power-law quantile regime bucket. Replaces the removed Quantile Price Grid and Current Quantile Position outlook panels.
 - Removed UI panels: **Quantile Price Grid** (model-implied prices by analyst quantile) and **Current Power Law Quantile Position & Short-Term Outlook** (analog-scaled price outlook + Q25/Q50/Q75 rows). Chart tooltips, Time Spent Below Quantile, and conditional returns now cover quantile-rank context.
 - **Main chart UX** (2026): fullscreen mode, PNG download + clipboard copy, shaded quantile corridors, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic Y-axis limits with `$k`/`$M` ticks, responsive chart height (`min(70vh, 720px)`).

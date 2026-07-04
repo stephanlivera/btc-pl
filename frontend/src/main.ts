@@ -32,6 +32,9 @@ import {
   formatConditionalReturnCell,
   formatReturnPct,
   conditionalReturnColorClass,
+  computeBitcoinGlancePriceStats,
+  rsiContextLabel,
+  ordinal,
   type Q50ModelParams,
   type ConditionalHorizonStats,
 } from './utils';
@@ -1189,9 +1192,8 @@ async function loadYearEndProjections() {
 // --- Bitcoin Stats at a Glance helpers (200DMA, 200WMA, Mayer) ---
 
 async function fetchRecentHistoricalForStats() {
-  // Need at least ~1400 days for a proper 200-week MA + 200 days for DMA
-  const lookbackDays = 1600;
-  const startDays = Math.max(1, Math.floor(currentLatestDays - lookbackDays));
+  // Full history from ~2011 for ATH accuracy, 200-week MA, and long-horizon context.
+  const startDays = 800;
   const hist = await fetchHistorical(startDays, currentLatestDays, 1);
   return hist.points || [];
 }
@@ -1213,28 +1215,6 @@ function getMayerVisibleSeries(range: 'all' | '5y' | '2y'): Array<{ x: number; y
   const years = range === '5y' ? 5 : 2;
   const cutoff = Math.round(currentLatestDays - years * 365.25);
   return fullMayerSeries.filter(p => p.x >= cutoff);
-}
-
-function computeBitcoinStats(points: Array<{ x: number; y: number }>) {
-  if (!points || points.length === 0) return null;
-  const closes = points.map(p => p.y);
-  const n = closes.length;
-  const currentPrice = closes[n - 1];
-
-  const dmaLen = Math.min(200, n);
-  const dma200 = closes.slice(-dmaLen).reduce((sum, v) => sum + v, 0) / dmaLen;
-
-  const wmaLen = Math.min(1400, n);
-  const wma200 = closes.slice(-wmaLen).reduce((sum, v) => sum + v, 0) / wmaLen;
-
-  const mayerMultiple = currentPrice / dma200;
-
-  return {
-    currentPrice,
-    dma200,
-    wma200,
-    mayerMultiple,
-  };
 }
 
 async function fetchHistoricalForCAGR() {
@@ -1539,26 +1519,94 @@ async function loadBitcoinStatsCard() {
   tableBody.innerHTML = loadingTableRow(3, 'Loading Bitcoin stats…');
 
   try {
-    const points = await fetchRecentHistoricalForStats();
-    const stats = computeBitcoinStats(points);
+    const asOfDate = currentDataEndDate ?? '';
+    const [points, posData] = await Promise.all([
+      fetchRecentHistoricalForStats(),
+      fetchCurrentPosition(),
+    ]);
+
+    const stats = computeBitcoinGlancePriceStats(points, asOfDate);
     if (!stats) {
       tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 text-red-400">Not enough price history</td></tr>`;
       return;
     }
 
+    const pos = posData?.position ?? {};
     const fmtPrice = (p: number) => formatPrice(p);
-    const currentDate = currentDataEndDate
-      ? new Date(currentDataEndDate + 'T00:00:00Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    const fmtRet = (r: number | null) => formatReturnPct(r);
+    const retColor = (r: number | null) => conditionalReturnColorClass(r);
+
+    const currentDate = asOfDate
+      ? new Date(asOfDate + 'T00:00:00Z').toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        })
       : '';
+
+    const athDate = daysToDate(stats.ath.athDay).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    const athContext =
+      stats.ath.pctFromAth >= -0.001
+        ? `at ATH · ${athDate}`
+        : `${fmtRet(stats.ath.pctFromAth)} below ATH · ${athDate}`;
+
+    const quantileLabel = pos.quantile_label ?? '—';
+    const quantilePct =
+      typeof pos.quantile === 'number' ? ordinal(Math.round(pos.quantile * 100)) : '—';
+    const devPct =
+      typeof pos.deviation_pct === 'number'
+        ? `${pos.deviation_pct >= 0 ? '+' : ''}${pos.deviation_pct.toFixed(1)}%`
+        : '—';
+    const modelQ50 =
+      typeof pos.model_q50 === 'number' ? fmtPrice(pos.model_q50) : '—';
 
     const dmaVs = ((stats.currentPrice / stats.dma200 - 1) * 100);
     const wmaVs = ((stats.currentPrice / stats.wma200 - 1) * 100);
+
+    const ytdYear = asOfDate ? asOfDate.slice(0, 4) : 'YTD';
+    const volPct =
+      stats.realizedVol30d != null
+        ? `${(stats.realizedVol30d * 100).toFixed(1)}% ann.`
+        : '—';
+
+    const halvingContext = stats.halving.daysUntilNextHalving != null
+      ? `~${stats.halving.daysUntilNextHalving.toLocaleString()}d to next halving (est.)`
+      : 'next halving estimate unavailable';
 
     const rowsHtml = `
       <tr>
         <td class="px-4 py-2 text-zinc-300 font-medium">Current Price</td>
         <td class="px-4 py-2 text-right font-mono text-sky-400">${fmtPrice(stats.currentPrice)}</td>
         <td class="px-4 py-2 text-right text-xs text-zinc-500">${currentDate}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">Power-Law Quantile</td>
+        <td class="px-4 py-2 text-right font-mono text-sky-400 font-semibold">${quantileLabel} <span class="text-xs font-normal text-zinc-500">(${quantilePct} pctile)</span></td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">${devPct} vs Q50 · model ${modelQ50}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">All-Time High</td>
+        <td class="px-4 py-2 text-right font-mono text-amber-400">${fmtPrice(stats.ath.athPrice)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">${athContext}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">YTD Return</td>
+        <td class="px-4 py-2 text-right font-mono ${retColor(stats.ytdReturn)}">${fmtRet(stats.ytdReturn)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">since Jan 1, ${ytdYear}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">30-Day Return</td>
+        <td class="px-4 py-2 text-right font-mono ${retColor(stats.return30d)}">${fmtRet(stats.return30d)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">simple return</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">90-Day Return</td>
+        <td class="px-4 py-2 text-right font-mono ${retColor(stats.return90d)}">${fmtRet(stats.return90d)}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">simple return</td>
       </tr>
       <tr>
         <td class="px-4 py-2 text-zinc-300 font-medium">200-Day MA (DMA)</td>
@@ -1574,6 +1622,21 @@ async function loadBitcoinStatsCard() {
         <td class="px-4 py-2 text-zinc-300 font-medium">Mayer Multiple</td>
         <td class="px-4 py-2 text-right font-mono text-orange-400 font-semibold">${stats.mayerMultiple.toFixed(2)}</td>
         <td class="px-4 py-2 text-right text-xs text-zinc-500">Price ÷ 200 DMA</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">RSI (14)</td>
+        <td class="px-4 py-2 text-right font-mono text-violet-300">${stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—'}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">${stats.rsi14 != null ? rsiContextLabel(stats.rsi14) : '—'}</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">30d Realized Vol</td>
+        <td class="px-4 py-2 text-right font-mono text-zinc-200">${volPct}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">annualized from daily log returns</td>
+      </tr>
+      <tr>
+        <td class="px-4 py-2 text-zinc-300 font-medium">Halving Cycle</td>
+        <td class="px-4 py-2 text-right font-mono text-zinc-200">Day ${stats.halving.daysSinceHalving.toLocaleString()}</td>
+        <td class="px-4 py-2 text-right text-xs text-zinc-500">post-${ordinal(stats.halving.halvingNumber)} halving (${stats.halving.lastHalvingDate.slice(0, 7)}) · ${halvingContext}</td>
       </tr>
     `;
     tableBody.innerHTML = rowsHtml;

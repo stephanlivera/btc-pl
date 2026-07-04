@@ -406,6 +406,239 @@ export function computeChartYAxisLimits(
   };
 }
 
+/** Bitcoin halving dates (UTC). Next halving is an estimate for countdown display. */
+export const BITCOIN_HALVING_DATES = [
+  '2012-11-28',
+  '2016-07-09',
+  '2020-05-11',
+  '2024-04-19',
+] as const;
+
+export const ESTIMATED_NEXT_HALVING_DATE = '2028-04-20';
+
+export interface AthStats {
+  athPrice: number;
+  athDay: number;
+  pctFromAth: number;
+  daysSinceAth: number;
+}
+
+export interface HalvingCycleInfo {
+  halvingNumber: number;
+  lastHalvingDate: string;
+  daysSinceHalving: number;
+  daysUntilNextHalving: number | null;
+  nextHalvingDate: string;
+}
+
+export interface BitcoinGlancePriceStats {
+  currentPrice: number;
+  currentDay: number;
+  dma200: number;
+  wma200: number;
+  mayerMultiple: number;
+  ath: AthStats;
+  ytdReturn: number | null;
+  return30d: number | null;
+  return90d: number | null;
+  rsi14: number | null;
+  realizedVol30d: number | null;
+  halving: HalvingCycleInfo;
+}
+
+/** Simple return as a decimal (0.12 = +12%). */
+export function computeSimpleReturn(startPrice: number, endPrice: number): number | null {
+  if (!startPrice || !endPrice || startPrice <= 0) return null;
+  return endPrice / startPrice - 1;
+}
+
+/** Find the closest historical point to a target genesis day count. */
+export function findPriceNearDay(
+  points: Array<{ x: number; y: number }>,
+  targetDay: number,
+  maxDiffDays = 7
+): { price: number; day: number } | null {
+  if (!points || points.length === 0) return null;
+  let best: { x: number; y: number } | null = null;
+  let bestDiff = Infinity;
+  for (const p of points) {
+    const diff = Math.abs(p.x - targetDay);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = p;
+    }
+  }
+  if (!best || bestDiff > maxDiffDays) return null;
+  return { price: best.y, day: best.x };
+}
+
+/** Find price approximately N calendar days before the latest point. */
+export function findPriceAtDaysAgo(
+  points: Array<{ x: number; y: number }>,
+  daysAgo: number,
+  maxDiffDays = 7
+): { price: number; day: number } | null {
+  if (!points || points.length === 0 || daysAgo < 0) return null;
+  const currentDay = points[points.length - 1].x;
+  return findPriceNearDay(points, Math.round(currentDay - daysAgo), maxDiffDays);
+}
+
+export function computeAthStats(points: Array<{ x: number; y: number }>): AthStats | null {
+  if (!points || points.length === 0) return null;
+  let athPrice = -Infinity;
+  let athDay = points[0].x;
+  for (const p of points) {
+    if (p.y > athPrice) {
+      athPrice = p.y;
+      athDay = p.x;
+    }
+  }
+  const current = points[points.length - 1];
+  const pctFromAth = computeSimpleReturn(athPrice, current.y);
+  if (pctFromAth == null) return null;
+  return {
+    athPrice,
+    athDay,
+    pctFromAth,
+    daysSinceAth: Math.max(0, current.x - athDay),
+  };
+}
+
+export function computeYtdReturn(
+  points: Array<{ x: number; y: number }>,
+  asOfDate: string
+): number | null {
+  if (!points || points.length === 0 || !asOfDate) return null;
+  const year = Number.parseInt(asOfDate.slice(0, 4), 10);
+  if (!Number.isFinite(year)) return null;
+  const jan1Day = dateToDays(`${year}-01-01`);
+  const start = findPriceNearDay(points, jan1Day, 14);
+  const current = points[points.length - 1];
+  if (!start) return null;
+  return computeSimpleReturn(start.price, current.y);
+}
+
+/** 14-period RSI (simple average gain/loss over the last window). */
+export function computeRsi(closes: number[], period = 14): number | null {
+  if (!closes || closes.length < period + 1) return null;
+  const slice = closes.slice(-(period + 1));
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i < slice.length; i++) {
+    const change = slice[i] - slice[i - 1];
+    if (change > 0) gains += change;
+    else losses -= change;
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+export function rsiContextLabel(rsi: number): string {
+  if (rsi < 30) return 'oversold zone (<30)';
+  if (rsi > 70) return 'overbought zone (>70)';
+  return 'neutral (30–70)';
+}
+
+/** Annualized realized volatility from daily log returns over a trailing window. */
+export function computeRealizedVolatility(
+  closes: number[],
+  window = 30
+): number | null {
+  if (!closes || closes.length < window + 1) return null;
+  const logReturns: number[] = [];
+  for (let i = closes.length - window; i < closes.length; i++) {
+    const prev = closes[i - 1];
+    const curr = closes[i];
+    if (prev <= 0 || curr <= 0) return null;
+    logReturns.push(Math.log(curr / prev));
+  }
+  if (logReturns.length < 2) return null;
+  const mean = logReturns.reduce((a, b) => a + b, 0) / logReturns.length;
+  const variance =
+    logReturns.reduce((acc, r) => acc + (r - mean) ** 2, 0) / (logReturns.length - 1);
+  return Math.sqrt(variance) * Math.sqrt(365.25);
+}
+
+export function computeHalvingCycleInfo(asOfDate: string): HalvingCycleInfo | null {
+  if (!asOfDate) return null;
+  const asOf = new Date(asOfDate + 'T00:00:00Z');
+  if (Number.isNaN(asOf.getTime())) return null;
+
+  let lastHalvingDate = BITCOIN_HALVING_DATES[0];
+  let halvingNumber = 1;
+  for (let i = 0; i < BITCOIN_HALVING_DATES.length; i++) {
+    const d = new Date(BITCOIN_HALVING_DATES[i] + 'T00:00:00Z');
+    if (d.getTime() <= asOf.getTime()) {
+      lastHalvingDate = BITCOIN_HALVING_DATES[i];
+      halvingNumber = i + 1;
+    }
+  }
+
+  const last = new Date(lastHalvingDate + 'T00:00:00Z');
+  const daysSinceHalving = Math.max(
+    0,
+    Math.floor((asOf.getTime() - last.getTime()) / MS_PER_DAY)
+  );
+
+  const next = new Date(ESTIMATED_NEXT_HALVING_DATE + 'T00:00:00Z');
+  const daysUntilNextHalving =
+    next.getTime() > asOf.getTime()
+      ? Math.ceil((next.getTime() - asOf.getTime()) / MS_PER_DAY)
+      : null;
+
+  return {
+    halvingNumber,
+    lastHalvingDate,
+    daysSinceHalving,
+    daysUntilNextHalving,
+    nextHalvingDate: ESTIMATED_NEXT_HALVING_DATE,
+  };
+}
+
+/** Price-only glance stats from daily close history (excludes power-law fields from /current). */
+export function computeBitcoinGlancePriceStats(
+  points: Array<{ x: number; y: number }>,
+  asOfDate: string
+): BitcoinGlancePriceStats | null {
+  if (!points || points.length === 0) return null;
+  const closes = points.map(p => p.y);
+  const n = closes.length;
+  const currentPrice = closes[n - 1];
+  const currentDay = points[n - 1].x;
+
+  const dmaLen = Math.min(200, n);
+  const dma200 = closes.slice(-dmaLen).reduce((sum, v) => sum + v, 0) / dmaLen;
+
+  const wmaLen = Math.min(1400, n);
+  const wma200 = closes.slice(-wmaLen).reduce((sum, v) => sum + v, 0) / wmaLen;
+
+  const mayerMultiple = currentPrice / dma200;
+  const ath = computeAthStats(points);
+  const halving = computeHalvingCycleInfo(asOfDate);
+  if (!ath || !halving) return null;
+
+  const ret30 = findPriceAtDaysAgo(points, 30);
+  const ret90 = findPriceAtDaysAgo(points, 90);
+
+  return {
+    currentPrice,
+    currentDay,
+    dma200,
+    wma200,
+    mayerMultiple,
+    ath,
+    ytdReturn: computeYtdReturn(points, asOfDate),
+    return30d: ret30 ? computeSimpleReturn(ret30.price, currentPrice) : null,
+    return90d: ret90 ? computeSimpleReturn(ret90.price, currentPrice) : null,
+    rsi14: computeRsi(closes, 14),
+    realizedVol30d: computeRealizedVolatility(closes, 30),
+    halving,
+  };
+}
+
 /**
  * Calculate CAGR (Compound Annual Growth Rate) as a decimal (e.g. 0.65 for 65%).
  * Pure function for testability.

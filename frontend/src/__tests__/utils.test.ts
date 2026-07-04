@@ -32,6 +32,16 @@ import {
   formatReturnPct,
   formatConditionalReturnCell,
   conditionalReturnColorClass,
+  computeSimpleReturn,
+  findPriceAtDaysAgo,
+  computeAthStats,
+  computeYtdReturn,
+  computeRsi,
+  rsiContextLabel,
+  computeRealizedVolatility,
+  computeHalvingCycleInfo,
+  computeBitcoinGlancePriceStats,
+  findPriceNearDay,
 } from '../utils';
 
 describe('formatPrice', () => {
@@ -108,6 +118,93 @@ describe('time below quantile helpers', () => {
       timeBelowPct: 50,
     });
     expect(text).toContain('similar level versus the model');
+  });
+});
+
+describe('bitcoin glance stats', () => {
+  const samplePoints = (() => {
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < 400; i++) {
+      const day = 5000 + i;
+      const price = 50_000 + i * 10 + (i > 350 ? 5000 : 0);
+      pts.push({ x: day, y: price });
+    }
+    return pts;
+  })();
+
+  it('computes ATH and distance from peak', () => {
+    const ath = computeAthStats(samplePoints);
+    expect(ath).not.toBeNull();
+    expect(ath!.athDay).toBe(samplePoints[samplePoints.length - 1].x);
+    expect(ath!.pctFromAth).toBeCloseTo(0, 5);
+  });
+
+  it('computes RSI and realized volatility', () => {
+    const closes = samplePoints.map(p => p.y);
+    const rsi = computeRsi(closes, 14);
+    expect(rsi).not.toBeNull();
+    expect(rsi!).toBeGreaterThan(0);
+    expect(rsi!).toBeLessThanOrEqual(100);
+    expect(rsiContextLabel(25)).toContain('oversold');
+    const vol = computeRealizedVolatility(closes, 30);
+    expect(vol).not.toBeNull();
+    expect(vol!).toBeGreaterThan(0);
+  });
+
+  it('computes halving cycle info', () => {
+    const info = computeHalvingCycleInfo('2026-07-04');
+    expect(info).not.toBeNull();
+    expect(info!.halvingNumber).toBe(4);
+    expect(info!.lastHalvingDate).toBe('2024-04-19');
+    expect(info!.daysSinceHalving).toBeGreaterThan(400);
+    expect(info!.daysUntilNextHalving).toBeGreaterThan(500);
+  });
+
+  it('builds combined glance stats', () => {
+    const stats = computeBitcoinGlancePriceStats(samplePoints, '2026-07-04');
+    expect(stats).not.toBeNull();
+    expect(stats!.mayerMultiple).toBeGreaterThan(0);
+    expect(stats!.dma200).toBeGreaterThan(0);
+    expect(stats!.return30d).not.toBeNull();
+    expect(stats!.rsi14).not.toBeNull();
+  });
+
+  it('computes simple returns and lookbacks', () => {
+    expect(computeSimpleReturn(100, 110)).toBeCloseTo(0.1, 6);
+    const found = findPriceAtDaysAgo(samplePoints, 30);
+    expect(found).not.toBeNull();
+    expect(findPriceNearDay(samplePoints, samplePoints[0].x, 0)?.price).toBe(
+      samplePoints[0].y
+    );
+  });
+
+  it('computes YTD return from January start', () => {
+    const janDay = dateToDays('2026-01-01');
+    const points = [
+      { x: janDay, y: 40_000 },
+      { x: janDay + 30, y: 42_000 },
+      { x: janDay + 180, y: 50_000 },
+    ];
+    const ytd = computeYtdReturn(points, '2026-07-04');
+    expect(ytd).toBeCloseTo(0.25, 6);
+  });
+
+  it('reports drawdown when price is below prior ATH', () => {
+    const points = [
+      { x: 6000, y: 60_000 },
+      { x: 6100, y: 70_000 },
+      { x: 6200, y: 50_000 },
+    ];
+    const ath = computeAthStats(points);
+    expect(ath!.athPrice).toBe(70_000);
+    expect(ath!.pctFromAth).toBeCloseTo(50_000 / 70_000 - 1, 6);
+    expect(ath!.daysSinceAth).toBe(100);
+  });
+
+  it('returns null for empty glance stats input', () => {
+    expect(computeBitcoinGlancePriceStats([], '2026-07-04')).toBeNull();
+    expect(computeAthStats([])).toBeNull();
+    expect(computeHalvingCycleInfo('')).toBeNull();
   });
 });
 
