@@ -17,6 +17,23 @@ from statsmodels.regression.quantile_regression import QuantReg
 GENESIS_DATE = dt.date(2009, 1, 3)
 DEFAULT_QUANTILES = [0.25, 0.50, 0.75]
 
+# Empirical regime buckets for conditional forward-return analysis.
+DEFAULT_CONDITIONAL_BUCKETS: List[Tuple[str, str, float, float]] = [
+    ("Q0_Q25", "Q0–Q25 (cheap vs model)", 0.0, 0.25),
+    ("Q25_Q50", "Q25–Q50", 0.25, 0.50),
+    ("Q50_Q75", "Q50–Q75", 0.50, 0.75),
+    ("Q75_Q100", "Q75–Q100 (rich vs model)", 0.75, 1.0),
+]
+
+DEFAULT_CONDITIONAL_HORIZONS = [91, 183, 365, 730]
+
+CONDITIONAL_HORIZON_LABELS: Dict[int, str] = {
+    91: "+3 months",
+    183: "+6 months",
+    365: "+1 year",
+    730: "+2 years",
+}
+
 # Simple time-based decay for volatility compression on long-term projections (Option 1).
 # Applied *only* to future points (days > ref_days) when parallel=True.
 # This narrows the Q25/Q75 bands over time to match observed analyst behavior
@@ -450,6 +467,172 @@ class QuantilePowerLawModel:
             "quantile_label": quantile_label,
         }
 
+    @staticmethod
+    def _lookup_forward_price(
+        target_days: int,
+        days_arr: np.ndarray,
+        close_arr: np.ndarray,
+        max_slippage_days: int = 7,
+    ) -> float | None:
+        """Return the close price at target_days, or the nearest trading day within slippage."""
+        n = len(days_arr)
+        if n == 0:
+            return None
+
+        j = int(np.searchsorted(days_arr, target_days))
+        candidates: list[int] = []
+        if j < n:
+            candidates.append(j)
+        if j > 0:
+            candidates.append(j - 1)
+
+        best_j: int | None = None
+        best_d = float("inf")
+        for jj in candidates:
+            d = abs(int(days_arr[jj]) - target_days)
+            if d < best_d and d <= max_slippage_days:
+                best_d = d
+                best_j = jj
+
+        if best_j is None:
+            return None
+        return float(close_arr[best_j])
+
+    @staticmethod
+    def _assign_quantile_bucket(
+        rank: float,
+        buckets: List[Tuple[str, str, float, float]],
+    ) -> str | None:
+        """Map an empirical quantile rank (0-1) to a bucket key."""
+        for i, (key, _label, low, high) in enumerate(buckets):
+            if i == len(buckets) - 1:
+                if low <= rank <= high:
+                    return key
+            elif low <= rank < high:
+                return key
+        return None
+
+    def get_conditional_forward_returns(
+        self,
+        horizons: List[int] | None = None,
+        buckets: List[Tuple[str, str, float, float]] | None = None,
+        since_date: dt.date | None = None,
+    ) -> dict:
+        """Aggregate realized forward returns by empirical quantile-regime bucket.
+
+        For each historical day since `since_date`, compute the day's empirical
+        quantile rank vs the full residual distribution (same method as
+        get_current_position). Bucket those days, then measure simple forward
+        returns P(t+H)/P(t) - 1 at each requested horizon.
+        """
+        if self.df is None or self.df.empty:
+            raise RuntimeError("Data not loaded")
+        if 0.5 not in self.results or not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
+            raise RuntimeError("Central model or residuals not available; fit the model first.")
+
+        hs = horizons or DEFAULT_CONDITIONAL_HORIZONS
+        bucket_specs = buckets or DEFAULT_CONDITIONAL_BUCKETS
+        since = since_date or self.df["Date"].min().date()
+        max_h = max(hs) if hs else 0
+
+        position = self.get_current_position()
+        current_quantile = float(position["quantile"])
+        current_bucket_key = self._assign_quantile_bucket(current_quantile, bucket_specs)
+
+        central_res = self.results[0.5]
+        central_a = float(central_res.params["const"])
+        central_b = float(central_res.params["log_days"])
+
+        subset = self.df[self.df["Date"].dt.date >= since].copy()
+        if subset.empty:
+            raise ValueError(f"No data on or after {since}")
+
+        days_arr = self.df["days"].to_numpy(dtype=int)
+        close_arr = self.df["Close"].to_numpy(dtype=float)
+        ref = self.ref_days or int(days_arr.max())
+
+        central_log = central_a + central_b * subset["log_days"].astype(float)
+        residuals = subset["log_close"].astype(float).to_numpy() - central_log.to_numpy()
+        ranks = (self._log_residuals[:, np.newaxis] <= residuals[np.newaxis, :]).mean(axis=0)
+
+        from collections import defaultdict
+
+        returns_by_bucket: dict[str, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
+
+        subset_days = subset["days"].to_numpy(dtype=int)
+        subset_close = subset["Close"].to_numpy(dtype=float)
+
+        for i, rank in enumerate(ranks):
+            bucket_key = self._assign_quantile_bucket(float(rank), bucket_specs)
+            if bucket_key is None:
+                continue
+
+            start_day = int(subset_days[i])
+            if start_day + max_h > ref:
+                continue
+
+            start_price = float(subset_close[i])
+            if start_price <= 0:
+                continue
+
+            for h in hs:
+                fut_price = self._lookup_forward_price(start_day + h, days_arr, close_arr)
+                if fut_price is not None and fut_price > 0:
+                    returns_by_bucket[bucket_key][h].append(fut_price / start_price - 1.0)
+
+        def _aggregate(arr: list[float]) -> dict:
+            if not arr:
+                return {
+                    "median_return": None,
+                    "p25_return": None,
+                    "p75_return": None,
+                    "hit_rate": None,
+                    "count": 0,
+                }
+            a = np.asarray(arr, dtype=float)
+            return {
+                "median_return": round(float(np.median(a)), 4),
+                "p25_return": round(float(np.percentile(a, 25)), 4),
+                "p75_return": round(float(np.percentile(a, 75)), 4),
+                "hit_rate": round(float((a > 0).mean()), 4),
+                "count": int(len(a)),
+            }
+
+        bucket_rows: list[dict] = []
+        for key, label, low, high in bucket_specs:
+            horizon_stats: dict[str, dict] = {}
+            for h in hs:
+                horizon_stats[str(h)] = _aggregate(returns_by_bucket[key][h])
+            bucket_rows.append({
+                "key": key,
+                "label": label,
+                "low": low,
+                "high": high,
+                "is_current": key == current_bucket_key,
+                "horizons": horizon_stats,
+            })
+
+        return {
+            "meta": {
+                "since_date": str(since),
+                "data_end_date": str(self.data_end_date) if self.data_end_date else None,
+                "horizons_days": hs,
+                "horizon_labels": {str(h): CONDITIONAL_HORIZON_LABELS.get(h, f"+{h}d") for h in hs},
+            },
+            "current": {
+                "quantile": round(current_quantile, 4),
+                "quantile_label": position["quantile_label"],
+                "bucket_key": current_bucket_key,
+            },
+            "buckets": bucket_rows,
+            "description": (
+                "Empirical forward simple returns (P_future/P_start - 1) grouped by the day's "
+                "power-law quantile rank. Rank uses the same full-history residual CDF as the "
+                "Current Quantile Position card. Only episodes with realized prices through each "
+                "horizon are included."
+            ),
+        }
+
     def get_time_below_quantile(self, since_date: dt.date | None = None) -> dict:
         """Share of days since `since_date` when price was at or below today's quantile rank.
 
@@ -546,39 +729,14 @@ class QuantilePowerLawModel:
         from collections import defaultdict
         mults_by_h: dict[int, list[float]] = defaultdict(list)
 
-        # Build a fast day->price lookup (dict is fine, n~5k)
-        day_to_price: dict[int, float] = {int(d): float(p) for d, p in zip(days_arr, close_arr)}
-
         for _dist, i, start_day, start_price in selected:
             for h in horizons:
                 if h == 0:
                     mults_by_h[h].append(1.0)
                     continue
-                td = start_day + h
-                # Find actual price at or near td (within a week, prefer exact or closest in data)
-                fut_p = None
-                if td in day_to_price:
-                    fut_p = day_to_price[td]
-                else:
-                    # nearest in data
-                    j = np.searchsorted(days_arr, td)
-                    cands = []
-                    if j < n:
-                        cands.append(j)
-                    if j > 0:
-                        cands.append(j - 1)
-                    best_j = None
-                    best_d = 1e9
-                    for jj in cands:
-                        d = abs(days_arr[jj] - td)
-                        if d < best_d and d <= 7:
-                            best_d = d
-                            best_j = jj
-                    if best_j is not None:
-                        fut_p = float(close_arr[best_j])
+                fut_p = self._lookup_forward_price(start_day + h, days_arr, close_arr)
                 if fut_p is not None and start_price > 0:
-                    mult = fut_p / start_price
-                    mults_by_h[h].append(mult)
+                    mults_by_h[h].append(fut_p / start_price)
 
         # Aggregate stats per horizon (multipliers)
         out: dict[str, dict] = {}

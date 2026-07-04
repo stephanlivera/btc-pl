@@ -181,6 +181,25 @@ def health():
     }
 
 
+@app.get("/conditional-returns")
+def get_conditional_returns(
+    horizons: List[int] = Query(
+        [91, 183, 365, 730],
+        description="Forward horizons in days (e.g. 91=~3 months, 365=1 year)",
+    ),
+):
+    """Empirical forward returns grouped by power-law quantile regime bucket."""
+    if not model.results:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not fitted yet. Call /refit or restart the service after ensuring btc_daily.csv exists.",
+        )
+    try:
+        return model.get_conditional_forward_returns(horizons=horizons)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/current")
 def get_current():
     """Return the latest price's empirical quantile rank vs the power law model

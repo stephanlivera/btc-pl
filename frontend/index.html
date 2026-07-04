@@ -300,75 +300,36 @@
       </div>
     </div>
 
-    <!-- Quantile × Horizon Price Grid -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
+    <!-- Conditional Forward Returns by Quantile Regime -->
+    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5" id="conditional-returns-card">
       <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
-        <span>Quantile Price Grid</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Parallel bands from latest data</span>
+        <span>Conditional Forward Returns by Quantile Regime</span>
+        <span class="text-[10px] text-zinc-500 font-normal">Historical behavior, not model projection</span>
       </div>
 
       <div class="text-[10px] text-zinc-500 mb-3">
-        Model-implied prices by quantile (rows) at Now and forward horizons (columns).
-        <span id="quantile-grid-now-date" class="text-zinc-400"></span>
+        Realized forward returns after past days in each power-law quantile bucket (empirical rank vs the Q50 trend).
+        <span id="conditional-returns-now-date" class="text-zinc-400"></span>
       </div>
+
+      <div id="conditional-returns-summary" class="text-[11px] text-zinc-400 mb-3 px-1 font-light"></div>
 
       <div class="overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
-            <tr id="quantile-grid-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
-              <th class="text-left font-normal px-4 py-2">Quantile</th>
-              <th class="text-right font-normal px-4 py-2">Now</th>
-              <th class="text-right font-normal px-4 py-2">+1 year</th>
-              <th class="text-right font-normal px-4 py-2">+5 years</th>
-              <th class="text-right font-normal px-4 py-2">+10 years</th>
-            </tr>
-          </thead>
-          <tbody id="quantile-grid-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
-            <tr>
-              <td colspan="5" class="px-4 py-3 text-zinc-500">
-                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading quantile grid…</span></span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="mt-2 text-[10px] text-zinc-500">
-        Uses the same parallel residual quantiles and time-based decay as the chart projections. Not a market forecast.
-      </div>
-    </div>
-
-    <!-- Current Quantile Position & Short-Term Statistical Outlook -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
-      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
-        <span>Current Power Law Quantile Position &amp; Short-Term Outlook</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Empirical rank vs historical residuals</span>
-      </div>
-
-      <div class="text-[10px] text-zinc-500 mb-3">
-        Today's actual close ranked against the historical distribution of deviations from the central power-law (Q50) trend.
-        <span id="current-quantile-now-date" class="text-zinc-400"></span>
-        The "current regime" projections are the *current price scaled by historical gains* (median + 25-75 range) observed in the following months after past episodes at a similar quantile level.
-      </div>
-
-      <div id="current-quantile-summary" class="text-[11px] text-zinc-400 mb-3 px-1 font-light"></div>
-
-      <div class="overflow-x-auto">
-        <table class="projection-table w-full text-sm">
-          <thead>
-            <tr id="current-quantile-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
-              <th class="text-left font-normal px-4 py-2">Series</th>
-              <th class="text-right font-normal px-4 py-2">Now</th>
+            <tr id="conditional-returns-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
+              <th class="text-left font-normal px-4 py-2">Regime bucket</th>
+              <th class="text-right font-normal px-4 py-2">Episodes</th>
               <th class="text-right font-normal px-4 py-2">+3 months</th>
               <th class="text-right font-normal px-4 py-2">+6 months</th>
               <th class="text-right font-normal px-4 py-2">+1 year</th>
               <th class="text-right font-normal px-4 py-2">+2 years</th>
             </tr>
           </thead>
-          <tbody id="current-quantile-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+          <tbody id="conditional-returns-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
             <tr>
               <td colspan="6" class="px-4 py-3 text-zinc-500">
-                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading current quantile position…</span></span>
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading conditional returns…</span></span>
               </td>
             </tr>
           </tbody>
@@ -376,7 +337,7 @@
       </div>
 
       <div class="mt-2 text-[10px] text-zinc-500">
-        "Current regime (hist. scaled gains)" = current price × median historical multiplier (gain) from k-nearest past periods at a similar quantile/residual level (with 25-75 range of those multipliers applied). Other rows are the structural power-law model quantiles. Not a forecast.
+        Each cell shows median return with 25–75% range in parentheses and hit rate (% of episodes with positive return). Highlighted row = today's quantile regime. Not a forecast.
       </div>
     </div>
 

@@ -126,6 +126,26 @@ def test_historical_endpoint():
     assert isinstance(data["points"], list)
 
 
+def test_conditional_returns_endpoint():
+    response = client.get("/conditional-returns?horizons=91&horizons=183&horizons=365&horizons=730")
+    assert response.status_code == 200
+    data = response.json()
+    assert "meta" in data
+    assert "current" in data
+    assert "buckets" in data
+    assert len(data["buckets"]) == 4
+    assert "quantile" in data["current"]
+    assert 0.0 <= data["current"]["quantile"] <= 1.0
+    for bucket in data["buckets"]:
+        assert "horizons" in bucket
+        for key in ["91", "183", "365", "730"]:
+            assert key in bucket["horizons"]
+            h = bucket["horizons"][key]
+            assert "median_return" in h
+            assert "hit_rate" in h
+            assert "count" in h
+
+
 def test_stats_endpoint_returns_fit_summary():
     """Optional diagnostics endpoint (no longer surfaced in the UI)."""
     response = client.get("/stats")

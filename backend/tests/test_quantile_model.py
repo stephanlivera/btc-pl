@@ -243,6 +243,43 @@ def test_get_time_below_quantile(fitted_model):
     assert stats["total_days"] == len(subset)
 
 
+def test_get_conditional_forward_returns(fitted_model):
+    """Conditional returns should bucket historical days and aggregate forward returns."""
+    pos = fitted_model.get_current_position()
+    result = fitted_model.get_conditional_forward_returns(horizons=[91, 365])
+
+    assert "meta" in result
+    assert "current" in result
+    assert "buckets" in result
+    assert result["current"]["quantile"] == pos["quantile"]
+    assert result["current"]["quantile_label"] == pos["quantile_label"]
+    assert result["current"]["bucket_key"] is not None
+
+    buckets = result["buckets"]
+    assert len(buckets) == 4
+
+    total_counts_91 = 0
+    for bucket in buckets:
+        assert "key" in bucket and "label" in bucket
+        assert "horizons" in bucket
+        assert "91" in bucket["horizons"]
+        assert "365" in bucket["horizons"]
+        h91 = bucket["horizons"]["91"]
+        assert h91["count"] >= 0
+        if h91["count"] > 0:
+            assert h91["median_return"] is not None
+            assert h91["p25_return"] is not None
+            assert h91["p75_return"] is not None
+            assert 0.0 <= h91["hit_rate"] <= 1.0
+            total_counts_91 += h91["count"]
+
+    assert total_counts_91 > 1000
+
+    current_buckets = [b for b in buckets if b["is_current"]]
+    assert len(current_buckets) == 1
+    assert current_buckets[0]["key"] == result["current"]["bucket_key"]
+
+
 def test_get_historical_analog_projections(fitted_model):
     """Analog projections should return multiplier stats (median_mult etc.) for requested horizons based on similar-residual history."""
     pos = fitted_model.get_current_position()

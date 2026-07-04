@@ -126,6 +126,43 @@ export function formatQuantilePercentileSubtext(quantile: number): string {
   return `${ordinal(Math.round(quantile * 100))} percentile vs model`;
 }
 
+export interface ConditionalHorizonStats {
+  median_return: number | null;
+  p25_return: number | null;
+  p75_return: number | null;
+  hit_rate: number | null;
+  count: number;
+}
+
+/** Format a simple return (0.18 → +18.0%). */
+export function formatReturnPct(value: number | null, decimals = 1): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const pct = value * 100;
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct.toFixed(decimals)}%`;
+}
+
+export function formatConditionalReturnCell(stats: ConditionalHorizonStats): { main: string; sub: string } {
+  if (!stats.count || stats.median_return == null) {
+    return { main: '—', sub: '' };
+  }
+  const main = formatReturnPct(stats.median_return);
+  const range =
+    stats.p25_return != null && stats.p75_return != null
+      ? `${formatReturnPct(stats.p25_return)} – ${formatReturnPct(stats.p75_return)}`
+      : '';
+  const hit = stats.hit_rate != null ? `${Math.round(stats.hit_rate * 100)}% positive` : '';
+  const sub = [range, hit].filter(Boolean).join(' · ');
+  return { main, sub };
+}
+
+export function conditionalReturnColorClass(value: number | null): string {
+  if (value == null) return 'text-zinc-500';
+  if (value > 0.05) return 'text-emerald-400';
+  if (value < -0.05) return 'text-red-400';
+  return 'text-zinc-300';
+}
+
 export function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {
   // Produces the exact day counts (since 2009-01-03) for the next 10 calendar
   // year-ends (Dec 31). These day numbers are sent to the backend /curves

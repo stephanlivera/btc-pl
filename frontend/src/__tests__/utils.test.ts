@@ -29,6 +29,9 @@ import {
   buildLogResiduals,
   empiricalQuantileRank,
   logResidualFromQ50,
+  formatReturnPct,
+  formatConditionalReturnCell,
+  conditionalReturnColorClass,
 } from '../utils';
 
 describe('formatPrice', () => {
@@ -105,6 +108,34 @@ describe('time below quantile helpers', () => {
       timeBelowPct: 50,
     });
     expect(text).toContain('similar level versus the model');
+  });
+});
+
+describe('conditional return formatters', () => {
+  it('formats signed percentage returns', () => {
+    expect(formatReturnPct(0.182)).toBe('+18.2%');
+    expect(formatReturnPct(-0.05)).toBe('-5.0%');
+    expect(formatReturnPct(null)).toBe('—');
+  });
+
+  it('builds a median + range + hit-rate cell', () => {
+    const cell = formatConditionalReturnCell({
+      median_return: 0.18,
+      p25_return: -0.05,
+      p75_return: 0.35,
+      hit_rate: 0.64,
+      count: 120,
+    });
+    expect(cell.main).toBe('+18.0%');
+    expect(cell.sub).toContain('-5.0%');
+    expect(cell.sub).toContain('+35.0%');
+    expect(cell.sub).toContain('64% positive');
+  });
+
+  it('colors returns by sign and magnitude', () => {
+    expect(conditionalReturnColorClass(0.2)).toContain('emerald');
+    expect(conditionalReturnColorClass(-0.2)).toContain('red');
+    expect(conditionalReturnColorClass(0.01)).toContain('zinc');
   });
 });
 

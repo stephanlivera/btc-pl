@@ -11,9 +11,6 @@ import {
   yearLabelForTickDay,
   findNearestPoint,
   getCurveValue,
-  ANALYST_QUANTILES,
-  getHorizonTargets,
-  getShortHorizonTargets,
   quantileLabel,
   buildTimeBelowQuantileExplanation,
   formatTimeBelowQuantileSubtext,
@@ -32,7 +29,11 @@ import {
   computeChartYAxisLimits,
   computePointQuantileRank,
   buildLogResiduals,
+  formatConditionalReturnCell,
+  formatReturnPct,
+  conditionalReturnColorClass,
   type Q50ModelParams,
+  type ConditionalHorizonStats,
 } from './utils';
 
 // Fallback "now" value used only if the backend /health endpoint is unreachable.
@@ -942,74 +943,99 @@ function updateProjectionsInfo(data: any) {
   console.log('Projections info updated (now using table)');
 }
 
-function getCurveForQuantile(
-  curves: Record<string, Array<{ x: number; y: number }>>,
-  q: number
-): Array<{ x: number; y: number }> | undefined {
-  return curves[q] ?? curves[String(q)] ?? curves[q.toFixed(2)];
+const CONDITIONAL_RETURN_HORIZONS = [91, 183, 365, 730] as const;
+
+async function fetchConditionalReturns() {
+  const qs = CONDITIONAL_RETURN_HORIZONS.map(h => `horizons=${h}`).join('&');
+  const res = await fetch(`/api/conditional-returns?${qs}`);
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  return res.json();
 }
 
-function quantileRowColor(q: number): string {
-  if (q === 0.5) return 'text-orange-400';
-  if (q > 0.5) {
-    if (q >= 0.95) return 'text-rose-300';
-    if (q >= 0.75) return 'text-rose-400';
-    return 'text-rose-400/80';
-  }
-  if (q <= 0.05) return 'text-emerald-300';
-  if (q <= 0.25) return 'text-emerald-400';
-  return 'text-emerald-400/80';
+function conditionalBucketRowColor(low: number): string {
+  if (low < 0.25) return 'text-emerald-400';
+  if (low >= 0.75) return 'text-red-400';
+  return 'text-zinc-200';
 }
 
-async function loadQuantileHorizonTable() {
-  const tableBody = document.getElementById('quantile-grid-table')!;
-  const nowDateEl = document.getElementById('quantile-grid-now-date');
-  const colCount = 5;
-  const horizons = getHorizonTargets(currentLatestDays);
+async function loadConditionalReturnsCard() {
+  const card = document.getElementById('conditional-returns-card');
+  if (!card) return;
+
+  const tableBody = document.getElementById('conditional-returns-table');
+  const summaryEl = document.getElementById('conditional-returns-summary');
+  const nowDateEl = document.getElementById('conditional-returns-now-date');
+  const colCount = 6;
+
+  if (!tableBody) return;
 
   if (nowDateEl && currentDataEndDate) {
-    nowDateEl.textContent = ` (Now = ${currentDataEndDate})`;
+    nowDateEl.textContent = ` (through ${currentDataEndDate})`;
   }
 
-  tableBody.innerHTML = loadingTableRow(colCount, 'Loading quantile grid…');
-
-  const startDays = horizons[0].days - 5;
-  const endDays = horizons[horizons.length - 1].days + 5;
-  const quantilesToFetch = [...ANALYST_QUANTILES];
+  tableBody.innerHTML = loadingTableRow(colCount, 'Loading conditional returns…');
 
   try {
-    const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
-    const curves = curvesData.curves ?? {};
+    const data = await fetchConditionalReturns();
+    const buckets = data.buckets ?? [];
+    const current = data.current ?? {};
+    const horizons: number[] = data.meta?.horizons_days ?? [...CONDITIONAL_RETURN_HORIZONS];
 
     let rowsHtml = '';
-    for (const q of ANALYST_QUANTILES) {
-      const curve = getCurveForQuantile(curves, q);
-      const label = quantileLabel(q);
-      const color = quantileRowColor(q);
-      const isCentral = q === 0.5;
-      const rowClass = isCentral ? 'font-semibold' : '';
+    for (const bucket of buckets) {
+      const isCurrent = Boolean(bucket.is_current);
+      const rowClass = isCurrent ? 'font-semibold bg-zinc-800/40' : '';
+      const labelColor = conditionalBucketRowColor(bucket.low ?? 0);
+      const episodeCount =
+        bucket.horizons?.[String(horizons[horizons.length - 1])]?.count ?? '—';
 
       const cells = horizons.map(h => {
-        const price = getCurveValue(curve, h.days, 3);
+        const stats: ConditionalHorizonStats = bucket.horizons?.[String(h)] ?? {
+          median_return: null,
+          p25_return: null,
+          p75_return: null,
+          hit_rate: null,
+          count: 0,
+        };
+        const { main, sub } = formatConditionalReturnCell(stats);
+        const color = conditionalReturnColorClass(stats.median_return);
         return `
-          <td class="px-4 py-2 text-right font-mono ${color} ${rowClass}">
-            ${price != null ? formatPrice(price) : '—'}
+          <td class="px-4 py-2 text-right ${rowClass}">
+            <div class="font-mono ${color}">${main}</div>
+            ${sub ? `<div class="text-[10px] text-zinc-500 mt-0.5">${sub}</div>` : ''}
           </td>
         `;
       });
 
       rowsHtml += `
-        <tr class="transition-colors">
-          <td class="px-4 py-2 font-medium ${color} ${rowClass}">${label}</td>
+        <tr class="transition-colors ${rowClass}">
+          <td class="px-4 py-2 font-medium ${labelColor} ${rowClass}">
+            ${bucket.label}${isCurrent ? ' <span class="text-[10px] text-sky-400 font-normal">(today)</span>' : ''}
+          </td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-400 text-xs ${rowClass}">${typeof episodeCount === 'number' ? episodeCount.toLocaleString() : episodeCount}</td>
           ${cells.join('')}
         </tr>
       `;
     }
 
-    tableBody.innerHTML = rowsHtml;
+    tableBody.innerHTML = rowsHtml || loadingTableRow(colCount, 'No conditional return data');
+
+    if (summaryEl && current.quantile != null) {
+      const currentBucket = buckets.find((b: { is_current?: boolean }) => b.is_current);
+      const sixMonth = currentBucket?.horizons?.['183'] as ConditionalHorizonStats | undefined;
+      let extra = '';
+      if (sixMonth?.median_return != null) {
+        extra = ` In this bucket, the historical median <span class="font-mono text-orange-400">${formatReturnPct(sixMonth.median_return)}</span> 6-month return was observed across <span class="font-mono">${sixMonth.count?.toLocaleString() ?? '—'}</span> episodes.`;
+      }
+      summaryEl.innerHTML =
+        `Today is <span class="font-semibold">${current.quantile_label ?? 'Q??'}</span> ` +
+        `(${formatQuantilePercentileSubtext(current.quantile).replace(' percentile vs model', ' percentile')})` +
+        ` — highlighted row shows how BTC typically moved after past days in the same regime.${extra}`;
+    }
   } catch (err) {
-    console.error(err);
-    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-red-400">Failed to load quantile grid</td></tr>`;
+    console.error('Failed to load conditional returns card', err);
+    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-red-400">Failed to load conditional returns (is the backend running?)</td></tr>`;
+    if (summaryEl) summaryEl.textContent = '';
   }
 }
 
@@ -1069,107 +1095,6 @@ async function loadTimeBelowQuantileCard() {
       explanationEl.textContent = 'Failed to load time-below quantile stats (is the backend running?).';
       explanationEl.classList.add('text-red-400');
     }
-  }
-}
-
-async function loadCurrentQuantileCard() {
-  const tableBody = document.getElementById('current-quantile-table') as HTMLElement | null;
-  const nowDateEl = document.getElementById('current-quantile-now-date');
-  if (!tableBody) return;
-
-  const colCount = 6;
-  const horizons = getShortHorizonTargets(currentLatestDays);
-
-  if (nowDateEl && currentDataEndDate) {
-    nowDateEl.textContent = ` (Now = ${currentDataEndDate})`;
-  }
-
-  tableBody.innerHTML = loadingTableRow(colCount, 'Loading current quantile position…');
-
-  try {
-    const posData = await fetchCurrentPosition();
-    const pos = posData.position || {};
-    const currentQ = typeof pos.quantile === 'number' ? pos.quantile : 0.5;
-    const analogProjs = posData.analog_projections || null;
-
-    const startDays = horizons[0].days - 5;
-    const endDays = horizons[horizons.length - 1].days + 5;
-    // Only fetch the structural power-law reference quantiles (current regime uses historical analogs instead)
-    const quantilesToFetch = [0.25, 0.5, 0.75];
-
-    const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
-    const curves = curvesData.curves ?? {};
-
-    // Build rows: Current regime now uses *historical analogs* (not model Q at currentQ)
-    const rowsToShow: Array<{ q: number; label: string; isCurrent?: boolean }> = [
-      { q: currentQ, label: `Current regime (hist. scaled gains)`, isCurrent: true },
-      { q: 0.5, label: 'Q50 (median)' },
-      { q: 0.25, label: 'Q25' },
-      { q: 0.75, label: 'Q75' },
-    ];
-
-    // Precompute offsets from the horizons for analog lookup (0, ~91, ~183, ...)
-    const nowDay = horizons[0].days;
-    const offsets = horizons.map(h => Math.round(h.days - nowDay));
-
-    let rowsHtml = '';
-    for (const row of rowsToShow) {
-      const color = quantileRowColor(row.q);
-      const rowClass = row.isCurrent ? 'font-semibold bg-zinc-800/40' : '';
-      const cells = horizons.map((h, idx) => {
-        let price: number | null = null;
-        let rangeText = '';
-        const off = offsets[idx];
-        const isNow = off === 0;
-        if (row.isCurrent && analogProjs && analogProjs.horizons && !isNow) {
-          // Historical analogs only for future horizons; Now always shows actual current price.
-          // Use *scaled* prices (current price × historical median gain from similar regimes).
-          // find matching offset key (within a few days tolerance)
-          let ap = null;
-          for (const k of Object.keys(analogProjs.horizons)) {
-            if (Math.abs(parseInt(k) - off) <= 5) {
-              ap = analogProjs.horizons[k];
-              break;
-            }
-          }
-          if (ap && ap.scaled_median != null) {
-            price = ap.scaled_median;
-            const mult = ap.median_mult != null ? `×${ap.median_mult.toFixed(2)}` : '';
-            if (ap.scaled_p25 != null && ap.scaled_p75 != null) {
-              rangeText = `<div class="text-[9px] opacity-60 font-normal">${formatPrice(ap.scaled_p25)}–${formatPrice(ap.scaled_p75)} ${mult}</div>`;
-            } else if (mult) {
-              rangeText = `<div class="text-[9px] opacity-60 font-normal">${mult}</div>`;
-            }
-          }
-        } else if (row.isCurrent && isNow && pos.actual_price != null) {
-          price = pos.actual_price;
-          // no range for "now" - it's the observed price
-        } else {
-          const curve = getCurveForQuantile(curves, row.q);
-          price = getCurveValue(curve, h.days, 5);
-        }
-        const priceStr = price != null ? formatPrice(price) : '—';
-        return `<td class="px-4 py-2 text-right font-mono ${color} ${rowClass}">${priceStr}${rangeText}</td>`;
-      });
-      rowsHtml += `
-        <tr class="transition-colors">
-          <td class="px-4 py-2 font-medium ${color} ${rowClass}">${row.label}</td>
-          ${cells.join('')}
-        </tr>
-      `;
-    }
-
-    // Also surface key current facts in a small header row area (simple text update if elements exist)
-    const summaryEl = document.getElementById('current-quantile-summary');
-    if (summaryEl && pos.actual_price != null) {
-      const dev = pos.deviation_pct != null ? `${pos.deviation_pct >= 0 ? '+' : ''}${pos.deviation_pct}%` : '';
-      summaryEl.innerHTML = `Today's close <span class="font-mono text-sky-400">${formatPrice(pos.actual_price)}</span> vs model Q50 <span class="font-mono text-orange-400">${formatPrice(pos.model_q50)}</span> <span class="text-xs">(${dev})</span> — at <span class="font-semibold">${pos.quantile_label || 'Q??'}</span> (${(pos.quantile * 100).toFixed(0)}th percentile of historical power-law residuals).`;
-    }
-
-    tableBody.innerHTML = rowsHtml;
-  } catch (err) {
-    console.error(err);
-    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 text-red-400">Failed to load current quantile position</td></tr>`;
   }
 }
 
@@ -2429,8 +2354,7 @@ async function init() {
 
   await Promise.allSettled([
     loadYearEndProjections(),
-    loadQuantileHorizonTable(),
-    loadCurrentQuantileCard(),
+    loadConditionalReturnsCard(),
     loadTimeBelowQuantileCard(),
     loadBitcoinStatsCard(),
     loadMayerMultipleCard(),
