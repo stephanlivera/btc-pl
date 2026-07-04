@@ -3,160 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bitcoin Power Law • Quantile Curves</title>
+  <title>Bitcoin Power Law &amp; Stats Dashboard</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <style>
-    body { font-family: 'Inter', system_ui, sans-serif; }
-    .font-display { font-family: 'Space Grotesk', 'Inter', system_ui, sans-serif; font-weight: 600; }
-    .chart-container { position: relative; background: #0a0c10; }
-
-    #main-chart-container {
-      height: min(70vh, 720px);
-    }
-
-    #main-chart-card:fullscreen,
-    #main-chart-card:-webkit-full-screen {
-      width: 100%;
-      height: 100%;
-      max-width: none;
-      margin: 0;
-      border-radius: 0;
-      background: #09090b;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    #main-chart-card:fullscreen #main-chart-container,
-    #main-chart-card:-webkit-full-screen #main-chart-container {
-      flex: 1;
-      min-height: 0;
-      height: auto !important;
-    }
-
-    /* Loading indicators (cold-start / slow backend) */
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes loading-pulse {
-      0%, 100% { opacity: 0.55; }
-      50% { opacity: 1; }
-    }
-
-    .loading-spinner {
-      width: 1.75rem;
-      height: 1.75rem;
-      border: 2px solid rgba(251, 146, 60, 0.2);
-      border-top-color: #fb923c;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      flex-shrink: 0;
-    }
-
-    .loading-spinner-sm {
-      width: 1.125rem;
-      height: 1.125rem;
-      border-width: 2px;
-    }
-
-    .loading-spinner-xs {
-      width: 0.875rem;
-      height: 0.875rem;
-      border-width: 1.5px;
-    }
-
-    .loading-pulse {
-      animation: loading-pulse 1.6s ease-in-out infinite;
-    }
-
-    .app-loading-banner {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.75rem;
-      padding: 0.875rem 1rem;
-      margin-bottom: 1.5rem;
-      background: rgba(24, 24, 27, 0.95);
-      border: 1px solid rgba(63, 63, 70, 0.85);
-      border-radius: 1rem;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-    }
-
-    .app-loading-banner.is-hidden {
-      display: none;
-    }
-
-    .app-loading-message {
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: #e4e4e7;
-      line-height: 1.35;
-    }
-
-    .app-loading-hint {
-      margin-top: 0.25rem;
-      font-size: 0.75rem;
-      color: #a1a1aa;
-      line-height: 1.4;
-    }
-
-    .chart-loading-overlay {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 0.625rem;
-      background: rgba(10, 12, 16, 0.88);
-      border-radius: inherit;
-      z-index: 10;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.2s ease;
-    }
-
-    .chart-loading-overlay.is-visible {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .chart-loading-message {
-      font-size: 0.8125rem;
-      color: #a1a1aa;
-      text-align: center;
-      max-width: 16rem;
-      line-height: 1.4;
-    }
-
-    /* Projection tables (year-end, conditional returns, etc.) */
-    .projection-table tr:nth-child(even) {
-      background-color: rgba(63, 63, 70, 0.12);
-    }
-
-    .projection-table tr:hover {
-      background-color: rgba(63, 63, 70, 0.32) !important;
-      transition: background-color 0.1s ease;
-    }
-
-    .projection-table td {
-      padding-top: 0.55rem;
-      padding-bottom: 0.55rem;
-    }
-
-    .projection-table th {
-      font-weight: 500;
-      padding-top: 0.5rem;
-      padding-bottom: 0.5rem;
-      color: #a1a1aa;
-    }
-  </style>
-  <script type="module" crossorigin src="/assets/index-CTH5m5_J.js"></script>
+  <script type="module" crossorigin src="/assets/index-DFABhPJS.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CXF0yeSM.css">
 </head>
-<body class="bg-zinc-950 text-zinc-200">
-  <div class="max-w-[1100px] mx-auto px-6 py-10">
+<body class="terminal-bloomberg">
+  <div class="terminal-shell max-w-[1100px] mx-auto px-6 py-10">
     <!-- Global loading banner (shown during backend cold-start) -->
     <div id="app-loading-banner" class="app-loading-banner" role="status" aria-live="polite">
       <div class="loading-spinner loading-spinner-sm mt-0.5" aria-hidden="true"></div>
@@ -167,63 +22,76 @@
     </div>
 
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8">
-      <div class="flex items-center gap-x-3">
-        <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-          <span class="text-white text-2xl font-bold tracking-tighter">₿</span>
+    <header class="terminal-header mb-6">
+      <div class="terminal-header-panel">
+      <div class="flex items-center justify-between gap-4 mb-3">
+        <div class="flex items-center gap-x-3 min-w-0">
+          <div class="terminal-logo w-9 h-9 rounded-md flex items-center justify-center shrink-0">
+            <span class="text-white text-2xl font-bold tracking-tighter">₿</span>
+          </div>
+          <div class="min-w-0">
+            <h1 class="font-display text-3xl tracking-tight text-[var(--tb-text)]">Bitcoin Power Law &amp; Stats Dashboard</h1>
+            <p class="terminal-card-subtitle mt-0.5">Power-law quantiles, historical stats, and forward context</p>
+          </div>
         </div>
-        <div>
-          <h1 class="font-display text-4xl tracking-tighter font-semibold text-white">Bitcoin Power Law</h1>
+        <div id="data-freshness-pill"
+             class="terminal-freshness-pill inline-flex items-center gap-1.5 rounded px-3 py-1.5 cursor-default shrink-0"
+             title="Source: btc_daily.csv">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 terminal-text-positive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span>Data through <span class="font-medium text-[var(--tb-text-muted)]" id="data-freshness-date">—</span></span>
         </div>
       </div>
-      <!-- Data Freshness Pill -->
-      <div id="data-freshness-pill"
-           class="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-700 transition-colors cursor-default"
-           title="Source: btc_daily.csv">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-        <span>Data through <span class="font-medium text-zinc-300" id="data-freshness-date">—</span></span>
+
+      <!-- Scrolling market tape (v1) -->
+      <div id="terminal-ticker" class="terminal-ticker" aria-label="Market summary ticker" role="region" aria-live="polite">
+        <div class="terminal-ticker-viewport">
+          <div id="terminal-ticker-track" class="terminal-ticker-track">
+            <span class="terminal-ticker-loading">Loading market tape…</span>
+          </div>
+        </div>
       </div>
-    </div>
+      </div>
+    </header>
 
     <!-- Chart Card -->
-    <div id="main-chart-card" class="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl">
+    <div id="main-chart-card" class="terminal-card terminal-card-hero p-6">
       <div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-1">
         <div>
-          <div class="text-xl font-semibold tracking-tight">Power Law + Quantile Corridor</div>
-          <div class="text-sm text-zinc-400">Quantile regression analysis</div>
+          <div class="terminal-card-title">Power Law + Quantile Corridor</div>
+          <div class="terminal-card-subtitle mt-0.5">Quantile regression analysis</div>
         </div>
 
         <!-- Controls -->
         <div class="flex flex-wrap items-center gap-2 text-xs">
           <!-- Time Range -->
-          <div class="flex items-center gap-1 bg-zinc-950 border border-zinc-700 rounded-lg p-1">
-            <span class="px-2 text-zinc-500 text-[10px] font-medium tracking-wider">RANGE</span>
-            <button data-range="all" class="range-btn px-3 py-1 rounded-md hover:bg-zinc-800 active:bg-zinc-700">All</button>
-            <button data-range="5y" class="range-btn px-3 py-1 rounded-md hover:bg-zinc-800 active:bg-zinc-700">5y</button>
-            <button data-range="3y" class="range-btn px-3 py-1 rounded-md hover:bg-zinc-800 active:bg-zinc-700">3y</button>
-            <button data-range="1y" class="range-btn px-3 py-1 rounded-md bg-zinc-800">1y</button>
+          <div class="terminal-control-group">
+            <span class="terminal-control-label">RANGE</span>
+            <button data-range="all" class="range-btn terminal-seg-btn">All</button>
+            <button data-range="5y" class="range-btn terminal-seg-btn">5y</button>
+            <button data-range="3y" class="range-btn terminal-seg-btn">3y</button>
+            <button data-range="1y" class="range-btn terminal-seg-btn terminal-seg-active">1y</button>
           </div>
 
           <!-- Inner Bands Toggle (Q25–Q75) -->
           <button id="bands-toggle"
-                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 text-xs font-medium">
+                  class="terminal-toggle-btn terminal-toggle-off">
             <span>Show Q25–Q75</span>
-            <div id="bands-indicator" class="w-2 h-2 rounded-full bg-zinc-600"></div>
+            <div id="bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
           </button>
 
           <!-- Outer Bands Toggle (Q10–Q90) -->
           <button id="outer-bands-toggle"
-                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 text-xs font-medium">
+                  class="terminal-toggle-btn terminal-toggle-off">
             <span>Show Q10–Q90</span>
-            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full bg-zinc-600"></div>
+            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
           </button>
 
           <!-- Export PNG -->
           <button id="chart-export-btn"
                   type="button"
-                  class="flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  class="terminal-icon-btn"
                   aria-label="Download chart as PNG"
                   title="Download chart as PNG">
             <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -234,7 +102,7 @@
           <!-- Copy image -->
           <button id="chart-copy-btn"
                   type="button"
-                  class="flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  class="terminal-icon-btn"
                   aria-label="Copy chart image to clipboard"
                   title="Copy chart image to clipboard">
             <svg data-icon="copy" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -248,7 +116,7 @@
           <!-- Fullscreen -->
           <button id="chart-fullscreen-btn"
                   type="button"
-                  class="flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-700 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  class="terminal-icon-btn"
                   aria-label="Expand chart to fullscreen"
                   aria-pressed="false"
                   title="Expand chart to fullscreen">
@@ -262,7 +130,7 @@
         </div>
       </div>
 
-      <div id="main-chart-container" class="chart-container rounded-2xl border border-zinc-800 p-3">
+      <div id="main-chart-container" class="chart-container p-3">
         <div id="main-chart-loading" class="chart-loading-overlay is-visible" aria-hidden="false">
           <div class="loading-spinner" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading power law chart and price data…</p>
@@ -273,52 +141,52 @@
     </div>
 
     <!-- Year End Projections Table -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
-      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5">
+      <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Power Law Year-End Projections (Next 10 Years)</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Model projections from quantile regression</span>
+        <span class="terminal-card-subtitle font-normal">Model projections from quantile regression</span>
       </div>
 
-      <div class="text-[10px] text-zinc-500 mb-3">
+      <div class="terminal-card-desc mb-3">
         The table shows the same bands as the chart. Use the toggles above to show or hide Q25–Q75 and Q10–Q90.
       </div>
       
       <div class="overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
-            <tr id="projections-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
+            <tr id="projections-table-head" class="border-b border-[var(--tb-border-muted)]">
               <!-- Dynamically populated by JavaScript based on active band toggles -->
             </tr>
           </thead>
-          <tbody id="projections-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+          <tbody id="projections-table" class="divide-y text-sm">
             <!-- Populated by JavaScript. Rows get zebra + hover styles via CSS + JS -->
           </tbody>
         </table>
       </div>
       
-      <div class="mt-2 text-[10px] text-zinc-500">
+      <div class="mt-2 terminal-footnote">
         These are deterministic outputs from the power law quantile regression model.
       </div>
     </div>
 
     <!-- Conditional Forward Returns by Quantile Regime -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5" id="conditional-returns-card">
-      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5" id="conditional-returns-card">
+      <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Conditional Forward Returns by Quantile Regime</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Historical behavior, not model projection</span>
+        <span class="terminal-card-subtitle font-normal">Historical behavior, not model projection</span>
       </div>
 
-      <div class="text-[10px] text-zinc-500 mb-3">
+      <div class="terminal-card-desc mb-3">
         Realized forward returns after past days in each power-law quantile bucket (empirical rank vs the Q50 trend).
         <span id="conditional-returns-now-date" class="text-zinc-400"></span>
       </div>
 
-      <div id="conditional-returns-summary" class="text-[11px] text-zinc-400 mb-3 px-1 font-light"></div>
+      <div id="conditional-returns-summary" class="text-[11px] terminal-text-muted mb-3 px-1 font-light"></div>
 
       <div class="overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
-            <tr id="conditional-returns-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
+            <tr id="conditional-returns-table-head" class="border-b border-[var(--tb-border-muted)]">
               <th class="text-left font-normal px-4 py-2">Regime bucket</th>
               <th class="text-right font-normal px-4 py-2">Episodes</th>
               <th class="text-right font-normal px-4 py-2">+3 months</th>
@@ -327,9 +195,9 @@
               <th class="text-right font-normal px-4 py-2">+2 years</th>
             </tr>
           </thead>
-          <tbody id="conditional-returns-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+          <tbody id="conditional-returns-table" class="divide-y text-sm">
             <tr>
-              <td colspan="6" class="px-4 py-3 text-zinc-500">
+              <td colspan="6" class="px-4 py-3 terminal-text-muted">
                 <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading conditional returns…</span></span>
               </td>
             </tr>
@@ -337,64 +205,64 @@
         </table>
       </div>
 
-      <div class="mt-2 text-[10px] text-zinc-500">
+      <div class="mt-2 terminal-footnote">
         Each cell shows median return with 25–75% range in parentheses and hit rate (% of episodes with positive return). Highlighted row = today's quantile regime. Not a forecast.
       </div>
     </div>
 
     <!-- Time Spent Below Quantile -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5" id="time-below-quantile-card">
-      <div class="font-medium text-zinc-300 mb-2 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5" id="time-below-quantile-card">
+      <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Time Spent Below Quantile</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Historical context for today's power-law rank</span>
+        <span class="terminal-card-subtitle font-normal">Historical context for today's power-law rank</span>
       </div>
 
-      <div class="text-[10px] text-zinc-500 mb-4">
+      <div class="terminal-card-desc mb-4">
         Compares today's deviation from the central power-law trend against every trading day in the price history.
         <span id="time-below-quantile-now-date" class="text-zinc-400"></span>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="text-center p-4 rounded-xl bg-zinc-950 border border-zinc-800">
-          <div class="text-[10px] uppercase tracking-wider text-zinc-500">Current Quantile</div>
-          <div id="time-below-current-quantile" class="text-3xl font-semibold font-mono text-sky-400 tabular-nums mt-1">—</div>
-          <div id="time-below-current-quantile-sub" class="text-[10px] text-zinc-500 mt-1">—</div>
+        <div class="terminal-stat-box">
+          <div class="terminal-stat-label">Current Quantile</div>
+          <div id="time-below-current-quantile" class="text-3xl font-semibold font-mono terminal-text-live tabular-nums mt-1">—</div>
+          <div id="time-below-current-quantile-sub" class="terminal-text-muted text-[10px] mt-1">—</div>
         </div>
-        <div class="text-center p-4 rounded-xl bg-zinc-950 border border-zinc-800">
-          <div class="text-[10px] uppercase tracking-wider text-zinc-500">Time Below</div>
-          <div id="time-below-pct" class="text-3xl font-semibold font-mono text-orange-400 tabular-nums mt-1">—</div>
-          <div id="time-below-pct-sub" class="text-[10px] text-zinc-500 mt-1">—</div>
+        <div class="terminal-stat-box">
+          <div class="terminal-stat-label">Time Below</div>
+          <div id="time-below-pct" class="text-3xl font-semibold font-mono terminal-text-accent tabular-nums mt-1">—</div>
+          <div id="time-below-pct-sub" class="terminal-text-muted text-[10px] mt-1">—</div>
         </div>
       </div>
 
-      <div id="time-below-explanation" class="text-sm text-zinc-400 mt-4 px-1 leading-relaxed">
+      <div id="time-below-explanation" class="text-sm terminal-text-muted mt-4 px-1 leading-relaxed">
         <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading time-below quantile stats…</span></span>
       </div>
 
-      <div class="mt-3 text-[10px] text-zinc-500">
+      <div class="mt-3 terminal-footnote">
         Quantile rank = where today's log-residual sits in the full historical distribution around the Q50 power-law fit. "Time below" counts days since the start of the price history at or below that same rank.
       </div>
     </div>
 
     <!-- Bitcoin Stats at a Glance -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
-      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5">
+      <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Bitcoin Stats at a Glance</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Computed from on-chain daily close history</span>
+        <span class="terminal-card-subtitle font-normal">Computed from on-chain daily close history</span>
       </div>
 
       <div class="overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
-            <tr class="border-b border-zinc-800 text-xs text-zinc-500">
+            <tr class="border-b border-[var(--tb-border-muted)]">
               <th class="text-left font-normal px-4 py-2">Metric</th>
               <th class="text-right font-normal px-4 py-2">Value</th>
               <th class="text-right font-normal px-4 py-2">Context</th>
             </tr>
           </thead>
-          <tbody id="bitcoin-stats-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+          <tbody id="bitcoin-stats-table" class="divide-y text-sm">
             <tr>
-              <td colspan="3" class="px-4 py-3 text-zinc-500">
+              <td colspan="3" class="px-4 py-3 terminal-text-muted">
                 <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading Bitcoin stats…</span></span>
               </td>
             </tr>
@@ -402,22 +270,22 @@
         </table>
       </div>
 
-      <div class="mt-2 text-[10px] text-zinc-500">
+      <div class="mt-2 terminal-footnote">
         Power-law quantile from <code>/current</code>. Price metrics from <code>/historical</code> daily closes (full history from ~2011 for ATH). 200 DMA / 200 WMA (≈1400d SMA) / Mayer Multiple / RSI (14) / 30d realized vol are computed client-side. Next halving date is an estimate.
       </div>
     </div>
 
     <!-- Mayer Multiple History (new card: full-history oscillator chart + current indicator) -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
-      <div class="font-medium text-zinc-300 mb-2 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5">
+      <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Mayer Multiple History</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Price ÷ 200-day SMA (Trace Mayer)</span>
+        <span class="terminal-card-subtitle font-normal">Price ÷ 200-day SMA (Trace Mayer)</span>
       </div>
 
       <!-- Range toggle for the Mayer chart -->
       <div id="mayer-range-controls" class="flex flex-wrap items-center gap-1 mb-2 text-xs"></div>
 
-      <div class="text-[10px] text-zinc-500 mb-3">
+      <div class="terminal-card-desc mb-3">
         The Mayer Multiple shows how far price is trading above or below its 200-day moving average over time.
         Values near or below 1.0 have often coincided with bear-market accumulation zones; 0.8 has been cited as a deep value / oversold zone in later analyses; readings well above 2.4 have historically preceded major corrections.
         <span id="mayer-now-date" class="text-zinc-400"></span>
@@ -437,22 +305,22 @@
           <div class="text-[10px] text-zinc-500">Current Mayer Multiple</div>
           <div id="mayer-current-value" class="text-3xl font-semibold font-mono text-orange-400 tabular-nums">—</div>
         </div>
-        <div id="mayer-current-context" class="text-sm text-zinc-400 sm:pb-1"></div>
+        <div id="mayer-current-context" class="text-sm terminal-text-muted sm:pb-1"></div>
       </div>
 
-      <div class="mt-3 text-[10px] text-zinc-500">
+      <div class="mt-3 terminal-footnote">
         Independent of the power-law model. Computed client-side from <code>/historical</code> daily closes. SMA window = 200 trading days.
       </div>
     </div>
 
     <!-- Bitcoin Historical CAGR -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
-      <div class="font-medium text-zinc-300 mb-3 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5">
+      <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Bitcoin CAGR (Compound Annual Growth Rate)</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Historical annualized returns</span>
+        <span class="terminal-card-subtitle font-normal">Historical annualized returns</span>
       </div>
 
-      <div class="text-[10px] text-zinc-500 mb-3">
+      <div class="terminal-card-desc mb-3">
         CAGR computed from actual daily close prices at the closest historical dates ~N years prior to the latest data point.
         <span id="bitcoin-cagr-now-date" class="text-zinc-400"></span>
       </div>
@@ -460,16 +328,16 @@
       <div class="overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
-            <tr class="border-b border-zinc-800 text-xs text-zinc-500">
+            <tr class="border-b border-[var(--tb-border-muted)]">
               <th class="text-left font-normal px-4 py-2">Period</th>
               <th class="text-right font-normal px-4 py-2">CAGR</th>
               <th class="text-right font-normal px-4 py-2">Start Price</th>
               <th class="text-right font-normal px-4 py-2">Start Date</th>
             </tr>
           </thead>
-          <tbody id="bitcoin-cagr-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+          <tbody id="bitcoin-cagr-table" class="divide-y text-sm">
             <tr>
-              <td colspan="4" class="px-4 py-3 text-zinc-500">
+              <td colspan="4" class="px-4 py-3 terminal-text-muted">
                 <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading Bitcoin CAGR…</span></span>
               </td>
             </tr>
@@ -477,19 +345,19 @@
         </table>
       </div>
 
-      <div class="mt-2 text-[10px] text-zinc-500">
+      <div class="mt-2 terminal-footnote">
         CAGR = (End Price / Start Price) ^ (1 / years) - 1. Uses the closest available daily close within ~30 days of the exact anniversary. Updates with <code>/historical</code> data.
       </div>
     </div>
 
     <!-- Bitcoin vs Gold Market Cap Flip -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5">
-      <div class="font-medium text-zinc-300 mb-2 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5">
+      <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Bitcoin Gold Flip • Market Cap Crossover</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Power law projection vs gold growing at long-term rates</span>
+        <span class="terminal-card-subtitle font-normal">Power law projection vs gold growing at long-term rates</span>
       </div>
 
-      <div class="text-[10px] text-zinc-500 mb-3">
+      <div class="terminal-card-desc mb-3">
         BTC market cap = power law price × 21M supply. Gold market cap starts at ~$31T and compounds at a constant long-term historical rate.
         The chart and table show when the power law corridors cross gold under different gold growth assumptions.
       </div>
@@ -497,7 +365,7 @@
       <!-- Gold CAGR selector (populated by JS) -->
       <div id="gold-growth-controls" class="flex flex-wrap items-center gap-1 mb-3 text-xs"></div>
 
-      <div id="gold-flip-current" class="text-[10px] text-zinc-400 mb-2 px-1"></div>
+      <div id="gold-flip-current" class="terminal-card-desc mb-2 px-1"></div>
 
       <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 320px;">
         <div id="gold-flip-chart-loading" class="chart-loading-overlay" aria-hidden="true">
@@ -510,13 +378,13 @@
       <div class="overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
-            <tr id="gold-flip-table-head" class="border-b border-zinc-800 text-xs text-zinc-500">
+            <tr id="gold-flip-table-head" class="border-b border-[var(--tb-border-muted)]">
               <!-- JS populated -->
             </tr>
           </thead>
-          <tbody id="gold-flip-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+          <tbody id="gold-flip-table" class="divide-y text-sm">
             <tr>
-              <td colspan="6" class="px-4 py-3 text-zinc-500">
+              <td colspan="6" class="px-4 py-3 terminal-text-muted">
                 <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading crossover projections…</span></span>
               </td>
             </tr>
@@ -524,20 +392,20 @@
         </table>
       </div>
 
-      <div class="mt-2 text-[10px] text-zinc-500">
+      <div class="mt-2 terminal-footnote">
         Assumptions: fixed 21M BTC supply (long-term); gold MC growth rate combines new above-ground supply (~1–2%/yr) + price appreciation; crossovers use yearly samples from the model to 2050.
         Q25/Q75 show the inner power law corridor. Long-horizon extrapolations have substantial uncertainty.
       </div>
     </div>
 
     <!-- Bitcoin vs Major Asset Classes — Rolling Correlations -->
-    <div class="mt-6 bg-zinc-900 border border-zinc-800 rounded-3xl p-5" id="asset-correlations-card">
-      <div class="font-medium text-zinc-300 mb-2 flex items-center justify-between">
+    <div class="mt-6 terminal-card p-5" id="asset-correlations-card">
+      <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Bitcoin vs Major Asset Classes — Rolling Correlations</span>
-        <span class="text-[10px] text-zinc-500 font-normal">Daily log-return Pearson correlation</span>
+        <span class="terminal-card-subtitle font-normal">Daily log-return Pearson correlation</span>
       </div>
 
-      <div class="text-[10px] text-zinc-500 mb-3">
+      <div class="terminal-card-desc mb-3">
         How closely Bitcoin daily returns have moved with stocks (SPY), gold (GLD), bonds (AGG), and US real estate (VNQ) over rolling windows.
         <span id="corr-now-date" class="text-zinc-400"></span>
       </div>
@@ -557,7 +425,7 @@
       <div class="overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
-            <tr class="border-b border-zinc-800 text-xs text-zinc-500" id="corr-table-head">
+            <tr class="border-b border-[var(--tb-border-muted)]" id="corr-table-head">
               <th class="text-left font-normal px-4 py-2">Asset Class</th>
               <th class="text-right font-normal px-4 py-2">30d</th>
               <th class="text-right font-normal px-4 py-2">90d</th>
@@ -565,9 +433,9 @@
               <th class="text-right font-normal px-4 py-2">1y</th>
             </tr>
           </thead>
-          <tbody id="asset-correlations-table" class="text-zinc-200 divide-y divide-zinc-800 text-sm">
+          <tbody id="asset-correlations-table" class="divide-y text-sm">
             <tr>
-              <td colspan="5" class="px-4 py-3 text-zinc-500">
+              <td colspan="5" class="px-4 py-3 terminal-text-muted">
                 <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading rolling correlations…</span></span>
               </td>
             </tr>
@@ -575,20 +443,20 @@
         </table>
       </div>
 
-      <div class="mt-2 text-[10px] text-zinc-500">
+      <div class="mt-2 terminal-footnote">
         Correlations range from −1 (opposite moves) to +1 (lockstep). Computed on overlapping trading days from <code>/correlations</code>. Property proxy = VNQ (US REITs). Updates with <code>scripts/update_data.py</code>.
       </div>
     </div>
 
-    <div class="mt-8 border-t border-zinc-800 pt-6 pb-2">
-      <p class="text-center text-[11px] leading-relaxed text-zinc-500 max-w-2xl mx-auto px-4">
-        <span class="font-medium text-zinc-400">Disclaimer:</span>
+    <div class="mt-8 terminal-footer pt-6 pb-2">
+      <p class="terminal-disclaimer text-center leading-relaxed max-w-2xl mx-auto px-4">
+        <strong>Disclaimer:</strong>
         This site is for informational and analysis purposes only. Nothing here constitutes financial,
         investment, tax, or legal advice. Past performance and model projections do not guarantee future
         results. Always do your own research and consult a qualified professional before making financial
         decisions.
       </p>
-      <p class="mt-3 text-center text-[10px] text-zinc-600">
+      <p class="mt-3 text-center terminal-footnote">
         Bitcoin power law and regression analysis
       </p>
     </div>
