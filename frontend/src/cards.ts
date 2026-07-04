@@ -46,7 +46,7 @@ import {
 } from './api';
 import { loadingTableRow, skeletonTableRows, setChartLoading } from './ui';
 import { chartAnimationDuration } from './motion';
-import { terminal as T, terminalUi as tu } from './theme';
+import { terminal as T, terminalUi as tu, terminalChartBackgroundPlugin } from './theme';
 
 const CONDITIONAL_RETURN_HORIZONS = [91, 183, 365, 730] as const;
 
@@ -476,6 +476,7 @@ export async function renderGoldFlipChart(cagr: number) {
 
   state.goldFlipChart = new (window as any).Chart(canvas, {
     type: 'line',
+    plugins: [terminalChartBackgroundPlugin],
     data: { labels, datasets },
     options: {
       responsive: true,
@@ -903,6 +904,7 @@ function renderAssetCorrelationsChart(data: any) {
 
   state.corrChart = new Chart(canvas, {
     type: 'line',
+    plugins: [terminalChartBackgroundPlugin],
     data: { datasets },
     options: {
       responsive: true,
@@ -1190,6 +1192,7 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
 
   state.mayerChart = new Chart(ctx, {
     type: 'line',
+    plugins: [terminalChartBackgroundPlugin],
     data: { datasets },
     options: {
       responsive: true,

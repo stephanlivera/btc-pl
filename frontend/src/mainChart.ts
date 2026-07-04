@@ -17,7 +17,7 @@ import {
 } from './api';
 import { showAppLoading, setChartLoading, updateRangeButtons, updateProjectionsInfo } from './ui';
 import { getRequestedQuantiles } from './api';
-import { terminal as T } from './theme';
+import { terminal as T, terminalChartBackgroundPlugin } from './theme';
 import { chartAnimationDuration, chartUpdateOptions } from './motion';
 
 // --- Time Range Logic ---
@@ -404,7 +404,7 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
   } else {
     state.chart = new Chart(ctx, {
       type: 'line',
-      plugins: [mainChartDecorationsPlugin],
+      plugins: [terminalChartBackgroundPlugin, mainChartDecorationsPlugin],
       data: { datasets },
       options: {
         responsive: true,

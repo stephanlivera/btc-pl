@@ -30,6 +30,18 @@ export const terminal = {
   property: '#94a3b8',
 } as const;
 
+/** Paints the chart canvas with the terminal card-inset background (matches .chart-container CSS). */
+export const terminalChartBackgroundPlugin = {
+  id: 'terminalChartBackground',
+  beforeDraw(chart: { ctx: CanvasRenderingContext2D; width: number; height: number }) {
+    const { ctx, width, height } = chart;
+    ctx.save();
+    ctx.fillStyle = terminal.cardInset;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+  },
+};
+
 export const terminalUi = {
   segActive: 'terminal-seg-active',
   segIdle: 'terminal-seg-idle',

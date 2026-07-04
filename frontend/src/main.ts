@@ -31,6 +31,8 @@ import { initMotion, revealStaggerSequence } from './motion';
 
 async function getMainChartPngBlob(): Promise<Blob | null> {
   if (!state.chart) return null;
+  // Force a full render so custom plugins (background, today marker, etc.) are in the export.
+  state.chart.update('none');
   const dataUrl = state.chart.toBase64Image('image/png', 1);
   const res = await fetch(dataUrl);
   return res.blob();
