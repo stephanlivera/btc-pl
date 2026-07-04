@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script type="module" crossorigin src="/assets/index-DFABhPJS.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CXF0yeSM.css">
+  <script type="module" crossorigin src="/assets/index-CvlsFsxR.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DdmYND8e.css">
 </head>
 <body class="terminal-bloomberg">
   <div class="terminal-shell max-w-[1100px] mx-auto px-6 py-10">
@@ -22,7 +22,7 @@
     </div>
 
     <!-- Header -->
-    <header class="terminal-header mb-6">
+    <header class="terminal-header terminal-reveal-stagger-1 mb-6">
       <div class="terminal-header-panel">
       <div class="flex items-center justify-between gap-4 mb-3">
         <div class="flex items-center gap-x-3 min-w-0">
@@ -45,7 +45,7 @@
       </div>
 
       <!-- Scrolling market tape (v1) -->
-      <div id="terminal-ticker" class="terminal-ticker" aria-label="Market summary ticker" role="region" aria-live="polite">
+      <div id="terminal-ticker" class="terminal-ticker terminal-reveal-stagger-2" aria-label="Market summary ticker" role="region" aria-live="polite">
         <div class="terminal-ticker-viewport">
           <div id="terminal-ticker-track" class="terminal-ticker-track">
             <span class="terminal-ticker-loading">Loading market tape…</span>
@@ -56,7 +56,7 @@
     </header>
 
     <!-- Chart Card -->
-    <div id="main-chart-card" class="terminal-card terminal-card-hero p-6">
+    <div id="main-chart-card" class="terminal-card terminal-card-hero terminal-card-accent-hero terminal-reveal-stagger-3 p-6">
       <div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-1">
         <div>
           <div class="terminal-card-title">Power Law + Quantile Corridor</div>
@@ -141,7 +141,7 @@
     </div>
 
     <!-- Year End Projections Table -->
-    <div class="mt-6 terminal-card p-5">
+    <div class="mt-6 terminal-card terminal-card-accent-model terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Power Law Year-End Projections (Next 10 Years)</span>
         <span class="terminal-card-subtitle font-normal">Model projections from quantile regression</span>
@@ -170,7 +170,7 @@
     </div>
 
     <!-- Conditional Forward Returns by Quantile Regime -->
-    <div class="mt-6 terminal-card p-5" id="conditional-returns-card">
+    <div class="mt-6 terminal-card terminal-card-accent-model terminal-reveal-in-view p-5" id="conditional-returns-card">
       <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Conditional Forward Returns by Quantile Regime</span>
         <span class="terminal-card-subtitle font-normal">Historical behavior, not model projection</span>
@@ -211,7 +211,7 @@
     </div>
 
     <!-- Time Spent Below Quantile -->
-    <div class="mt-6 terminal-card p-5" id="time-below-quantile-card">
+    <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5" id="time-below-quantile-card">
       <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Time Spent Below Quantile</span>
         <span class="terminal-card-subtitle font-normal">Historical context for today's power-law rank</span>
@@ -245,7 +245,7 @@
     </div>
 
     <!-- Bitcoin Stats at a Glance -->
-    <div class="mt-6 terminal-card p-5">
+    <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Bitcoin Stats at a Glance</span>
         <span class="terminal-card-subtitle font-normal">Computed from on-chain daily close history</span>
@@ -276,7 +276,7 @@
     </div>
 
     <!-- Mayer Multiple History (new card: full-history oscillator chart + current indicator) -->
-    <div class="mt-6 terminal-card p-5">
+    <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Mayer Multiple History</span>
         <span class="terminal-card-subtitle font-normal">Price ÷ 200-day SMA (Trace Mayer)</span>
@@ -314,7 +314,7 @@
     </div>
 
     <!-- Bitcoin Historical CAGR -->
-    <div class="mt-6 terminal-card p-5">
+    <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Bitcoin CAGR (Compound Annual Growth Rate)</span>
         <span class="terminal-card-subtitle font-normal">Historical annualized returns</span>
@@ -351,7 +351,7 @@
     </div>
 
     <!-- Bitcoin vs Gold Market Cap Flip -->
-    <div class="mt-6 terminal-card p-5">
+    <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Bitcoin Gold Flip • Market Cap Crossover</span>
         <span class="terminal-card-subtitle font-normal">Power law projection vs gold growing at long-term rates</span>
@@ -399,7 +399,7 @@
     </div>
 
     <!-- Bitcoin vs Major Asset Classes — Rolling Correlations -->
-    <div class="mt-6 terminal-card p-5" id="asset-correlations-card">
+    <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="asset-correlations-card">
       <div class="terminal-card-title mb-2 flex items-center justify-between">
         <span>Bitcoin vs Major Asset Classes — Rolling Correlations</span>
         <span class="terminal-card-subtitle font-normal">Daily log-return Pearson correlation</span>

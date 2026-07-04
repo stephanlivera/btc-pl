@@ -25,6 +25,7 @@ import {
   renderGoldFlipChart,
 } from './cards';
 import { loadTickerStrip } from './ticker';
+import { initMotion, revealStaggerSequence } from './motion';
 
 // --- Event Listeners ---
 
@@ -165,6 +166,8 @@ function setupControls() {
 }
 
 async function init() {
+  initMotion();
+  revealStaggerSequence();
   setupControls();
   showAppLoading('Connecting to analysis server…');
 

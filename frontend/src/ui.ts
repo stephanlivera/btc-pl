@@ -15,6 +15,30 @@ export function loadingTableRow(colspan: number, message: string, cellClass = 'p
   </td></tr>`;
 }
 
+const SKELETON_WIDTHS = ['52%', '68%', '44%', '72%', '58%', '63%'];
+
+export function skeletonTableRows(
+  colCount: number,
+  rowCount = 4,
+  cellClass = 'px-4 py-2',
+): string {
+  let html = '';
+  for (let row = 0; row < rowCount; row++) {
+    html += '<tr class="terminal-skeleton-row">';
+    for (let col = 0; col < colCount; col++) {
+      const align = col === 0 ? 'left' : 'right';
+      const width = SKELETON_WIDTHS[(row + col) % SKELETON_WIDTHS.length];
+      const blockClass =
+        align === 'right' ? 'terminal-skeleton-block terminal-skeleton-block--right' : 'terminal-skeleton-block';
+      html += `<td class="${cellClass} text-${align}">` +
+        `<div class="${blockClass}" style="width:${width}" aria-hidden="true"></div>` +
+        `</td>`;
+    }
+    html += '</tr>';
+  }
+  return html;
+}
+
 export function startSlowLoadHint() {
   if (slowLoadTimer) clearTimeout(slowLoadTimer);
   slowLoadTimer = setTimeout(() => {

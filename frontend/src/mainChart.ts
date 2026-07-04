@@ -18,6 +18,7 @@ import {
 import { showAppLoading, setChartLoading, updateRangeButtons, updateProjectionsInfo } from './ui';
 import { getRequestedQuantiles } from './api';
 import { terminal as T } from './theme';
+import { chartAnimationDuration, chartUpdateOptions } from './motion';
 
 // --- Time Range Logic ---
 
@@ -399,10 +400,7 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
 
     // Longer, gentler animation when changing time ranges
     // Shorter animation when only toggling bands
-    state.chart.update({
-      duration: isRangeChange ? 380 : 220,
-      easing: isRangeChange ? 'easeOutCubic' : 'easeOutQuart',
-    });
+    state.chart.update(chartUpdateOptions(isRangeChange));
   } else {
     state.chart = new Chart(ctx, {
       type: 'line',
@@ -411,7 +409,7 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: 300 },
+        animation: { duration: chartAnimationDuration(300) },
         scales: {
           x: {
             type: 'logarithmic',

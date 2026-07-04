@@ -44,7 +44,8 @@ import {
   goldMcAt,
   computeBtcMcT,
 } from './api';
-import { loadingTableRow, setChartLoading } from './ui';
+import { loadingTableRow, skeletonTableRows, setChartLoading } from './ui';
+import { chartAnimationDuration } from './motion';
 import { terminal as T, terminalUi as tu } from './theme';
 
 const CONDITIONAL_RETURN_HORIZONS = [91, 183, 365, 730] as const;
@@ -77,7 +78,7 @@ export async function loadConditionalReturnsCard() {
     nowDateEl.textContent = ` (through ${state.currentDataEndDate})`;
   }
 
-  tableBody.innerHTML = loadingTableRow(colCount, 'Loading conditional returns…');
+  tableBody.innerHTML = skeletonTableRows(colCount);
 
   try {
     const data = await fetchConditionalReturns();
@@ -226,7 +227,7 @@ export async function loadYearEndProjections() {
   });
   tableHead.innerHTML = headHtml;
 
-  tableBody.innerHTML = loadingTableRow(colCount, 'Loading projections…');
+  tableBody.innerHTML = skeletonTableRows(colCount);
 
   const yearEnds = getNextTenYearEnds(state.currentLatestDays);
   const startDays = yearEnds[0].days - 100;
@@ -479,6 +480,7 @@ export async function renderGoldFlipChart(cagr: number) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: chartAnimationDuration(220) },
       scales: {
         x: {
           title: { display: true, text: 'Year', color: T.textDim, font: { size: 11 } },
@@ -617,7 +619,7 @@ export async function loadBitcoinStatsCard() {
   const tableBody = document.getElementById('bitcoin-stats-table') as HTMLElement | null;
   if (!tableBody) return;
 
-  tableBody.innerHTML = loadingTableRow(3, 'Loading Bitcoin stats…');
+  tableBody.innerHTML = skeletonTableRows(3, 6);
 
   try {
     const asOfDate = state.currentDataEndDate ?? '';
@@ -752,7 +754,7 @@ export async function loadBitcoinCAGRCard() {
   const nowDateEl = document.getElementById('bitcoin-cagr-now-date');
   if (!tableBody) return;
 
-  tableBody.innerHTML = loadingTableRow(4, 'Loading Bitcoin CAGR…');
+  tableBody.innerHTML = skeletonTableRows(4);
 
   try {
     const points = await fetchHistoricalForCAGR();
@@ -905,7 +907,7 @@ function renderAssetCorrelationsChart(data: any) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 220 },
+      animation: { duration: chartAnimationDuration(220) },
       scales: {
         x: {
           type: 'linear',
@@ -1077,7 +1079,7 @@ export async function loadAssetCorrelationsCard() {
   const dateEl = document.getElementById('corr-now-date') as HTMLElement | null;
   if (!tableBody) return;
 
-  tableBody.innerHTML = loadingTableRow(5, 'Loading rolling correlations…');
+  tableBody.innerHTML = skeletonTableRows(5);
 
   const refreshChart = async () => {
     setChartLoading('corr-chart-loading', true, 'Updating correlations…');
@@ -1192,7 +1194,7 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 220 },
+      animation: { duration: chartAnimationDuration(220) },
       scales: {
         x: {
           type: 'linear',

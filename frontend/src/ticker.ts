@@ -9,9 +9,10 @@ import {
 } from './utils';
 import { terminalUi as tu } from './theme';
 
-function tickerItem(label: string, value: string, valueClass: string): string {
+function tickerItem(label: string, value: string, valueClass: string, pulse = false): string {
+  const pulseClass = pulse ? ' terminal-ticker-item--pulse' : '';
   return (
-    `<span class="terminal-ticker-item">` +
+    `<span class="terminal-ticker-item${pulseClass}">` +
     `<span class="terminal-ticker-label">${label}</span>` +
     `<span class="terminal-ticker-value ${valueClass}">${value}</span>` +
     `</span>`
@@ -59,9 +60,9 @@ export function buildTickerStripHtml(
     stats.realizedVol30d != null ? `${(stats.realizedVol30d * 100).toFixed(1)}% ann.` : '—';
 
   const items = [
-    tickerItem('BTC', formatPrice(stats.currentPrice), tu.textLive),
+    tickerItem('BTC', formatPrice(stats.currentPrice), tu.textLive, true),
     tickerItem('AS OF', asOfLabel, tu.textMuted),
-    tickerItem('QUANTILE', `${quantileLabel} (${quantilePct})`, tu.textAccent),
+    tickerItem('QUANTILE', `${quantileLabel} (${quantilePct})`, tu.textAccent, true),
     tickerItem('VS Q50', formatDeviationPct(pos.deviation_pct), deviationColorClass(pos.deviation_pct)),
     tickerItem('VS ATH', formatReturnPct(stats.ath.pctFromAth), conditionalReturnColorClass(stats.ath.pctFromAth)),
     tickerItem('YTD', formatReturnPct(stats.ytdReturn), conditionalReturnColorClass(stats.ytdReturn)),
@@ -97,7 +98,9 @@ export async function loadTickerStrip(): Promise<void> {
     }
 
     track.innerHTML = buildTickerStripHtml(stats, posData?.position ?? {}, asOfDate);
+    track.classList.add('terminal-ticker-track--entering');
     track.classList.add('terminal-ticker-track--ready');
+    window.setTimeout(() => track.classList.remove('terminal-ticker-track--entering'), 500);
   } catch (err) {
     console.error('Failed to load ticker strip', err);
     track.innerHTML = `<span class="terminal-ticker-error">Tape unavailable — is the backend running?</span>`;
