@@ -798,3 +798,64 @@ export function filterCorrelationSeriesByDate<T extends { date: string }>(
   if (!series || series.length === 0) return [];
   return series.filter(p => p.date >= startDate);
 }
+
+// --- Strengthening Power Law (expanding-window fit quality) ---
+
+export type ExpandingFitPoint = {
+  x: number;
+  date?: string;
+  beta: number;
+  ols_r2: number;
+  n?: number;
+};
+
+export type FitStrengthR2Bucket = 'low' | 'mid' | 'high';
+
+/** Map OLS R² to a color bucket for the fit-strength charts. */
+export function fitStrengthR2Bucket(r2: number): FitStrengthR2Bucket {
+  if (r2 < 0.85) return 'low';
+  if (r2 < 0.92) return 'mid';
+  return 'high';
+}
+
+export interface FitStrengthLineSegment {
+  colorKey: FitStrengthR2Bucket;
+  points: Array<{ x: number; y: number }>;
+}
+
+/** Split an expanding-window series into contiguous segments colored by R² bucket. */
+export function buildFitStrengthColoredSegments(
+  points: ExpandingFitPoint[],
+  valueKey: 'beta' | 'ols_r2'
+): FitStrengthLineSegment[] {
+  if (points.length === 0) return [];
+
+  const segments: FitStrengthLineSegment[] = [];
+  let colorKey = fitStrengthR2Bucket(points[0].ols_r2);
+  let segment: Array<{ x: number; y: number }> = [
+    { x: points[0].x, y: points[0][valueKey] },
+  ];
+
+  const flush = () => {
+    if (segment.length === 0) return;
+    segments.push({ colorKey, points: segment });
+  };
+
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    const nextKey = fitStrengthR2Bucket(p.ols_r2);
+    const point = { x: p.x, y: p[valueKey] };
+
+    if (nextKey !== colorKey) {
+      segment.push(point);
+      flush();
+      colorKey = nextKey;
+      segment = [point];
+    } else {
+      segment.push(point);
+    }
+  }
+
+  flush();
+  return segments;
+}

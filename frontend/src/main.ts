@@ -22,6 +22,7 @@ import {
   loadBitcoinCAGRCard,
   loadGoldFlipCard,
   loadAssetCorrelationsCard,
+  loadFitStrengthCard,
   renderGoldFlipChart,
 } from './cards';
 import { loadTickerStrip } from './ticker';
@@ -191,6 +192,7 @@ async function init() {
     loadBitcoinCAGRCard(),
     loadGoldFlipCard(),
     loadAssetCorrelationsCard(),
+    loadFitStrengthCard(),
   ]);
 
   hideAppLoading();

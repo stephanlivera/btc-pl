@@ -29,6 +29,10 @@ export const state = {
   corrRange: '3y' as 'all' | '5y' | '3y' | '1y',
   corrDataCache: null as any,
 
+  // Strengthening Power Law fit-quality card
+  fitStrengthBetaChart: null as any,
+  fitStrengthR2Chart: null as any,
+
   // Tooltip / chart context
   lastHistoricalPoints: [] as Array<{ x: number; y: number }>,
   lastCurves: {} as Record<string, Array<{ x: number; y: number }>>,

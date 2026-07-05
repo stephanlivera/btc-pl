@@ -41,6 +41,10 @@ CONDITIONAL_HORIZON_LABELS: Dict[int, str] = {
 DECAY_RATE = 0.12          # Controls compression speed (1 / (1 + rate * years_ahead))
 MIN_DECAY_FACTOR = 0.30    # Never compress bands tighter than this fraction of historical width
 
+# Expanding-window diagnostics for the "Strengthening Power Law" chart (OLS on log-log data).
+EXPANDING_WINDOW_MIN_DAYS = 365
+EXPANDING_WINDOW_STEP_DAYS = 30
+
 class QuantilePowerLawModel:
     """
     Holds fitted quantile regression models for the power law:
@@ -121,6 +125,8 @@ class QuantilePowerLawModel:
         if self.residual_quantiles:
             print("Residual quantiles (log10 space) used for parallel bands:", self.residual_quantiles)
 
+        self._expanding_window_series = self._compute_expanding_window_series()
+
         # Record the reference day for time-based decay (use actual last day in the fitted data)
         if self.df is not None and not self.df.empty:
             self.ref_days = int(self.df["days"].max())
@@ -139,6 +145,35 @@ class QuantilePowerLawModel:
         if not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
             raise RuntimeError("Log residuals not available; fit the model first.")
         return float(np.quantile(self._log_residuals, q))
+
+    def _compute_expanding_window_series(self) -> list[dict]:
+        """OLS expanding-window β and R² on log-log data (cached at fit/refit time)."""
+        if self.df is None or self.df.empty:
+            return []
+
+        n = len(self.df)
+        if n < EXPANDING_WINDOW_MIN_DAYS + 1:
+            return []
+
+        series: list[dict] = []
+        sample_indices = list(range(EXPANDING_WINDOW_MIN_DAYS, n, EXPANDING_WINDOW_STEP_DAYS))
+        if sample_indices[-1] != n - 1:
+            sample_indices.append(n - 1)
+
+        for i in sample_indices:
+            sub = self.df.iloc[: i + 1]
+            X = sm.add_constant(sub["log_days"])
+            y = sub["log_close"]
+            ols = sm.OLS(y, X).fit()
+            series.append({
+                "x": int(sub["days"].iloc[-1]),
+                "date": str(sub["Date"].iloc[-1].date()),
+                "beta": round(float(ols.params["log_days"]), 4),
+                "ols_r2": round(float(ols.rsquared), 4),
+                "n": int(len(sub)),
+            })
+
+        return series
 
     def refit(self, csv_path: Path | str) -> None:
         """Reload data from CSV and refit all models. Useful after running the update script."""
@@ -399,15 +434,23 @@ class QuantilePowerLawModel:
             except Exception:
                 pass
 
+        expanding = getattr(self, "_expanding_window_series", None) or []
+
         return {
             "fit": fit,
             "stability": {
                 "windows": windows,
                 "rolling_beta_4y": rolling,
+                "expanding_window": expanding,
             },
             "meta": {
                 "ref_days": self.ref_days,
                 "data_end_date": str(self.data_end_date) if self.data_end_date else None,
+                "expanding_window_step_days": EXPANDING_WINDOW_STEP_DAYS,
+                "expanding_window_method": (
+                    "OLS on log10(price) ~ log10(days_since_genesis); "
+                    "expanding windows sampled monthly from day 365"
+                ),
             },
         }
 

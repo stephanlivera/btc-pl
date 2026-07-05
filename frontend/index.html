@@ -475,6 +475,68 @@
       </div>
     </div>
 
+    <!-- Strengthening Power Law — expanding-window fit quality -->
+    <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="fit-strength-card">
+      <div class="terminal-card-title mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <span>The Strengthening Power Law</span>
+        <span class="terminal-card-subtitle font-normal">Expanding-window OLS fit on log-log data</span>
+      </div>
+
+      <div class="terminal-card-desc mb-3" id="fit-strength-desc">
+        How the power-law relationship strengthens as more Bitcoin history accumulates. Each point refits
+        <code>log₁₀(price) ~ log₁₀(days since genesis)</code> using all data up to that date.
+        <span id="fit-strength-through" class="text-zinc-400"></span>
+      </div>
+
+      <div id="fit-strength-stats" class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4 text-sm">
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">Scale β (today)</div>
+          <div id="fit-strength-beta-now" class="font-mono terminal-text-accent font-semibold">—</div>
+        </div>
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">R² (today)</div>
+          <div id="fit-strength-r2-now" class="font-mono terminal-text-positive font-semibold">—</div>
+        </div>
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">Correlation</div>
+          <div id="fit-strength-corr-now" class="font-mono terminal-text-live">—</div>
+        </div>
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">Data points</div>
+          <div id="fit-strength-n-now" class="font-mono text-[var(--tb-text)]">—</div>
+        </div>
+      </div>
+
+      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-2" style="height: 240px;">
+        <div id="fit-strength-beta-loading" class="chart-loading-overlay" aria-hidden="true">
+          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
+          <p class="chart-loading-message">Loading scale coefficient history…</p>
+        </div>
+        <canvas id="fit-strength-beta-chart"></canvas>
+      </div>
+
+      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 220px;">
+        <div id="fit-strength-r2-loading" class="chart-loading-overlay" aria-hidden="true">
+          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
+          <p class="chart-loading-message">Loading R² history…</p>
+        </div>
+        <canvas id="fit-strength-r2-chart"></canvas>
+      </div>
+
+      <div id="fit-strength-legend" class="flex flex-wrap items-center gap-3 mb-2 text-xs terminal-text-muted">
+        <span class="terminal-control-label">Line color by R²:</span>
+        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-0.5 rounded" style="background:#f87171"></span> &lt; 0.85</span>
+        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-0.5 rounded" style="background:#f59e0b"></span> 0.85–0.92</span>
+        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-0.5 rounded" style="background:#34d399"></span> ≥ 0.92</span>
+      </div>
+
+      <div class="mt-2 terminal-footnote">
+        Top: scale coefficient β (how steep the log-log slope is). Bottom: OLS R² (share of log-price variance explained by log-time).
+        Central trend on the main chart uses Q50 quantile regression; this card uses OLS for comparability with common analyst presentations.
+        Series is precomputed at refit (~monthly samples) and served from <code>/stats</code>.
+      </div>
+    </div>
+
     <div class="mt-8 terminal-footer pt-6 pb-2">
       <p class="terminal-disclaimer text-center leading-relaxed max-w-2xl mx-auto px-4">
         <strong>Disclaimer:</strong>

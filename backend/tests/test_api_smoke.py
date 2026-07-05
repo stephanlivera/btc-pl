@@ -169,16 +169,27 @@ def test_conditional_returns_endpoint():
 
 
 def test_stats_endpoint_returns_fit_summary():
-    """Optional diagnostics endpoint (no longer surfaced in the UI)."""
+    """Fit diagnostics for the Strengthening Power Law card and analysis."""
     response = client.get("/stats")
     assert response.status_code == 200
     data = response.json()
     assert "fit" in data
     assert "stability" in data
+    assert "meta" in data
     fit = data["fit"]
     assert "beta" in fit
     assert "ols_r2" in fit
+    assert "correlation" in fit
     assert "current_deviation_pct" in fit
+    expanding = data["stability"].get("expanding_window", [])
+    assert len(expanding) >= 50
+    first, last = expanding[0], expanding[-1]
+    for key in ("x", "date", "beta", "ols_r2", "n"):
+        assert key in first
+        assert key in last
+    assert [p["x"] for p in expanding] == sorted(p["x"] for p in expanding)
+    assert abs(last["ols_r2"] - fit["ols_r2"]) < 0.01
+    assert data["meta"]["expanding_window_step_days"] == 30
 
 
 def test_correlations_endpoint():

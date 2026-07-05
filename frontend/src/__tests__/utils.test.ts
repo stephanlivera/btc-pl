@@ -40,6 +40,8 @@ import {
   computeHalvingCycleInfo,
   computeBitcoinGlancePriceStats,
   findPriceNearDay,
+  fitStrengthR2Bucket,
+  buildFitStrengthColoredSegments,
 } from '../utils';
 
 describe('formatDeviationPct', () => {
@@ -515,5 +517,36 @@ describe('quantile rank helpers', () => {
     const residuals = [-0.2, 0.0, 0.1, 0.2];
     expect(empiricalQuantileRank(residuals, 0.0)).toBe(0.5);
     expect(logResidualFromQ50(6100, 10_000, model)).not.toBeNull();
+  });
+});
+
+describe('fit strength helpers', () => {
+  it('maps R² to color buckets', () => {
+    expect(fitStrengthR2Bucket(0.7)).toBe('low');
+    expect(fitStrengthR2Bucket(0.84)).toBe('low');
+    expect(fitStrengthR2Bucket(0.88)).toBe('mid');
+    expect(fitStrengthR2Bucket(0.91)).toBe('mid');
+    expect(fitStrengthR2Bucket(0.95)).toBe('high');
+  });
+
+  it('splits expanding-window points into colored segments', () => {
+    const points = [
+      { x: 1000, beta: 8.0, ols_r2: 0.8 },
+      { x: 1030, beta: 7.5, ols_r2: 0.86 },
+      { x: 1060, beta: 6.5, ols_r2: 0.93 },
+      { x: 1090, beta: 6.0, ols_r2: 0.96 },
+    ];
+    const segments = buildFitStrengthColoredSegments(points, 'beta');
+    expect(segments).toHaveLength(3);
+    expect(segments[0].colorKey).toBe('low');
+    expect(segments[1].colorKey).toBe('mid');
+    expect(segments[2].colorKey).toBe('high');
+    expect(segments[0].points).toHaveLength(2);
+    expect(segments[0].points[1].y).toBe(7.5);
+    expect(segments[2].points.at(-1)?.y).toBe(6.0);
+  });
+
+  it('returns empty segments for empty input', () => {
+    expect(buildFitStrengthColoredSegments([], 'ols_r2')).toEqual([]);
   });
 });

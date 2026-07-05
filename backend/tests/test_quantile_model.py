@@ -44,6 +44,33 @@ def test_model_fits_without_error(fitted_model):
     assert 0.5 in fitted_model.results
 
 
+def test_expanding_window_series_cached_at_fit(fitted_model):
+    summary = fitted_model.get_statistical_summary()
+    series = summary["stability"]["expanding_window"]
+    meta = summary["meta"]
+
+    assert len(series) >= 50
+    assert series[0]["x"] >= 365
+    assert 4.0 < series[-1]["beta"] < 12.0
+    assert 0.4 < series[0]["ols_r2"] < 1.0
+    assert 0.9 < series[-1]["ols_r2"] <= 1.0
+
+    xs = [p["x"] for p in series]
+    assert xs == sorted(xs)
+    assert series[-1]["n"] == len(fitted_model.df)
+    assert "date" in series[0]
+    assert meta["expanding_window_step_days"] == 30
+    assert "expanding_window_method" in meta
+
+    cached = getattr(fitted_model, "_expanding_window_series", None)
+    assert cached is not None
+    assert len(cached) == len(series)
+    assert cached[-1]["ols_r2"] == series[-1]["ols_r2"]
+
+    # Fit should strengthen over the full sample: recent R² >= early R².
+    assert series[-1]["ols_r2"] >= series[0]["ols_r2"]
+
+
 def test_btc_csv_covers_history_from_2010(fitted_model):
     """Live btc_daily.csv should include Habrador-era rows back to July 2010."""
     assert fitted_model.df is not None

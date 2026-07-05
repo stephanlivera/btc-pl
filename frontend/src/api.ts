@@ -43,6 +43,12 @@ export async function fetchModelParameters() {
   return res.json();
 }
 
+export async function fetchModelStats() {
+  const res = await fetch('/api/stats');
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  return res.json();
+}
+
 /** Load Q50 coefficients + full-history residuals for tooltip quantile ranks. */
 export async function ensureQuantileRankContext() {
   const cacheKey = `${state.currentLatestDays}:${state.currentDataEndDate ?? ''}`;

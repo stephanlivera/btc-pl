@@ -31,8 +31,11 @@ import {
   computeBitcoinGlancePriceStats,
   rsiContextLabel,
   ordinal,
+  buildFitStrengthColoredSegments,
   type Q50ModelParams,
   type ConditionalHorizonStats,
+  type ExpandingFitPoint,
+  type FitStrengthR2Bucket,
 } from './utils';
 
 import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
@@ -41,6 +44,7 @@ import {
   fetchHistorical,
   fetchCurrentPosition,
   fetchLongTermCurves,
+  fetchModelStats,
   goldMcAt,
   computeBtcMcT,
 } from './api';
@@ -1357,5 +1361,241 @@ export async function loadMayerMultipleCard() {
     contextEl.textContent = 'Failed to load (server may still be waking up)';
   } finally {
     setChartLoading('mayer-chart-loading', false);
+  }
+}
+
+// --- Strengthening Power Law (expanding-window fit quality) ---
+
+const FIT_STRENGTH_BUCKET_COLORS: Record<FitStrengthR2Bucket, string> = {
+  low: T.negative,
+  mid: T.accent,
+  high: T.positive,
+};
+
+function buildR2ColoredSegmentDatasets(
+  points: ExpandingFitPoint[],
+  valueKey: 'beta' | 'ols_r2'
+): any[] {
+  return buildFitStrengthColoredSegments(points, valueKey).map(seg => {
+    const color = FIT_STRENGTH_BUCKET_COLORS[seg.colorKey];
+    return {
+      label: valueKey === 'beta' ? 'Scale β' : 'R²',
+      data: seg.points,
+      borderColor: color,
+      backgroundColor: valueKey === 'ols_r2' ? `${color}33` : undefined,
+      borderWidth: valueKey === 'beta' ? 2.25 : 2,
+      pointRadius: 0,
+      pointHoverRadius: 3,
+      tension: 0.18,
+      fill: valueKey === 'ols_r2',
+      order: 1,
+    };
+  });
+}
+
+function buildFitStrengthXScale(firstX: number, lastX: number) {
+  const desiredXTicks = getTimeTickValues(firstX, lastX);
+  return {
+    type: 'linear' as const,
+    min: firstX,
+    max: lastX,
+    title: { display: true, text: 'Year', color: T.textMuted },
+    grid: { color: T.grid },
+    ticks: {
+      color: T.textDim,
+      font: { size: 10 },
+      callback: function (value: number) {
+        const year = Math.round(2009 + (value as number) / 365.25);
+        return year.toString();
+      },
+    },
+    afterBuildTicks: (axis: any) => {
+      if (desiredXTicks && desiredXTicks.length > 0) {
+        axis.ticks = desiredXTicks.map((v: number) => ({ value: v }));
+      }
+    },
+  };
+}
+
+function renderFitStrengthBetaChart(points: ExpandingFitPoint[]) {
+  const canvas = document.getElementById('fit-strength-beta-chart') as HTMLCanvasElement | null;
+  if (!canvas || points.length === 0) return;
+
+  if (state.fitStrengthBetaChart) {
+    state.fitStrengthBetaChart.destroy();
+    state.fitStrengthBetaChart = null;
+  }
+
+  const datasets = buildR2ColoredSegmentDatasets(points, 'beta');
+  const firstX = points[0].x;
+  const lastX = points[points.length - 1].x;
+  const betaValues = points.map(p => p.beta);
+  const yMin = Math.floor(Math.min(...betaValues) * 2) / 2;
+  const yMax = Math.ceil(Math.max(...betaValues) * 2) / 2;
+
+  state.fitStrengthBetaChart = new Chart(canvas, {
+    type: 'line',
+    plugins: [terminalChartBackgroundPlugin],
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: chartAnimationDuration(220) },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: T.tooltipBg,
+          borderColor: T.tooltipBorder,
+          borderWidth: 1,
+          titleColor: T.text,
+          bodyColor: T.textMuted,
+          callbacks: {
+            title: (items: any[]) => {
+              const day = items[0]?.parsed?.x;
+              if (day == null) return '';
+              return yearLabelForTickDay(day);
+            },
+            label: (ctx: any) => {
+              const idx = points.findIndex(p => p.x === ctx.parsed.x);
+              const pt = idx >= 0 ? points[idx] : null;
+              const beta = ctx.parsed.y?.toFixed(3) ?? '—';
+              const r2 = pt ? pt.ols_r2.toFixed(4) : '—';
+              return [`β = ${beta}`, `R² = ${r2}`];
+            },
+          },
+        },
+      },
+      scales: {
+        x: buildFitStrengthXScale(firstX, lastX),
+        y: {
+          min: yMin,
+          max: yMax,
+          title: {
+            display: true,
+            text: 'Scale coefficient (β)',
+            color: T.textMuted,
+          },
+          grid: { color: T.grid },
+          ticks: {
+            color: T.textDim,
+            font: { size: 10 },
+            callback: (v: number) => Number(v).toFixed(1),
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderFitStrengthR2Chart(points: ExpandingFitPoint[]) {
+  const canvas = document.getElementById('fit-strength-r2-chart') as HTMLCanvasElement | null;
+  if (!canvas || points.length === 0) return;
+
+  if (state.fitStrengthR2Chart) {
+    state.fitStrengthR2Chart.destroy();
+    state.fitStrengthR2Chart = null;
+  }
+
+  const datasets = buildR2ColoredSegmentDatasets(points, 'ols_r2');
+  const firstX = points[0].x;
+  const lastX = points[points.length - 1].x;
+  const r2Values = points.map(p => p.ols_r2);
+  const yMin = Math.max(0, Math.floor(Math.min(...r2Values) * 20) / 20 - 0.05);
+  const yMax = 1;
+
+  state.fitStrengthR2Chart = new Chart(canvas, {
+    type: 'line',
+    plugins: [terminalChartBackgroundPlugin],
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: chartAnimationDuration(220) },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: T.tooltipBg,
+          borderColor: T.tooltipBorder,
+          borderWidth: 1,
+          titleColor: T.text,
+          bodyColor: T.textMuted,
+          callbacks: {
+            title: (items: any[]) => {
+              const day = items[0]?.parsed?.x;
+              if (day == null) return '';
+              return yearLabelForTickDay(day);
+            },
+            label: (ctx: any) => `R² = ${ctx.parsed.y?.toFixed(4) ?? '—'}`,
+          },
+        },
+      },
+      scales: {
+        x: buildFitStrengthXScale(firstX, lastX),
+        y: {
+          min: yMin,
+          max: yMax,
+          title: {
+            display: true,
+            text: 'Coefficient of determination (R²)',
+            color: T.textMuted,
+          },
+          grid: { color: T.grid },
+          ticks: {
+            color: T.textDim,
+            font: { size: 10 },
+            callback: (v: number) => Number(v).toFixed(2),
+          },
+        },
+      },
+    },
+  });
+}
+
+function populateFitStrengthHeadlineStats(fit: any, meta: any, latestPoint?: ExpandingFitPoint | null) {
+  const betaEl = document.getElementById('fit-strength-beta-now');
+  const r2El = document.getElementById('fit-strength-r2-now');
+  const corrEl = document.getElementById('fit-strength-corr-now');
+  const nEl = document.getElementById('fit-strength-n-now');
+  const throughEl = document.getElementById('fit-strength-through');
+
+  const beta = latestPoint?.beta ?? fit?.beta;
+  const r2 = latestPoint?.ols_r2 ?? fit?.ols_r2;
+  if (betaEl) betaEl.textContent = typeof beta === 'number' ? beta.toFixed(3) : '—';
+  if (r2El) r2El.textContent = typeof r2 === 'number' ? r2.toFixed(4) : '—';
+  if (corrEl) corrEl.textContent = typeof fit?.correlation === 'number' ? fit.correlation.toFixed(4) : '—';
+  if (nEl) nEl.textContent = typeof fit?.n_points === 'number' ? fit.n_points.toLocaleString() : '—';
+  if (throughEl && meta?.data_end_date) {
+    throughEl.textContent = `(through ${meta.data_end_date})`;
+  }
+}
+
+export async function loadFitStrengthCard() {
+  const card = document.getElementById('fit-strength-card');
+  if (!card) return;
+
+  setChartLoading('fit-strength-beta-loading', true, 'Loading scale coefficient history…');
+  setChartLoading('fit-strength-r2-loading', true, 'Loading R² history…');
+
+  try {
+    const data = await fetchModelStats();
+    const points = (data?.stability?.expanding_window ?? []) as ExpandingFitPoint[];
+    if (points.length < 2) {
+      throw new Error('Insufficient expanding-window data from /stats');
+    }
+
+    const latest = points[points.length - 1];
+    populateFitStrengthHeadlineStats(data.fit, data.meta, latest);
+    renderFitStrengthBetaChart(points);
+    renderFitStrengthR2Chart(points);
+  } catch (err) {
+    console.error('Failed to load fit strength card', err);
+    populateFitStrengthHeadlineStats(null, null, null);
+    const desc = document.getElementById('fit-strength-desc');
+    if (desc) {
+      desc.textContent = 'Failed to load fit diagnostics (is the backend running?).';
+    }
+  } finally {
+    setChartLoading('fit-strength-beta-loading', false);
+    setChartLoading('fit-strength-r2-loading', false);
   }
 }
