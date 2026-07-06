@@ -39,6 +39,19 @@ export const state = {
   q50Model: null as Q50ModelParams | null,
   fullLogResiduals: [] as number[],
   quantileContextKey: null as string | null,
+
+  // Year-end projections + scenario explorer
+  projectionsCache: null as {
+    key: string;
+    yearEnds: Array<{ year: number; days: number }>;
+    curves: Record<string, Array<{ x: number; y: number }>>;
+    todayPrice: number;
+    todayDays: number;
+  } | null,
+  scenarioSelection: {
+    year: null as number | null,
+    quantile: 0.5,
+  },
 };
 
 export const GENESIS = new Date('2009-01-03T00:00:00Z');

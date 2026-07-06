@@ -15,6 +15,7 @@ import { loadAndRender } from './mainChart';
 import { state } from './state';
 import {
   loadYearEndProjections,
+  initProjectionsScenarioExplorer,
   loadConditionalReturnsCard,
   loadTimeBelowQuantileCard,
   loadBitcoinStatsCard,
@@ -166,6 +167,7 @@ function setupControls() {
 
   updateBandsToggle();
   updateOuterBandsToggle();
+  initProjectionsScenarioExplorer();
 }
 
 async function init() {

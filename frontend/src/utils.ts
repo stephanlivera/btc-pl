@@ -142,6 +142,100 @@ export function conditionalReturnColorClass(value: number | null): string {
   return 'text-[var(--tb-text)]';
 }
 
+export type ProjectionsColumn = { key: string; quantile: number; label: string };
+
+/** Quantile columns for the year-end projections table (low → central → high). */
+export function getProjectionsColumns(
+  showBands: boolean,
+  showOuterBands: boolean,
+): ProjectionsColumn[] {
+  const columns: ProjectionsColumn[] = [];
+  if (showOuterBands) columns.push({ key: '0.1', quantile: 0.1, label: 'Q10' });
+  if (showBands) columns.push({ key: '0.25', quantile: 0.25, label: 'Q25' });
+  columns.push({ key: '0.5', quantile: 0.5, label: 'Q50' });
+  if (showBands) columns.push({ key: '0.75', quantile: 0.75, label: 'Q75' });
+  if (showOuterBands) columns.push({ key: '0.9', quantile: 0.9, label: 'Q90' });
+  return columns;
+}
+
+export function buildProjectionsCacheKey(
+  latestDays: number,
+  showBands: boolean,
+  showOuterBands: boolean,
+): string {
+  return `${latestDays}:${showBands}:${showOuterBands}`;
+}
+
+export function findClosestCurvePoint(
+  curve: Array<{ x: number; y: number }> | undefined,
+  targetDay: number,
+): { x: number; y: number } | null {
+  if (!curve || curve.length === 0) return null;
+  return curve.reduce((prev, curr) =>
+    Math.abs(curr.x - targetDay) < Math.abs(prev.x - targetDay) ? curr : prev
+  );
+}
+
+export interface QuantileScenarioResult {
+  year: number;
+  targetDays: number;
+  quantile: number;
+  quantileLabel: string;
+  impliedPrice: number;
+  yearsFromToday: number;
+  cagrFromToday: number | null;
+  pctVsToday: number | null;
+  pctVsQ50AtYear: number | null;
+  q50PriceAtYear: number | null;
+  summary: string;
+}
+
+export function computeQuantileScenario(input: {
+  year: number;
+  targetDays: number;
+  quantile: number;
+  quantileLabel: string;
+  curves: Record<string, Array<{ x: number; y: number }>>;
+  todayPrice: number;
+  todayDays: number;
+}): QuantileScenarioResult | null {
+  const curve =
+    input.curves[input.quantile] ??
+    input.curves[String(input.quantile)] ??
+    input.curves[parseFloat(String(input.quantile))];
+  const point = findClosestCurvePoint(curve, input.targetDays);
+  if (!point || point.y <= 0 || input.todayPrice <= 0) return null;
+
+  const q50Curve = input.curves[0.5] ?? input.curves['0.5'];
+  const q50Point = findClosestCurvePoint(q50Curve, input.targetDays);
+  const yearsFromToday = (input.targetDays - input.todayDays) / 365.25;
+  const cagrFromToday =
+    yearsFromToday > 0 ? calculateCAGR(input.todayPrice, point.y, yearsFromToday) : null;
+  const pctVsToday = (point.y / input.todayPrice - 1) * 100;
+  const pctVsQ50AtYear =
+    q50Point && q50Point.y > 0 ? (point.y / q50Point.y - 1) * 100 : null;
+
+  const cagrText = cagrFromToday != null ? formatReturnPct(cagrFromToday) : '—';
+  const summary =
+    yearsFromToday > 0
+      ? `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)} — ${cagrText} annualized from today's ${formatPrice(input.todayPrice)}.`
+      : `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)}.`;
+
+  return {
+    year: input.year,
+    targetDays: input.targetDays,
+    quantile: input.quantile,
+    quantileLabel: input.quantileLabel,
+    impliedPrice: point.y,
+    yearsFromToday,
+    cagrFromToday,
+    pctVsToday,
+    pctVsQ50AtYear,
+    q50PriceAtYear: q50Point?.y ?? null,
+    summary,
+  };
+}
+
 export function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {
   // Produces the exact day counts (since 2009-01-03) for the next 10 calendar
   // year-ends (Dec 31). These day numbers are sent to the backend /curves

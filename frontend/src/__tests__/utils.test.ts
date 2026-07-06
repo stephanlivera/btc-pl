@@ -12,6 +12,10 @@ import {
   buildTimeBelowQuantileExplanation,
   formatTimeBelowQuantileSubtext,
   calculateCAGR,
+  computeQuantileScenario,
+  findClosestCurvePoint,
+  getProjectionsColumns,
+  buildLogResiduals,
   findPriceAtYearsAgo,
   formatCorrelation,
   correlationColorClass,
@@ -24,7 +28,6 @@ import {
   percentileRank,
   computeChartYAxisLimits,
   computePointQuantileRank,
-  buildLogResiduals,
   empiricalQuantileRank,
   logResidualFromQ50,
   formatReturnPct,
@@ -319,6 +322,70 @@ describe('calculateCAGR', () => {
     expect(calculateCAGR(0, 100, 1)).toBeNull();
     expect(calculateCAGR(100, 0, 1)).toBeNull();
     expect(calculateCAGR(100, 200, 0)).toBeNull();
+  });
+});
+
+describe('getProjectionsColumns', () => {
+  it('returns Q50 only when both band toggles are off', () => {
+    expect(getProjectionsColumns(false, false).map((col) => col.label)).toEqual(['Q50']);
+  });
+
+  it('includes inner and outer bands when toggles are on', () => {
+    expect(getProjectionsColumns(true, true).map((col) => col.label)).toEqual([
+      'Q10',
+      'Q25',
+      'Q50',
+      'Q75',
+      'Q90',
+    ]);
+  });
+});
+
+describe('findClosestCurvePoint', () => {
+  const curve = [
+    { x: 7000, y: 100000 },
+    { x: 7100, y: 110000 },
+    { x: 7200, y: 120000 },
+  ];
+
+  it('returns the nearest point to the target day', () => {
+    expect(findClosestCurvePoint(curve, 7098)?.y).toBe(110000);
+  });
+});
+
+describe('computeQuantileScenario', () => {
+  const curves = {
+    '0.5': [
+      { x: 7000, y: 100000 },
+      { x: 7300, y: 200000 },
+    ],
+    '0.75': [
+      { x: 7000, y: 130000 },
+      { x: 7300, y: 260000 },
+    ],
+  };
+
+  it('computes CAGR from today actual price to the selected quantile', () => {
+    const result = computeQuantileScenario({
+      year: 2030,
+      targetDays: 7300,
+      quantile: 0.75,
+      quantileLabel: 'Q75',
+      curves,
+      todayPrice: 100000,
+      todayDays: 7000,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.impliedPrice).toBe(260000);
+    expect(result!.pctVsToday).toBeCloseTo(160, 5);
+    expect(result!.pctVsQ50AtYear).toBeCloseTo(30, 5);
+    expect(result!.cagrFromToday).toBeCloseTo(
+      calculateCAGR(100000, 260000, (7300 - 7000) / 365.25)!,
+      6,
+    );
+    expect(result!.summary).toContain('Q75');
+    expect(result!.summary).toContain("today's $100k");
   });
 });
 

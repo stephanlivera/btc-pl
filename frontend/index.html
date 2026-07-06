@@ -194,6 +194,49 @@
       <div class="mt-2 terminal-footnote">
         These are deterministic outputs from the power law quantile regression model.
       </div>
+
+      <div id="projections-scenario" class="projections-scenario mt-5 pt-4 border-t border-[var(--tb-border-muted)]">
+        <div class="terminal-card-subtitle mb-1">Scenario explorer</div>
+        <p class="terminal-card-desc mb-3">
+          Pick a future year-end and model quantile to see the implied price and CAGR from today's actual BTC price.
+        </p>
+
+        <div class="flex flex-col sm:flex-row sm:items-end gap-3 mb-3">
+          <div class="min-w-[9rem]">
+            <label for="scenario-year-select" class="terminal-control-label block mb-1.5">Target year-end</label>
+            <select id="scenario-year-select" class="projections-scenario-select w-full"></select>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="terminal-control-label mb-1.5">Model quantile</div>
+            <div id="scenario-quantile-chips" class="flex flex-wrap gap-1.5"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-sm">
+          <div class="terminal-stat-box px-3 py-2">
+            <div class="terminal-stat-label">Implied price</div>
+            <div id="scenario-implied-price" class="font-mono terminal-text-accent font-semibold mt-0.5">—</div>
+          </div>
+          <div class="terminal-stat-box px-3 py-2">
+            <div class="terminal-stat-label">CAGR from today</div>
+            <div id="scenario-cagr" class="font-mono terminal-text-positive font-semibold mt-0.5">—</div>
+          </div>
+          <div class="terminal-stat-box px-3 py-2">
+            <div class="terminal-stat-label">Total return</div>
+            <div id="scenario-total-return" class="font-mono terminal-text-live mt-0.5">—</div>
+          </div>
+          <div class="terminal-stat-box px-3 py-2">
+            <div class="terminal-stat-label">vs Q50 that year</div>
+            <div id="scenario-vs-q50" class="font-mono text-[var(--tb-text)] mt-0.5">—</div>
+          </div>
+        </div>
+
+        <p id="scenario-summary" class="text-sm terminal-text-muted px-1 leading-relaxed">—</p>
+
+        <div class="mt-2 terminal-footnote">
+          Model-implied scenario only — not a forecast. CAGR is computed from today's actual price, not the Q50 trend.
+        </div>
+      </div>
     </div>
 
     <!-- Conditional Forward Returns by Quantile Regime -->

@@ -3,6 +3,12 @@ import {
   dateToDays,
   formatPrice,
   getNextTenYearEnds,
+  getProjectionsColumns,
+  buildProjectionsCacheKey,
+  findClosestCurvePoint,
+  computeQuantileScenario,
+  type ProjectionsColumn,
+  type QuantileScenarioResult,
   getTimeTickValues,
   yearLabelForTickDay,
   findNearestPoint,
@@ -11,6 +17,7 @@ import {
   buildTimeBelowQuantileExplanation,
   formatTimeBelowQuantileSubtext,
   formatQuantilePercentileSubtext,
+  formatDeviationPct,
   END_OF_2035_DAYS as IMPORTED_END_OF_2035_DAYS,
   getEndOfYearDays,
   calculateCAGR,
@@ -53,6 +60,190 @@ import { chartAnimationDuration } from './motion';
 import { terminal as T, terminalUi as tu, terminalChartBackgroundPlugin } from './theme';
 
 const CONDITIONAL_RETURN_HORIZONS = [91, 183, 365, 730] as const;
+
+let projectionsScenarioInitialized = false;
+
+function resolveTodayPriceAndDays(): { todayPrice: number; todayDays: number } | null {
+  const points = state.lastHistoricalPoints;
+  if (points.length > 0) {
+    const latest = points[points.length - 1];
+    if (latest.y > 0) {
+      return { todayPrice: latest.y, todayDays: latest.x };
+    }
+  }
+  if (state.currentLatestDays > 0) {
+    return { todayPrice: 0, todayDays: state.currentLatestDays };
+  }
+  return null;
+}
+
+function getScenarioQuantileColumns(): ProjectionsColumn[] {
+  return getProjectionsColumns(state.showBands, state.showOuterBands);
+}
+
+function resolveScenarioSelection(yearEnds: Array<{ year: number; days: number }>): {
+  year: number;
+  days: number;
+  quantile: number;
+} {
+  const columns = getScenarioQuantileColumns();
+  const availableQuantiles = new Set(columns.map((col) => col.quantile));
+  let quantile = state.scenarioSelection.quantile;
+  if (!availableQuantiles.has(quantile)) {
+    quantile = 0.5;
+  }
+
+  const selectedYear = state.scenarioSelection.year;
+  const yearMatch = yearEnds.find((entry) => entry.year === selectedYear);
+  const target = yearMatch ?? yearEnds[0];
+
+  state.scenarioSelection.year = target.year;
+  state.scenarioSelection.quantile = quantile;
+
+  return { year: target.year, days: target.days, quantile };
+}
+
+function applyProjectionsTableHighlights(year: number, quantile: number) {
+  const tableBody = document.getElementById('projections-table');
+  if (!tableBody) return;
+
+  tableBody.querySelectorAll('tr').forEach((row) => {
+    const rowYear = Number((row as HTMLElement).dataset.year);
+    const isSelectedRow = rowYear === year;
+    row.classList.toggle(tu.rowSelected, isSelectedRow);
+
+    row.querySelectorAll('td[data-quantile]').forEach((cell) => {
+      const cellQuantile = Number((cell as HTMLElement).dataset.quantile);
+      const isSelectedCol = cellQuantile === quantile;
+      cell.classList.toggle('terminal-col-selected', isSelectedCol && !isSelectedRow);
+      cell.classList.toggle('terminal-cell-selected', isSelectedCol && isSelectedRow);
+    });
+  });
+}
+
+function renderScenarioQuantileChips(columns: ProjectionsColumn[], activeQuantile: number) {
+  const chipsEl = document.getElementById('scenario-quantile-chips');
+  if (!chipsEl) return;
+
+  chipsEl.innerHTML = columns
+    .map((col) => {
+      const active = col.quantile === activeQuantile;
+      return `
+        <button
+          type="button"
+          class="scenario-quantile-chip projections-scenario-chip terminal-seg-btn ${active ? tu.segActive : tu.segIdle}"
+          data-quantile="${col.quantile}"
+          aria-pressed="${active}"
+        >${col.label}</button>
+      `;
+    })
+    .join('');
+}
+
+function renderScenarioYearSelect(yearEnds: Array<{ year: number; days: number }>, activeYear: number) {
+  const selectEl = document.getElementById('scenario-year-select') as HTMLSelectElement | null;
+  if (!selectEl) return;
+
+  selectEl.innerHTML = yearEnds
+    .map(
+      ({ year }) =>
+        `<option value="${year}"${year === activeYear ? ' selected' : ''}>${year}</option>`,
+    )
+    .join('');
+}
+
+function populateScenarioStats(result: QuantileScenarioResult | null) {
+  const priceEl = document.getElementById('scenario-implied-price');
+  const cagrEl = document.getElementById('scenario-cagr');
+  const totalEl = document.getElementById('scenario-total-return');
+  const vsQ50El = document.getElementById('scenario-vs-q50');
+  const summaryEl = document.getElementById('scenario-summary');
+
+  if (!result) {
+    if (priceEl) priceEl.textContent = '—';
+    if (cagrEl) cagrEl.textContent = '—';
+    if (totalEl) totalEl.textContent = '—';
+    if (vsQ50El) vsQ50El.textContent = '—';
+    if (summaryEl) summaryEl.textContent = 'Scenario unavailable for the selected year and quantile.';
+    return;
+  }
+
+  if (priceEl) priceEl.textContent = formatPrice(result.impliedPrice);
+  if (cagrEl) {
+    cagrEl.textContent =
+      result.cagrFromToday != null ? formatReturnPct(result.cagrFromToday) : '—';
+    cagrEl.className = `font-mono font-semibold mt-0.5 ${conditionalReturnColorClass(result.cagrFromToday)}`;
+  }
+  if (totalEl) {
+    totalEl.textContent =
+      result.pctVsToday != null ? formatReturnPct(result.pctVsToday / 100) : '—';
+    totalEl.className = `font-mono mt-0.5 ${conditionalReturnColorClass(
+      result.pctVsToday != null ? result.pctVsToday / 100 : null,
+    )}`;
+  }
+  if (vsQ50El) {
+    vsQ50El.textContent =
+      result.pctVsQ50AtYear != null
+        ? formatDeviationPct(result.pctVsQ50AtYear).replace(' vs Q50', '')
+        : '—';
+  }
+  if (summaryEl) summaryEl.textContent = result.summary;
+}
+
+export function updateProjectionsScenarioExplorer() {
+  const cache = state.projectionsCache;
+  if (!cache) return;
+
+  const columns = getScenarioQuantileColumns();
+  const selection = resolveScenarioSelection(cache.yearEnds);
+  const column =
+    columns.find((col) => col.quantile === selection.quantile) ??
+    columns.find((col) => col.quantile === 0.5);
+  if (!column) return;
+
+  renderScenarioYearSelect(cache.yearEnds, selection.year);
+  renderScenarioQuantileChips(columns, selection.quantile);
+
+  const result = computeQuantileScenario({
+    year: selection.year,
+    targetDays: selection.days,
+    quantile: selection.quantile,
+    quantileLabel: column.label,
+    curves: cache.curves,
+    todayPrice: cache.todayPrice,
+    todayDays: cache.todayDays,
+  });
+
+  populateScenarioStats(result);
+  applyProjectionsTableHighlights(selection.year, selection.quantile);
+}
+
+function bindProjectionsScenarioExplorer() {
+  if (projectionsScenarioInitialized) return;
+  projectionsScenarioInitialized = true;
+
+  const yearSelect = document.getElementById('scenario-year-select');
+  yearSelect?.addEventListener('change', () => {
+    const value = Number((yearSelect as HTMLSelectElement).value);
+    if (!Number.isFinite(value)) return;
+    state.scenarioSelection.year = value;
+    updateProjectionsScenarioExplorer();
+  });
+
+  const chipsEl = document.getElementById('scenario-quantile-chips');
+  chipsEl?.addEventListener('click', (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLButtonElement>('.scenario-quantile-chip');
+    if (!target) return;
+    const quantile = Number(target.dataset.quantile);
+    if (!Number.isFinite(quantile)) return;
+    state.scenarioSelection.quantile = quantile;
+    updateProjectionsScenarioExplorer();
+  });
+}
+
+export function initProjectionsScenarioExplorer() {
+  bindProjectionsScenarioExplorer();
+}
 
 export async function fetchConditionalReturns() {
   const qs = CONDITIONAL_RETURN_HORIZONS.map(h => `horizons=${h}`).join('&');
@@ -214,76 +405,92 @@ export async function loadYearEndProjections() {
   const tableHead = document.getElementById('projections-table-head')!;
   if (!tableBody || !tableHead) return;
 
-  // Determine which columns to show — exactly match the bands currently visible on the chart.
-  // Order them low → central → high for natural reading.
-  const columns: Array<{ key: string; label: string; color: string }> = [];
+  bindProjectionsScenarioExplorer();
 
-  if (state.showOuterBands) columns.push({ key: '0.1', label: 'Q10 (Lower)', color: tu.textQ25 });
-  if (state.showBands)      columns.push({ key: '0.25', label: 'Q25 (Lower)', color: tu.textPositive });
-  columns.push({ key: '0.5', label: 'Central (Q50)', color: 'terminal-text-accent' });
-  if (state.showBands)      columns.push({ key: '0.75', label: 'Q75 (Upper)', color: tu.textQ75 });
-  if (state.showOuterBands) columns.push({ key: '0.9', label: 'Q90 (Upper)', color: tu.textQ75 });
+  const projectionColumns = getProjectionsColumns(state.showBands, state.showOuterBands);
+  const tableColumns = projectionColumns.map((col) => ({
+    ...col,
+    color:
+      col.quantile === 0.5
+        ? 'terminal-text-accent'
+        : col.quantile <= 0.25
+          ? col.quantile === 0.1
+            ? tu.textQ25
+            : tu.textPositive
+          : tu.textQ75,
+    headerLabel:
+      col.quantile === 0.5
+        ? 'Central (Q50)'
+        : col.quantile <= 0.25
+          ? `${col.label} (Lower)`
+          : `${col.label} (Upper)`,
+    cellClass: col.quantile === 0.5 ? 'font-semibold' : '',
+  }));
 
-  const colCount = columns.length + 1; // +1 for Year End column
+  const colCount = tableColumns.length + 1;
 
-  // Build dynamic header
   let headHtml = `<th class="text-left font-normal px-4 py-2">Year End</th>`;
-  columns.forEach(col => {
-    headHtml += `<th class="text-right font-normal px-4 py-2">${col.label}</th>`;
+  tableColumns.forEach((col) => {
+    headHtml += `<th class="text-right font-normal px-4 py-2">${col.headerLabel}</th>`;
   });
   tableHead.innerHTML = headHtml;
-
   tableBody.innerHTML = skeletonTableRows(colCount);
 
   const yearEnds = getNextTenYearEnds(state.currentLatestDays);
   const startDays = yearEnds[0].days - 100;
   const endDays = yearEnds[yearEnds.length - 1].days + 100;
 
-  // Determine which quantiles to fetch — only what the current toggles require
-  const quantilesToFetch: number[] = [0.5];
-  if (state.showBands) {
-    quantilesToFetch.push(0.25, 0.75);
-  }
-  if (state.showOuterBands) {
-    quantilesToFetch.push(0.1, 0.9);
-  }
-  quantilesToFetch.sort((a, b) => a - b);
+  const quantilesToFetch = projectionColumns.map((col) => col.quantile).sort((a, b) => a - b);
 
   try {
-    // Always request parallel=true (residual bands + decay on future offsets only).
-    // The backend guarantees the Q50 series is the pure central power-law line
-    // (no decay applied to the median). step=1 gives a dense sampling so the
-    // closest-point lookup below will be exact or off-by-1 day at worst.
+    let today = resolveTodayPriceAndDays();
+    if (!today || today.todayPrice <= 0) {
+      const current = await fetchCurrentPosition();
+      const actualPrice = current?.position?.actual_price;
+      if (typeof actualPrice === 'number' && actualPrice > 0) {
+        today = {
+          todayPrice: actualPrice,
+          todayDays: state.currentLatestDays,
+        };
+      }
+    }
+    if (!today || today.todayPrice <= 0) {
+      throw new Error('Latest BTC price unavailable for scenario explorer');
+    }
+
     const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
+    const curves = curvesData?.curves ?? {};
+
+    state.projectionsCache = {
+      key: buildProjectionsCacheKey(
+        state.currentLatestDays,
+        state.showBands,
+        state.showOuterBands,
+      ),
+      yearEnds,
+      curves,
+      todayPrice: today.todayPrice,
+      todayDays: today.todayDays,
+    };
 
     let rowsHtml = '';
 
     for (const { year, days: targetDay } of yearEnds) {
-      // Pick the curve point whose day is closest to the exact Dec-31 target.
-      // Because we asked for step=1 over a window containing the target, this
-      // yields the Q50 (and band) value(s) at/very near that future year-end.
-      const findClosest = (curve: any[]) => {
-        if (!curve || curve.length === 0) return null;
-        return curve.reduce((prev, curr) =>
-          Math.abs(curr.x - targetDay) < Math.abs(prev.x - targetDay) ? curr : prev
-        );
-      };
-
       const cells: string[] = [];
-      columns.forEach(col => {
-        const point = findClosest(curvesData.curves?.[parseFloat(col.key)]);
-        const isCentral = col.key === '0.5';
-        const extraClass = isCentral ? 'font-semibold' : '';
-        
+      tableColumns.forEach((col) => {
+        const point = findClosestCurvePoint(curves[parseFloat(col.key)], targetDay);
         cells.push(`
-          <td class="px-4 py-2 text-right font-mono ${col.color} ${extraClass}">
+          <td
+            class="px-4 py-2 text-right font-mono ${col.color} ${col.cellClass}"
+            data-quantile="${col.quantile}"
+          >
             ${point ? formatPrice(point.y) : '—'}
           </td>
         `);
       });
 
       rowsHtml += `
-        <tr class="transition-colors cursor-pointer">
+        <tr class="transition-colors" data-year="${year}">
           <td class="px-4 py-2 text-[var(--tb-text)] font-medium">${year}</td>
           ${cells.join('')}
         </tr>
@@ -291,9 +498,12 @@ export async function loadYearEndProjections() {
     }
 
     tableBody.innerHTML = rowsHtml;
+    updateProjectionsScenarioExplorer();
   } catch (err) {
     console.error(err);
+    state.projectionsCache = null;
     tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 terminal-text-error">Failed to load projections</td></tr>`;
+    populateScenarioStats(null);
   }
 }
 
