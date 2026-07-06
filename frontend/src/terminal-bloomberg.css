@@ -904,6 +904,10 @@ body.terminal-bloomberg .terminal-shell {
     display: block;
   }
 
+  .chartjs-tooltip {
+    max-width: min(220px, calc(100vw - 24px)) !important;
+  }
+
   .terminal-header-panel {
     padding: 0.75rem 0.85rem 0.65rem;
   }

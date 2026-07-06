@@ -5,9 +5,9 @@ import {
   yearLabelForTickDay,
   findNearestPoint,
   getCurveValue,
-  formatQuantilePercentileSubtext,
   computeChartYAxisLimits,
   computePointQuantileRank,
+  quantileLabel,
 } from './utils';
 import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
 import {
@@ -55,6 +55,63 @@ export function getVisibleRanges(range: 'all' | '5y' | '3y' | '1y') {
 }
 
 // --- Chart Rendering ---
+
+function formatTooltipDate(date: Date, narrow: boolean): string {
+  return date.toLocaleDateString(
+    'en-US',
+    narrow
+      ? { month: 'short', day: 'numeric', year: 'numeric' }
+      : { year: 'numeric', month: 'long', day: 'numeric' },
+  );
+}
+
+function formatTooltipQuantileLine(quantile: number, price: number): string {
+  return `${quantileLabel(quantile)} ${formatPrice(price)}`;
+}
+
+function buildTooltipPriceLine(hist: { x: number; y: number }): string {
+  let line = formatPrice(hist.y);
+  if (state.q50Model && state.fullLogResiduals.length > 0) {
+    const rank = computePointQuantileRank(
+      state.fullLogResiduals,
+      state.q50Model,
+      hist.x,
+      hist.y,
+    );
+    if (rank) line += ` · ${rank.label}`;
+  }
+  return line;
+}
+
+function buildTooltipModelLines(x: number, curves: Record<string, any>, narrow: boolean): string[] {
+  const modelLines: { q: number; text: string }[] = [];
+
+  const q50 = getCurveValue(curves['0.5'] || curves[0.5], x, 30);
+  if (q50 != null) {
+    modelLines.push({ q: 0.5, text: formatTooltipQuantileLine(0.5, q50) });
+  }
+
+  const showInner = state.showBands;
+  // On narrow viewports with both band toggles on, show inner corridor only.
+  const showOuter = state.showOuterBands && !(narrow && showInner);
+
+  if (showInner) {
+    const q25 = getCurveValue(curves['0.25'] || curves[0.25], x, 30);
+    const q75 = getCurveValue(curves['0.75'] || curves[0.75], x, 30);
+    if (q25 != null) modelLines.push({ q: 0.25, text: formatTooltipQuantileLine(0.25, q25) });
+    if (q75 != null) modelLines.push({ q: 0.75, text: formatTooltipQuantileLine(0.75, q75) });
+  }
+
+  if (showOuter) {
+    const q10 = getCurveValue(curves['0.1'] || curves[0.1], x, 30);
+    const q90 = getCurveValue(curves['0.9'] || curves[0.9], x, 30);
+    if (q10 != null) modelLines.push({ q: 0.1, text: formatTooltipQuantileLine(0.1, q10) });
+    if (q90 != null) modelLines.push({ q: 0.9, text: formatTooltipQuantileLine(0.9, q90) });
+  }
+
+  modelLines.sort((a, b) => a.q - b.q);
+  return modelLines.map((m) => m.text);
+}
 
 const MAIN_CHART_INNER_FILL_ORDER = 5;
 const MAIN_CHART_OUTER_FILL_ORDER = 6;
@@ -489,10 +546,21 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
             filter: (item: any) => !String(item.dataset.label).startsWith('_'),
             backgroundColor: T.tooltipBg,
             borderColor: T.tooltipBorder,
-            titleFont: { family: "'IBM Plex Mono', monospace", size: 12, weight: '600' },
-            bodyFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+            titleFont: {
+              family: "'IBM Plex Mono', monospace",
+              size: isNarrowViewport ? 10 : 12,
+              weight: '600',
+            },
+            bodyFont: {
+              family: "'IBM Plex Mono', monospace",
+              size: isNarrowViewport ? 10 : 11,
+            },
             borderWidth: 1,
-            padding: 10,
+            padding: isNarrowViewport ? 6 : 10,
+            titleSpacing: isNarrowViewport ? 4 : 6,
+            bodySpacing: isNarrowViewport ? 3 : 4,
+            caretPadding: isNarrowViewport ? 4 : 6,
+            boxPadding: isNarrowViewport ? 3 : 4,
             callbacks: {
               title: (tooltipItems: any[]) => {
                 if (!tooltipItems.length) return '';
@@ -500,11 +568,7 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
                 // Prefer the exact date from a nearby historical point when available
                 const hist = findNearestPoint(state.lastHistoricalPoints, x, 8);
                 const d = daysToDate(hist ? hist.x : x);
-                return d.toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                });
+                return formatTooltipDate(d, isNarrowViewport);
               },
               label: () => '', // fully custom body via afterBody
               afterBody: (tooltipItems: any[]) => {
@@ -514,53 +578,11 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
                 // Historical price (tight tolerance — only when truly near real daily data)
                 const hist = findNearestPoint(state.lastHistoricalPoints, x, 6);
 
-                // Collect all visible model lines, then sort them ascending by quantile.
-                // This puts Q50 naturally in the middle of whatever bands are toggled on.
-                const modelLines: { q: number; text: string }[] = [];
-
-                // Q50 is always present
-                const q50 = getCurveValue(state.lastCurves['0.5'] || state.lastCurves[0.5], x, 30);
-                if (q50 != null) {
-                  modelLines.push({ q: 0.5, text: `Q50 (Central): $${q50.toLocaleString()}` });
-                }
-
-                if (state.showBands) {
-                  const q25 = getCurveValue(state.lastCurves['0.25'] || state.lastCurves[0.25], x, 30);
-                  const q75 = getCurveValue(state.lastCurves['0.75'] || state.lastCurves[0.75], x, 30);
-                  if (q25 != null) modelLines.push({ q: 0.25, text: `Q25 (Lower): $${q25.toLocaleString()}` });
-                  if (q75 != null) modelLines.push({ q: 0.75, text: `Q75 (Upper): $${q75.toLocaleString()}` });
-                }
-
-                if (state.showOuterBands) {
-                  const q10 = getCurveValue(state.lastCurves['0.1'] || state.lastCurves[0.1], x, 30);
-                  const q90 = getCurveValue(state.lastCurves['0.9'] || state.lastCurves[0.9], x, 30);
-                  if (q10 != null) modelLines.push({ q: 0.1, text: `Q10 (Lower): $${q10.toLocaleString()}` });
-                  if (q90 != null) modelLines.push({ q: 0.9, text: `Q90 (Upper): $${q90.toLocaleString()}` });
-                }
-
-                // Sort by quantile ascending so the corridor reads low → central → high
-                modelLines.sort((a, b) => a.q - b.q);
-
                 const lines: string[] = [];
                 if (hist) {
-                  lines.push(`Historical: $${hist.y.toLocaleString()}`);
-                  if (state.q50Model && state.fullLogResiduals.length > 0) {
-                    const rank = computePointQuantileRank(
-                      state.fullLogResiduals,
-                      state.q50Model,
-                      hist.x,
-                      hist.y
-                    );
-                    if (rank) {
-                      lines.push(
-                        `Position: ${rank.label} (${formatQuantilePercentileSubtext(rank.quantile)})`
-                      );
-                    }
-                  }
+                  lines.push(buildTooltipPriceLine(hist));
                 }
-                for (const m of modelLines) {
-                  lines.push(m.text);
-                }
+                lines.push(...buildTooltipModelLines(x, state.lastCurves, isNarrowViewport));
 
                 return lines;
               }
