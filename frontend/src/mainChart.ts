@@ -109,7 +109,8 @@ function buildTooltipModelLines(x: number, curves: Record<string, any>, narrow: 
     if (q90 != null) modelLines.push({ q: 0.9, text: formatTooltipQuantileLine(0.9, q90) });
   }
 
-  modelLines.sort((a, b) => a.q - b.q);
+  // High → low so tooltip order matches chart top → bottom (Q90 above Q10).
+  modelLines.sort((a, b) => b.q - a.q);
   return modelLines.map((m) => m.text);
 }
 
