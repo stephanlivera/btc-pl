@@ -1,11 +1,21 @@
 {
-  "_comment": "Regenerate q50/residual_q75 from GET /parameters after major btc_daily.csv refits. expected_quantile from full-history empirical rank.",
+  "_comment": "Regenerate from fitted model after major btc_daily.csv refits. Frontend and backend must agree on latest-day rank.",
   "data_end_date": "2026-07-24",
   "q50": {
     "intercept": -17.156472287074994,
     "slope": 5.850016951965457
   },
   "residual_q75": 0.26188204798696924,
+  "latest_position": {
+    "date": "2026-07-24",
+    "days": 6411,
+    "actual_price": 65098.47,
+    "quantile": 0.0258,
+    "quantile_label": "Q3",
+    "residual": -0.300537,
+    "model_q50": 130049.31,
+    "deviation_pct": -49.94
+  },
   "golden_dates": [
     {
       "date": "2025-08-17",

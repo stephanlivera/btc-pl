@@ -31,7 +31,11 @@ jobs:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python scripts/update_data.py --no-refit --no-sense-check
 
+      - name: Validate market data CSVs
+        run: python scripts/validate_data.py
+
       - name: Run model sense checker
+        # Includes β/R² bounds, residual coverage, year-end monotonicity, surface parity
         run: python -m backend.sense_check
 
       - name: Commit and push if data changed

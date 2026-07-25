@@ -1,0 +1,49 @@
+# Pull request / push CI: data quality, model sense checks, backend + frontend tests.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+
+      - name: Validate market data CSVs
+        run: python scripts/validate_data.py
+
+      - name: Model sense checker
+        run: python -m backend.sense_check
+
+      - name: Backend pytest
+        run: python -m pytest backend/tests/ -q --tb=short
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend vitest
+        working-directory: frontend
+        run: npm run test:run

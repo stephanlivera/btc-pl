@@ -18,35 +18,46 @@ echo "========================================"
 echo "  Bitcoin Power Law - Test Runner"
 echo "========================================"
 
+run_data_quality() {
+    echo ""
+    echo ">>> [1/4] Market Data Quality (CSV integrity + freshness)"
+    if command -v python3 &> /dev/null; then
+        python3 "$ROOT_DIR/scripts/validate_data.py"
+    else
+        echo "python3 not found — skipping data quality."
+    fi
+}
+
 run_backend_tests() {
     echo ""
-    echo ">>> [1/3] Backend Sense Checker"
+    echo ">>> [2/4] Backend Sense Checker"
     if command -v python3 &> /dev/null; then
-        python3 -m backend.sense_check || echo "⚠️  Sense checker completed with warnings/issues."
+        # Fail the suite if sense checks fail (do not swallow exit codes).
+        python3 -m backend.sense_check
     else
         echo "python3 not found — skipping sense checker."
     fi
 
     echo ""
-    echo ">>> [2/3] Backend Model + API Tests (pytest)"
+    echo ">>> [3/4] Backend Model + API Tests (pytest)"
     if [ -d "$BACKEND_DIR" ]; then
-        (
-            cd "$BACKEND_DIR"
-            if python3 -c "import pytest" 2>/dev/null; then
-                python3 -m pytest tests/ -q --tb=short
-            else
-                echo "pytest not installed in current environment."
-                echo "Install with: pip install -r requirements-dev.txt"
-            fi
-        )
+        if python3 -c "import pytest" 2>/dev/null; then
+            # Run from repo root so `backend` package imports resolve.
+            (cd "$ROOT_DIR" && python3 -m pytest backend/tests/ -q --tb=short)
+        else
+            echo "pytest not installed in current environment."
+            echo "Install with: pip install -r backend/requirements-dev.txt"
+            return 1
+        fi
     else
         echo "Backend directory not found."
+        return 1
     fi
 }
 
 run_frontend_tests() {
     echo ""
-    echo ">>> [3/3] Frontend Unit Tests (Vitest)"
+    echo ">>> [4/4] Frontend Unit Tests (Vitest)"
     if [ -d "$FRONTEND_DIR" ]; then
         (
             cd "$FRONTEND_DIR"
@@ -85,10 +96,12 @@ for arg in "$@"; do
 done
 
 if $BACKEND_ONLY; then
+    run_data_quality
     run_backend_tests
 elif $FRONTEND_ONLY; then
     run_frontend_tests
 else
+    run_data_quality
     run_backend_tests
     run_frontend_tests
 fi

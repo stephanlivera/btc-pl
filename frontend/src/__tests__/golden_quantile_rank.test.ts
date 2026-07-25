@@ -143,4 +143,39 @@ describe('golden quantile rank regression (btc_daily.csv)', () => {
     // Regardless of level, full-history residual count must include pre-day-800 points.
     expect(fullResiduals.length).toBeGreaterThan(truncatedResiduals.length);
   });
+
+  it('matches backend latest_position from golden fixture (API/frontend parity)', () => {
+    // latest_position is generated from QuantilePowerLawModel.get_current_position().
+    // Frontend full-history rank must reproduce it so mobile snapshot == Time Spent Below.
+    if (allPoints.length < 100) return;
+    if (!('latest_position' in golden) || !golden.latest_position) return;
+
+    const latest = golden.latest_position as {
+      date: string;
+      days: number;
+      actual_price: number;
+      quantile: number;
+      quantile_label: string;
+      residual: number;
+      model_q50: number;
+    };
+
+    const point = allPoints.find(p => p.date === latest.date);
+    expect(point, `missing latest date ${latest.date} in btc_daily.csv`).toBeDefined();
+    expect(point!.x).toBe(latest.days);
+    expect(point!.y).toBeCloseTo(latest.actual_price, 2);
+
+    const residual = logResidualFromQ50(point!.x, point!.y, model);
+    expect(residual).not.toBeNull();
+    expect(residual!).toBeCloseTo(latest.residual, 5);
+
+    const rank = computePointQuantileRank(fullResiduals, model, point!.x, point!.y);
+    expect(rank).not.toBeNull();
+    expect(rank!.quantile).toBeCloseTo(latest.quantile, 4);
+    expect(rank!.label).toBe(latest.quantile_label);
+
+    // Residual reference must start at first CSV day (not day 800).
+    expect(Math.min(...allPoints.map(p => p.x))).toBeLessThan(800);
+    expect(fullResiduals.length).toBe(allPoints.length);
+  });
 });
