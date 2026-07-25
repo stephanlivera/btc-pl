@@ -1,16 +1,16 @@
 {
   "_comment": "Regenerate q50/residual_q75 from GET /parameters after major btc_daily.csv refits. expected_quantile from full-history empirical rank.",
-  "data_end_date": "2026-07-03",
+  "data_end_date": "2026-07-24",
   "q50": {
-    "intercept": -17.1717301948093,
-    "slope": 5.854615371271137
+    "intercept": -17.156472287074994,
+    "slope": 5.850016951965457
   },
-  "residual_q75": 0.2614689880029021,
+  "residual_q75": 0.26188204798696924,
   "golden_dates": [
     {
       "date": "2025-08-17",
-      "expected_quantile": 0.6093,
-      "expected_label": "Q61",
+      "expected_quantile": 0.6156,
+      "expected_label": "Q62",
       "note": "Full-history rank; was incorrectly ~Q89 when ranked against 1y window only"
     }
   ]

@@ -37,8 +37,20 @@ export const state = {
   lastHistoricalPoints: [] as Array<{ x: number; y: number }>,
   lastCurves: {} as Record<string, Array<{ x: number; y: number }>>,
   q50Model: null as Q50ModelParams | null,
+  /** Full-history log-residuals around Q50 (must match backend _log_residuals range). */
   fullLogResiduals: [] as number[],
   quantileContextKey: null as string | null,
+  /**
+   * Authoritative "today" position from GET /current.
+   * Used by the mobile chart snapshot so Q-label matches Time Spent Below / glance cards.
+   */
+  currentPosition: null as null | {
+    quantile: number;
+    quantile_label: string;
+    model_q50?: number;
+    deviation_pct?: number;
+    actual_price?: number;
+  },
 
   // Year-end projections + scenario explorer
   projectionsCache: null as {

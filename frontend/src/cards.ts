@@ -54,6 +54,7 @@ import {
   fetchModelStats,
   goldMcAt,
   computeBtcMcT,
+  cacheCurrentPosition,
 } from './api';
 import { loadingTableRow, skeletonTableRows, setChartLoading, updateChartSnapshot } from './ui';
 import { chartAnimationDuration } from './motion';
@@ -358,11 +359,13 @@ export async function loadTimeBelowQuantileCard() {
     const data = await fetchCurrentPosition();
     const stats = data.time_below_quantile;
     const pos = data.position || {};
+    cacheCurrentPosition(pos);
 
     if (!stats) {
       throw new Error('time_below_quantile missing from /current response');
     }
 
+    // Prefer time_below block, but labels must match position (same backend source).
     const qLabel = stats.quantile_label || pos.quantile_label || 'Q??';
     const timeBelow = stats.time_below_pct;
 
@@ -844,6 +847,9 @@ export async function loadBitcoinStatsCard() {
       fetchRecentHistoricalForStats(),
       fetchCurrentPosition(),
     ]);
+    cacheCurrentPosition(posData?.position);
+    // Keep mobile snapshot in sync if glance loads after / before time-below card.
+    updateChartSnapshot();
 
     const stats = computeBitcoinGlancePriceStats(points, asOfDate);
     if (!stats) {

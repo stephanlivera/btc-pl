@@ -49,7 +49,13 @@ export async function fetchModelStats() {
   return res.json();
 }
 
-/** Load Q50 coefficients + full-history residuals for tooltip quantile ranks. */
+/**
+ * Load Q50 coefficients + full-history residuals for tooltip / snapshot quantile ranks.
+ *
+ * Residuals must cover the same sample as backend `_log_residuals` (all fitted CSV days).
+ * Starting at day 800 was truncating early history and could shift today's rank
+ * (e.g. backend Q3 vs client Q2) relative to Time Spent Below Quantile.
+ */
 export async function ensureQuantileRankContext() {
   const cacheKey = `${state.currentLatestDays}:${state.currentDataEndDate ?? ''}`;
   if (state.quantileContextKey === cacheKey && state.fullLogResiduals.length > 0 && state.q50Model) {
@@ -58,7 +64,8 @@ export async function ensureQuantileRankContext() {
 
   const [paramsData, histData] = await Promise.all([
     fetchModelParameters(),
-    fetchHistorical(800, state.currentLatestDays, 1),
+    // start_days=0 → full sample from first available close (backend fit range)
+    fetchHistorical(0, state.currentLatestDays, 1),
   ]);
 
   const q50 = paramsData?.parameters?.[0.5] ?? paramsData?.parameters?.['0.5'];
@@ -69,6 +76,24 @@ export async function ensureQuantileRankContext() {
   state.q50Model = { intercept: q50.a, slope: q50.b };
   state.fullLogResiduals = buildLogResiduals(histData?.points ?? [], state.q50Model);
   state.quantileContextKey = cacheKey;
+}
+
+/** Cache GET /current position so mobile snapshot + cards share one Q-label. */
+export function cacheCurrentPosition(pos: Record<string, unknown> | null | undefined) {
+  if (!pos || typeof pos.quantile !== 'number') {
+    return;
+  }
+  const label =
+    typeof pos.quantile_label === 'string' && pos.quantile_label
+      ? pos.quantile_label
+      : `Q${Math.round(pos.quantile * 100)}`;
+  state.currentPosition = {
+    quantile: pos.quantile,
+    quantile_label: label,
+    model_q50: typeof pos.model_q50 === 'number' ? pos.model_q50 : undefined,
+    deviation_pct: typeof pos.deviation_pct === 'number' ? pos.deviation_pct : undefined,
+    actual_price: typeof pos.actual_price === 'number' ? pos.actual_price : undefined,
+  };
 }
 
 // --- Gold Flip Helpers ---

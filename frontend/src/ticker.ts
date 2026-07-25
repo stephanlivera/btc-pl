@@ -1,4 +1,4 @@
-import { fetchCurrentPosition, fetchHistorical } from './api';
+import { cacheCurrentPosition, fetchCurrentPosition, fetchHistorical } from './api';
 import { state } from './state';
 import {
   formatPrice,
@@ -90,6 +90,7 @@ export async function loadTickerStrip(): Promise<void> {
       fetchHistorical(800, state.currentLatestDays, 1).then(h => h.points || []),
       fetchCurrentPosition(),
     ]);
+    cacheCurrentPosition(posData?.position);
 
     const stats = computeBitcoinGlancePriceStats(points, asOfDate);
     if (!stats) {

@@ -113,8 +113,34 @@ describe('golden quantile rank regression (btc_daily.csv)', () => {
 
     expect(fullRank).not.toBeNull();
     expect(windowRank).not.toBeNull();
-    expect(fullRank!.label).toBe('Q61');
+    expect(fullRank!.label).toBe(golden.golden_dates[0].expected_label);
     expect(windowRank!.quantile).toBeGreaterThan(fullRank!.quantile + 0.15);
     expect(windowRank!.quantile).toBeGreaterThan(0.8);
+  });
+
+  it('does not drop early history by starting residual ranks at day 800 (Q2 vs Q3 bug)', () => {
+    // Mobile snapshot used residuals from day >= 800 while backend /current used full history.
+    // On deep cheap regimes that truncation alone can change today's label (e.g. Q3 → Q2).
+    if (allPoints.length < 100) return;
+
+    const point = allPoints[allPoints.length - 1];
+    const truncated = allPoints.filter(p => p.x >= 800);
+    const truncatedResiduals = buildLogResiduals(
+      truncated.map(p => ({ x: p.x, y: p.y })),
+      model
+    );
+
+    const fullRank = computePointQuantileRank(fullResiduals, model, point.x, point.y);
+    const truncRank = computePointQuantileRank(truncatedResiduals, model, point.x, point.y);
+    expect(fullRank).not.toBeNull();
+    expect(truncRank).not.toBeNull();
+
+    // Truncation must not be treated as equivalent to the full residual CDF.
+    // At cheap extremes the ranks diverge enough to flip the displayed Q-label.
+    if (fullRank!.quantile < 0.05) {
+      expect(truncRank!.quantile).not.toBeCloseTo(fullRank!.quantile, 3);
+    }
+    // Regardless of level, full-history residual count must include pre-day-800 points.
+    expect(fullResiduals.length).toBeGreaterThan(truncatedResiduals.length);
   });
 });
