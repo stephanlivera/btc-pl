@@ -71,6 +71,51 @@ def test_expanding_window_series_cached_at_fit(fitted_model):
     assert series[-1]["ols_r2"] >= series[0]["ols_r2"]
 
 
+def test_falsifiability_suite_structure_and_pass(fitted_model):
+    """Santostasi §10 conditions F1/F3/F5 pass on live history; F2/F4 unmonitored."""
+    summary = fitted_model.get_statistical_summary()
+    fb = summary["falsifiability"]
+
+    assert fb["overall"] == "pass"
+    assert fb["all_monitored_pass"] is True
+    assert fb["monitored_count"] == 3
+    assert fb["unmonitored_count"] == 2
+    assert len(fb["tests"]) == 5
+
+    by_id = {t["id"]: t for t in fb["tests"]}
+    assert by_id["F1"]["status"] == "pass"
+    assert by_id["F2"]["status"] == "unmonitored"
+    assert by_id["F3"]["status"] == "pass"
+    assert by_id["F4"]["status"] == "unmonitored"
+    assert by_id["F5"]["status"] == "pass"
+
+    floor = by_id["F1"]["detail"]["floor_price_today"]
+    assert floor is not None and floor > 100  # 3σ floor well above dust
+    assert by_id["F1"]["detail"]["days_currently_below"] < 365
+
+    assert 5.0 <= by_id["F3"]["metric_value"] <= 7.0
+    assert by_id["F5"]["metric_value"] >= 0.80
+    assert by_id["F5"]["detail"]["method"] == "expanding_window_ols"
+    assert by_id["F5"]["detail"]["min_cumulative_r2"] is not None
+    # Early sample can dip below 0.80, but not for a multi-year stretch.
+    assert by_id["F5"]["detail"]["longest_below_threshold_days"] <= int(2 * 365.25)
+
+    rolling = fb["rolling_r2_3y_diagnostic"]
+    assert len(rolling) >= 20
+    assert "rolling_3y_r2_today" in by_id["F5"]["detail"]
+
+
+def test_max_true_streak_days_helper(fitted_model):
+    import numpy as np
+
+    days = np.array([0, 10, 20, 30, 40, 50], dtype=int)
+    mask = np.array([False, True, True, True, False, True], dtype=bool)
+    span, start, end = fitted_model._max_true_streak_days(mask, days)
+    assert span == 20  # days 10→30
+    assert start == 10
+    assert end == 30
+
+
 def test_btc_csv_covers_history_from_2010(fitted_model):
     """Live btc_daily.csv should include Habrador-era rows back to July 2010."""
     assert fitted_model.df is not None

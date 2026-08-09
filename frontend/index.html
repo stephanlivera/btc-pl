@@ -580,6 +580,64 @@
       </div>
     </div>
 
+    <!-- Santostasi Section 10 — Falsifiability of the Power Law -->
+    <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="falsifiability-card">
+      <div class="terminal-card-title mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <span>Is the Power Law Still Valid?</span>
+        <span class="terminal-card-subtitle font-normal">Santostasi §10 falsifiability tests</span>
+      </div>
+
+      <div class="terminal-card-desc mb-3" id="falsifiability-desc">
+        A scientifically useful model must be falsifiable. Santostasi identifies five conditions under which
+        the Bitcoin price power law would be expected to break down, with measurable precursors for each.
+        <span id="falsifiability-through" class="text-zinc-400"></span>
+      </div>
+
+      <div id="falsifiability-headline" class="mb-4 px-3 py-2.5 rounded-md border border-[var(--tb-border-muted)] bg-[var(--tb-card-inset)] text-sm font-medium">
+        <span class="inline-flex items-center gap-2">
+          <span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span>
+          <span class="loading-pulse">Evaluating falsifiability suite…</span>
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr class="border-b border-[var(--tb-border-muted)]">
+              <th class="text-left font-normal px-3 py-2 w-14">ID</th>
+              <th class="text-left font-normal px-3 py-2">Test</th>
+              <th class="text-left font-normal px-3 py-2">Status</th>
+              <th class="text-left font-normal px-3 py-2">Live metric</th>
+              <th class="text-left font-normal px-3 py-2 hidden md:table-cell">Threshold</th>
+            </tr>
+          </thead>
+          <tbody id="falsifiability-table" class="divide-y text-sm">
+            <tr>
+              <td colspan="5" class="px-3 py-3 terminal-text-muted">
+                <span class="inline-flex items-center gap-2">
+                  <span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span>
+                  <span class="loading-pulse">Loading falsifiability tests…</span>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="falsifiability-details" class="mt-4 space-y-3 text-sm"></div>
+
+      <div class="mt-3 terminal-footnote">
+        Source: Santostasi &amp; Perrenod — <em>A Mechanistic Derivation of the Bitcoin Price Power Law:
+        Network Adoption Dynamics and Generalised Metcalfe Scaling</em>, Section 10 (with fit-quality methodology
+        from §7).
+        <strong>F1</strong> floor (3σ below fit &gt;1y), <strong>F3</strong> β outside [5, 7] multi-year, and
+        <strong>F5</strong> cumulative R² &lt; 0.80 for &gt;2y are measured from price history via <code>/stats</code>.
+        F5 uses expanding-window OLS R² (paper §7); naive trailing 3-year refits are cycle-dominated and shown only
+        as a diagnostic. <strong>F2</strong> (address-growth β<sub>A</sub>) and <strong>F4</strong> (Metcalfe R²)
+        need on-chain address series and are not monitored here.
+      </div>
+    </div>
+
     <div class="mt-8 terminal-footer pt-6 pb-2">
       <p class="terminal-disclaimer text-center leading-relaxed max-w-2xl mx-auto px-4">
         <strong>Disclaimer:</strong>

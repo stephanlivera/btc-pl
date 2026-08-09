@@ -953,3 +953,55 @@ export function buildFitStrengthColoredSegments(
   flush();
   return segments;
 }
+
+// --- Santostasi Section 10 falsifiability card helpers ---
+
+export type FalsifiabilityStatus = 'pass' | 'fail' | 'unmonitored';
+
+export type FalsifiabilityTest = {
+  id: string;
+  name: string;
+  status: FalsifiabilityStatus;
+  description?: string;
+  threshold?: string;
+  metric_label?: string;
+  metric_value?: number | null;
+  metric_display?: string;
+  detail?: Record<string, unknown>;
+};
+
+export type FalsifiabilitySummary = {
+  overall: 'pass' | 'fail';
+  all_monitored_pass: boolean;
+  failed_ids: string[];
+  monitored_count: number;
+  unmonitored_count: number;
+  source?: string;
+  as_of?: string | null;
+  tests: FalsifiabilityTest[];
+};
+
+/** Tailwind/theme class for a falsifiability status chip. */
+export function falsifiabilityStatusClass(status: FalsifiabilityStatus | string): string {
+  if (status === 'pass') return 'terminal-text-positive';
+  if (status === 'fail') return 'terminal-text-negative';
+  return 'terminal-text-muted';
+}
+
+/** Short uppercase label for the status chip. */
+export function falsifiabilityStatusLabel(status: FalsifiabilityStatus | string): string {
+  if (status === 'pass') return 'PASS';
+  if (status === 'fail') return 'FAIL';
+  if (status === 'unmonitored') return 'N/A';
+  return String(status).toUpperCase();
+}
+
+/** Headline for the overall suite result. */
+export function buildFalsifiabilityHeadline(summary: FalsifiabilitySummary | null | undefined): string {
+  if (!summary) return 'Unable to evaluate falsifiability tests.';
+  if (summary.overall === 'pass') {
+    return `All ${summary.monitored_count} monitored conditions hold — power law not falsified.`;
+  }
+  const ids = summary.failed_ids?.length ? summary.failed_ids.join(', ') : 'unknown';
+  return `Falsified on monitored conditions: ${ids}.`;
+}

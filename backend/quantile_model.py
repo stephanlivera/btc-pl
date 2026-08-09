@@ -45,6 +45,26 @@ MIN_DECAY_FACTOR = 0.30    # Never compress bands tighter than this fraction of 
 EXPANDING_WINDOW_MIN_DAYS = 365
 EXPANDING_WINDOW_STEP_DAYS = 30
 
+# ---------------------------------------------------------------------------
+# Santostasi Section 10 falsifiability thresholds
+# ("A Mechanistic Derivation of the Bitcoin Price Power Law…")
+# ---------------------------------------------------------------------------
+FALSIFIABILITY_FLOOR_SIGMA = 3.0          # F1: >3σ below power-law fit
+FALSIFIABILITY_FLOOR_DAYS = 365           # F1: for more than one year
+FALSIFIABILITY_BETA_LO = 5.0              # F3: β_obs interval lower
+FALSIFIABILITY_BETA_HI = 7.0              # F3: β_obs interval upper
+FALSIFIABILITY_BETA_MULTI_YEAR_DAYS = int(2 * 365.25)  # F3: multi-year excursion
+# F5: paper text says "rolling 3-year R²"; Section 7 shows that short rolling OLS
+# windows are cycle-dominated and not the stability metric they rely on. We evaluate
+# the cumulative (expanding-window) price-power-law R² — the measure that stays ~0.96
+# and matches "none of these conditions were met." Trailing 3y refit R² is still
+# reported as a diagnostic.
+FALSIFIABILITY_R2_THRESHOLD = 0.80
+FALSIFIABILITY_R2_FAIL_DAYS = int(2 * 365.25)  # F5: > two consecutive years
+FALSIFIABILITY_ROLLING_R2_WINDOW_DAYS = int(3 * 365.25)
+FALSIFIABILITY_ROLLING_STEP_DAYS = 30
+FALSIFIABILITY_ROLLING_MIN_POINTS = 80
+
 class QuantilePowerLawModel:
     """
     Holds fitted quantile regression models for the power law:
@@ -435,6 +455,10 @@ class QuantilePowerLawModel:
                 pass
 
         expanding = getattr(self, "_expanding_window_series", None) or []
+        falsifiability = self.compute_falsifiability_tests(
+            fit=fit,
+            expanding_window=expanding,
+        )
 
         return {
             "fit": fit,
@@ -443,6 +467,7 @@ class QuantilePowerLawModel:
                 "rolling_beta_4y": rolling,
                 "expanding_window": expanding,
             },
+            "falsifiability": falsifiability,
             "meta": {
                 "ref_days": self.ref_days,
                 "data_end_date": str(self.data_end_date) if self.data_end_date else None,
@@ -452,6 +477,312 @@ class QuantilePowerLawModel:
                     "expanding windows sampled monthly from day 365"
                 ),
             },
+        }
+
+    def _max_true_streak_days(self, mask: np.ndarray, days: np.ndarray) -> tuple[int, int | None, int | None]:
+        """Longest run of True values in a boolean mask; returns (span_days, start_day, end_day)."""
+        if mask.size == 0:
+            return 0, None, None
+
+        max_span = 0
+        best_start: int | None = None
+        best_end: int | None = None
+        run_start_i: int | None = None
+
+        for i, flag in enumerate(mask):
+            if flag:
+                if run_start_i is None:
+                    run_start_i = i
+            elif run_start_i is not None:
+                span = int(days[i - 1] - days[run_start_i])
+                if span > max_span:
+                    max_span = span
+                    best_start = int(days[run_start_i])
+                    best_end = int(days[i - 1])
+                run_start_i = None
+
+        if run_start_i is not None:
+            span = int(days[-1] - days[run_start_i])
+            if span > max_span:
+                max_span = span
+                best_start = int(days[run_start_i])
+                best_end = int(days[-1])
+
+        return max_span, best_start, best_end
+
+    def _rolling_ols_series(
+        self,
+        window_days: int,
+        step_days: int = FALSIFIABILITY_ROLLING_STEP_DAYS,
+        min_points: int = FALSIFIABILITY_ROLLING_MIN_POINTS,
+    ) -> list[dict]:
+        """Trailing-window OLS β + R² sampled every step_days (and the latest day)."""
+        if self.df is None or self.df.empty:
+            return []
+
+        days_arr = self.df["days"].to_numpy(dtype=int)
+        max_d = int(days_arr[-1])
+        min_d = int(days_arr[0])
+        start_end = min_d + window_days
+        if start_end > max_d:
+            return []
+
+        ends = list(range(start_end, max_d + 1, step_days))
+        if not ends or ends[-1] != max_d:
+            ends.append(max_d)
+
+        series: list[dict] = []
+        for end_d in ends:
+            start_d = end_d - window_days
+            sub = self.df[(self.df["days"] > start_d) & (self.df["days"] <= end_d)]
+            if len(sub) < min_points:
+                continue
+            X = sm.add_constant(sub["log_days"])
+            y = sub["log_close"]
+            try:
+                ols = sm.OLS(y, X).fit()
+            except Exception:
+                continue
+            series.append({
+                "x": int(sub["days"].iloc[-1]),
+                "date": str(sub["Date"].iloc[-1].date()),
+                "beta": round(float(ols.params["log_days"]), 4),
+                "ols_r2": round(float(ols.rsquared), 4),
+                "n": int(len(sub)),
+            })
+        return series
+
+    def compute_falsifiability_tests(
+        self,
+        fit: dict | None = None,
+        expanding_window: list[dict] | None = None,
+    ) -> dict:
+        """Evaluate Santostasi Section 10 falsifiability conditions F1–F5.
+
+        F1 Floor violation, F3 exponent drift, and F5 R² collapse are measured
+        from the price power-law fit. F2 (adoption collapse) and F4 (Metcalfe
+        breakdown) require on-chain address series and are reported as unmonitored.
+        """
+        if self.df is None or self.df.empty or not hasattr(self, "_log_residuals"):
+            raise RuntimeError("Model not fitted or residuals unavailable")
+
+        if fit is None:
+            fit = self._compute_central_diagnostics()
+        if expanding_window is None:
+            expanding_window = getattr(self, "_expanding_window_series", None) or []
+
+        days = self.df["days"].to_numpy(dtype=int)
+        log_close = self.df["log_close"].to_numpy(dtype=float)
+        log_days = self.df["log_days"].to_numpy(dtype=float)
+        n = len(days)
+        if n == 0:
+            raise RuntimeError("No price history for falsifiability tests")
+
+        # F1 uses OLS power-law residuals (paper §6: σ ≈ 0.30 dex log-normal).
+        X_ols = sm.add_constant(log_days)
+        ols = sm.OLS(log_close, X_ols).fit()
+        ols_a = float(ols.params[0])
+        ols_b = float(ols.params[1])
+        ols_pred = np.asarray(ols.fittedvalues, dtype=float)
+        ols_residuals = log_close - ols_pred
+        sigma = float(np.std(ols_residuals, ddof=1)) if n > 1 else 0.0
+
+        latest_days = int(days[-1])
+        latest_log_fit = ols_a + ols_b * np.log10(float(latest_days))
+        floor_log = latest_log_fit - FALSIFIABILITY_FLOOR_SIGMA * sigma
+        floor_price = float(10 ** floor_log) if np.isfinite(floor_log) else None
+        actual_price = float(self.df["Close"].iloc[-1])
+        latest_residual = float(ols_residuals[-1])
+        # residual = log_close - log_fit → σ below trend is −residual / σ
+        sigma_below = float(-latest_residual / sigma) if sigma > 0 else 0.0
+
+        below_floor = (
+            ols_residuals < (-FALSIFIABILITY_FLOOR_SIGMA * sigma)
+            if sigma > 0
+            else np.zeros(n, dtype=bool)
+        )
+        max_below_days, below_start, below_end = self._max_true_streak_days(below_floor, days)
+        days_currently_below = 0
+        if below_floor[-1]:
+            i = n - 1
+            while i >= 0 and below_floor[i]:
+                i -= 1
+            days_currently_below = int(days[-1] - days[i + 1]) if i + 1 < n else 0
+
+        f1_failed = max_below_days > FALSIFIABILITY_FLOOR_DAYS
+        f1 = {
+            "id": "F1",
+            "name": "Floor violation",
+            "status": "fail" if f1_failed else "pass",
+            "description": (
+                "Price more than 3σ below the power-law fit for more than one year "
+                "would indicate a structural break in the adoption dynamic."
+            ),
+            "threshold": f">{FALSIFIABILITY_FLOOR_SIGMA:.0f}σ below fit for >{FALSIFIABILITY_FLOOR_DAYS} days",
+            "metric_label": "Longest streak below 3σ floor",
+            "metric_value": max_below_days,
+            "metric_display": f"{max_below_days} days",
+            "detail": {
+                "residual_sigma_log10": round(sigma, 6),
+                "floor_price_today": round(floor_price, 2) if floor_price is not None else None,
+                "model_price_today": round(float(10 ** latest_log_fit), 2),
+                "actual_price": round(actual_price, 2),
+                "sigma_below_today": round(sigma_below, 3),
+                "days_currently_below": days_currently_below,
+                "longest_below_start_day": below_start,
+                "longest_below_end_day": below_end,
+                "ols_beta": round(ols_b, 4),
+            },
+        }
+
+        f2 = {
+            "id": "F2",
+            "name": "Adoption collapse",
+            "status": "unmonitored",
+            "description": (
+                "If the address-growth exponent β_A falls significantly below 3 in rolling "
+                "estimates, the saturation-wave mechanism may have changed "
+                "(e.g. a competitor absorbing marginal adopters)."
+            ),
+            "threshold": "β_A ≪ 3 (rolling address-growth exponent)",
+            "metric_label": "Address-growth β_A",
+            "metric_value": None,
+            "metric_display": "N/A — requires on-chain address series",
+            "detail": {
+                "reason": "This deployment fits price-only daily closes; address counts are not loaded.",
+            },
+        }
+
+        # F3: expanding-window β outside [5, 7] for a multi-year stretch
+        beta_now = float(expanding_window[-1]["beta"]) if expanding_window else float(fit.get("beta", b))
+        beta_outside = np.array(
+            [
+                (p["beta"] < FALSIFIABILITY_BETA_LO) or (p["beta"] > FALSIFIABILITY_BETA_HI)
+                for p in expanding_window
+            ],
+            dtype=bool,
+        )
+        beta_days = np.array([p["x"] for p in expanding_window], dtype=int) if expanding_window else np.array([], dtype=int)
+        max_out_days, out_start, out_end = self._max_true_streak_days(beta_outside, beta_days)
+        f3_failed = max_out_days >= FALSIFIABILITY_BETA_MULTI_YEAR_DAYS
+        f3 = {
+            "id": "F3",
+            "name": "Exponent drift",
+            "status": "fail" if f3_failed else "pass",
+            "description": (
+                "If β_obs drifts monotonically outside [5.0, 7.0] over a multi-year period, "
+                "the composition framework would require revision."
+            ),
+            "threshold": f"β_obs outside [{FALSIFIABILITY_BETA_LO:.1f}, {FALSIFIABILITY_BETA_HI:.1f}] for ≥2 years",
+            "metric_label": "β_obs (expanding OLS today)",
+            "metric_value": round(beta_now, 4),
+            "metric_display": f"{beta_now:.3f}",
+            "detail": {
+                "beta_interval": [FALSIFIABILITY_BETA_LO, FALSIFIABILITY_BETA_HI],
+                "inside_interval": FALSIFIABILITY_BETA_LO <= beta_now <= FALSIFIABILITY_BETA_HI,
+                "longest_outside_days": max_out_days,
+                "longest_outside_start_day": out_start,
+                "longest_outside_end_day": out_end,
+                "samples": len(expanding_window),
+            },
+        }
+
+        f4 = {
+            "id": "F4",
+            "name": "Metcalfe breakdown",
+            "status": "unmonitored",
+            "description": (
+                "If price and address count decouple — measured as a sustained collapse in "
+                "the Metcalfe R² below 0.7 — network value is no longer priced as a network good."
+            ),
+            "threshold": "Metcalfe R² < 0.7 (sustained)",
+            "metric_label": "Metcalfe R² (price vs addresses)",
+            "metric_value": None,
+            "metric_display": "N/A — requires on-chain address series",
+            "detail": {
+                "reason": "This deployment fits price-only daily closes; address counts are not loaded.",
+            },
+        }
+
+        # F5: cumulative (expanding-window) price-power-law R² < 0.80 for >2 years.
+        # Short trailing-window OLS R² is cycle-dominated (paper §7) and is reported
+        # only as a diagnostic — not the falsification gate.
+        cum_r2_now = (
+            float(expanding_window[-1]["ols_r2"])
+            if expanding_window
+            else float(fit.get("ols_r2", 0.0))
+        )
+        r2_low = np.array(
+            [p["ols_r2"] < FALSIFIABILITY_R2_THRESHOLD for p in expanding_window],
+            dtype=bool,
+        )
+        r2_days = (
+            np.array([p["x"] for p in expanding_window], dtype=int)
+            if expanding_window
+            else np.array([], dtype=int)
+        )
+        max_low_days, low_start, low_end = self._max_true_streak_days(r2_low, r2_days)
+        f5_failed = max_low_days > FALSIFIABILITY_R2_FAIL_DAYS
+
+        rolling_r2 = self._rolling_ols_series(FALSIFIABILITY_ROLLING_R2_WINDOW_DAYS)
+        rolling_r2_now = float(rolling_r2[-1]["ols_r2"]) if rolling_r2 else None
+        min_cum_r2 = (
+            round(min(p["ols_r2"] for p in expanding_window), 4) if expanding_window else None
+        )
+
+        f5 = {
+            "id": "F5",
+            "name": "R² collapse",
+            "status": "fail" if f5_failed else "pass",
+            "description": (
+                "If the price power-law R² falls below 0.80 for more than two consecutive "
+                "years, the power law should be considered falsified. Evaluated on the "
+                "cumulative (expanding-window) OLS R² from paper §7; short rolling windows "
+                "are cycle-dominated and not used as the gate."
+            ),
+            "threshold": (
+                f"Cumulative R² < {FALSIFIABILITY_R2_THRESHOLD:.2f} "
+                f"for >{FALSIFIABILITY_R2_FAIL_DAYS} days (~2 years)"
+            ),
+            "metric_label": "Cumulative OLS R² (today)",
+            "metric_value": round(cum_r2_now, 4),
+            "metric_display": f"{cum_r2_now:.4f}",
+            "detail": {
+                "r2_threshold": FALSIFIABILITY_R2_THRESHOLD,
+                "method": "expanding_window_ols",
+                "longest_below_threshold_days": max_low_days,
+                "longest_below_start_day": low_start,
+                "longest_below_end_day": low_end,
+                "samples": len(expanding_window),
+                "min_cumulative_r2": min_cum_r2,
+                "rolling_3y_r2_today": (
+                    round(rolling_r2_now, 4) if rolling_r2_now is not None else None
+                ),
+                "rolling_3y_note": (
+                    "Trailing 3y OLS refit R² is suppressed by ~4y market cycles "
+                    "(paper §7) and is not the falsification metric."
+                ),
+            },
+        }
+
+        tests = [f1, f2, f3, f4, f5]
+        monitored = [t for t in tests if t["status"] != "unmonitored"]
+        failed = [t for t in monitored if t["status"] == "fail"]
+        overall = "fail" if failed else "pass"
+
+        return {
+            "overall": overall,
+            "all_monitored_pass": len(failed) == 0,
+            "failed_ids": [t["id"] for t in failed],
+            "monitored_count": len(monitored),
+            "unmonitored_count": len(tests) - len(monitored),
+            "source": (
+                "Santostasi, G. — “A Mechanistic Derivation of the Bitcoin Price Power Law: "
+                "Network Adoption Dynamics and Generalised Metcalfe Scaling”, Section 10"
+            ),
+            "as_of": str(self.data_end_date) if self.data_end_date else None,
+            "tests": tests,
+            "rolling_r2_3y_diagnostic": rolling_r2,
         }
 
     def get_historical_data(

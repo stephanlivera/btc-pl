@@ -39,10 +39,15 @@ import {
   rsiContextLabel,
   ordinal,
   buildFitStrengthColoredSegments,
+  falsifiabilityStatusClass,
+  falsifiabilityStatusLabel,
+  buildFalsifiabilityHeadline,
   type Q50ModelParams,
   type ConditionalHorizonStats,
   type ExpandingFitPoint,
   type FitStrengthR2Bucket,
+  type FalsifiabilitySummary,
+  type FalsifiabilityTest,
 } from './utils';
 
 import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
@@ -1785,6 +1790,19 @@ function populateFitStrengthHeadlineStats(fit: any, meta: any, latestPoint?: Exp
   }
 }
 
+/** Shared /stats payload for fit-strength + falsifiability cards (one request per load). */
+let modelStatsPromise: Promise<any> | null = null;
+
+export function fetchModelStatsShared(): Promise<any> {
+  if (!modelStatsPromise) {
+    modelStatsPromise = fetchModelStats().catch(err => {
+      modelStatsPromise = null;
+      throw err;
+    });
+  }
+  return modelStatsPromise;
+}
+
 export async function loadFitStrengthCard() {
   const card = document.getElementById('fit-strength-card');
   if (!card) return;
@@ -1793,7 +1811,7 @@ export async function loadFitStrengthCard() {
   setChartLoading('fit-strength-r2-loading', true, 'Loading R² history…');
 
   try {
-    const data = await fetchModelStats();
+    const data = await fetchModelStatsShared();
     const points = (data?.stability?.expanding_window ?? []) as ExpandingFitPoint[];
     if (points.length < 2) {
       throw new Error('Insufficient expanding-window data from /stats');
@@ -1813,5 +1831,138 @@ export async function loadFitStrengthCard() {
   } finally {
     setChartLoading('fit-strength-beta-loading', false);
     setChartLoading('fit-strength-r2-loading', false);
+  }
+}
+
+// --- Santostasi Section 10 falsifiability card ---
+
+function formatFloorPriceDetail(detail: Record<string, unknown> | undefined): string {
+  if (!detail) return '';
+  const floor = detail.floor_price_today;
+  const actual = detail.actual_price;
+  const sigma = detail.sigma_below_today;
+  const parts: string[] = [];
+  if (typeof floor === 'number') parts.push(`3σ floor today ≈ $${floor.toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+  if (typeof actual === 'number') parts.push(`spot $${actual.toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+  if (typeof sigma === 'number') {
+    const side = sigma >= 0 ? `${sigma.toFixed(2)}σ below` : `${Math.abs(sigma).toFixed(2)}σ above`;
+    parts.push(side);
+  }
+  return parts.join(' · ');
+}
+
+function renderFalsifiabilityTable(tests: FalsifiabilityTest[]) {
+  const tbody = document.getElementById('falsifiability-table');
+  if (!tbody) return;
+
+  if (!tests.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-3 terminal-text-muted">No falsifiability tests returned.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = tests
+    .map(t => {
+      const statusClass = falsifiabilityStatusClass(t.status);
+      const statusLabel = falsifiabilityStatusLabel(t.status);
+      const metric = t.metric_display ?? (t.metric_value != null ? String(t.metric_value) : '—');
+      const threshold = t.threshold ?? '—';
+      return `
+        <tr>
+          <td class="px-3 py-2.5 font-mono terminal-text-accent font-semibold">${t.id}</td>
+          <td class="px-3 py-2.5 text-[var(--tb-text)]">${t.name}</td>
+          <td class="px-3 py-2.5 font-mono font-semibold ${statusClass}">${statusLabel}</td>
+          <td class="px-3 py-2.5 font-mono text-sm text-[var(--tb-text)]">${metric}</td>
+          <td class="px-3 py-2.5 text-xs terminal-text-muted hidden md:table-cell">${threshold}</td>
+        </tr>`;
+    })
+    .join('');
+}
+
+function renderFalsifiabilityDetails(tests: FalsifiabilityTest[]) {
+  const el = document.getElementById('falsifiability-details');
+  if (!el) return;
+
+  el.innerHTML = tests
+    .map(t => {
+      const statusClass = falsifiabilityStatusClass(t.status);
+      const statusLabel = falsifiabilityStatusLabel(t.status);
+      let extra = '';
+      if (t.id === 'F1') {
+        const floorLine = formatFloorPriceDetail(t.detail);
+        if (floorLine) extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">${floorLine}</div>`;
+      } else if (t.id === 'F3' && t.detail) {
+        const inside = t.detail.inside_interval;
+        const outDays = t.detail.longest_outside_days;
+        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">In [5, 7]: ${inside ? 'yes' : 'no'} · longest outside streak: ${outDays ?? 0} days</div>`;
+      } else if (t.id === 'F5' && t.detail) {
+        const minR2 = t.detail.min_cumulative_r2;
+        const lowDays = t.detail.longest_below_threshold_days;
+        const roll = t.detail.rolling_3y_r2_today;
+        const rollStr = typeof roll === 'number' ? roll.toFixed(4) : '—';
+        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Min cumulative R²: ${typeof minR2 === 'number' ? minR2.toFixed(4) : '—'} · longest R²&lt;0.80 streak: ${lowDays ?? 0} days · trailing 3y refit R² (diagnostic): ${rollStr}</div>`;
+      } else if (t.status === 'unmonitored' && t.detail && typeof t.detail.reason === 'string') {
+        extra = `<div class="mt-1 text-xs terminal-text-muted">${t.detail.reason}</div>`;
+      }
+
+      return `
+        <div class="rounded-md border border-[var(--tb-border-muted)] px-3 py-2.5 bg-[var(--tb-card-inset)]">
+          <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 mb-1">
+            <span class="font-mono terminal-text-accent font-semibold">${t.id}</span>
+            <span class="font-medium text-[var(--tb-text)]">${t.name}</span>
+            <span class="font-mono text-xs font-semibold ${statusClass}">${statusLabel}</span>
+          </div>
+          <p class="text-xs terminal-text-muted leading-relaxed">${t.description ?? ''}</p>
+          ${extra}
+        </div>`;
+    })
+    .join('');
+}
+
+function populateFalsifiabilityHeadline(summary: FalsifiabilitySummary | null) {
+  const headline = document.getElementById('falsifiability-headline');
+  const throughEl = document.getElementById('falsifiability-through');
+  if (!headline) return;
+
+  if (!summary) {
+    headline.className =
+      'mb-4 px-3 py-2.5 rounded-md border border-[var(--tb-border-muted)] bg-[var(--tb-card-inset)] text-sm font-medium terminal-text-error';
+    headline.textContent = 'Failed to load falsifiability suite (is the backend running?).';
+    return;
+  }
+
+  const pass = summary.overall === 'pass';
+  const border = pass ? 'border-[rgba(52,211,153,0.35)]' : 'border-[rgba(248,113,113,0.4)]';
+  const color = pass ? 'terminal-text-positive' : 'terminal-text-negative';
+  headline.className = `mb-4 px-3 py-2.5 rounded-md border ${border} bg-[var(--tb-card-inset)] text-sm font-medium ${color}`;
+  const badge = pass ? 'VALID' : 'FALSIFIED';
+  headline.innerHTML = `<span class="font-mono font-semibold mr-2">${badge}</span>${buildFalsifiabilityHeadline(summary)}`;
+
+  if (throughEl && summary.as_of) {
+    throughEl.textContent = `(evaluated through ${summary.as_of})`;
+  }
+}
+
+export async function loadFalsifiabilityCard() {
+  const card = document.getElementById('falsifiability-card');
+  if (!card) return;
+
+  try {
+    const data = await fetchModelStatsShared();
+    const summary = data?.falsifiability as FalsifiabilitySummary | undefined;
+    if (!summary?.tests?.length) {
+      throw new Error('No falsifiability payload from /stats');
+    }
+    populateFalsifiabilityHeadline(summary);
+    renderFalsifiabilityTable(summary.tests);
+    renderFalsifiabilityDetails(summary.tests);
+  } catch (err) {
+    console.error('Failed to load falsifiability card', err);
+    populateFalsifiabilityHeadline(null);
+    const tbody = document.getElementById('falsifiability-table');
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-3 terminal-text-error">Failed to load falsifiability tests.</td></tr>`;
+    }
+    const details = document.getElementById('falsifiability-details');
+    if (details) details.innerHTML = '';
   }
 }

@@ -45,6 +45,9 @@ import {
   findPriceNearDay,
   fitStrengthR2Bucket,
   buildFitStrengthColoredSegments,
+  falsifiabilityStatusClass,
+  falsifiabilityStatusLabel,
+  buildFalsifiabilityHeadline,
 } from '../utils';
 
 describe('formatDeviationPct', () => {
@@ -615,5 +618,42 @@ describe('fit strength helpers', () => {
 
   it('returns empty segments for empty input', () => {
     expect(buildFitStrengthColoredSegments([], 'ols_r2')).toEqual([]);
+  });
+});
+
+describe('falsifiability helpers', () => {
+  it('maps status to theme classes and labels', () => {
+    expect(falsifiabilityStatusClass('pass')).toBe('terminal-text-positive');
+    expect(falsifiabilityStatusClass('fail')).toBe('terminal-text-negative');
+    expect(falsifiabilityStatusClass('unmonitored')).toBe('terminal-text-muted');
+    expect(falsifiabilityStatusLabel('pass')).toBe('PASS');
+    expect(falsifiabilityStatusLabel('fail')).toBe('FAIL');
+    expect(falsifiabilityStatusLabel('unmonitored')).toBe('N/A');
+  });
+
+  it('builds overall headline from suite summary', () => {
+    expect(
+      buildFalsifiabilityHeadline({
+        overall: 'pass',
+        all_monitored_pass: true,
+        failed_ids: [],
+        monitored_count: 3,
+        unmonitored_count: 2,
+        tests: [],
+      })
+    ).toContain('All 3 monitored conditions hold');
+
+    expect(
+      buildFalsifiabilityHeadline({
+        overall: 'fail',
+        all_monitored_pass: false,
+        failed_ids: ['F1', 'F5'],
+        monitored_count: 3,
+        unmonitored_count: 2,
+        tests: [],
+      })
+    ).toContain('F1, F5');
+
+    expect(buildFalsifiabilityHeadline(null)).toMatch(/Unable/i);
   });
 });

@@ -162,8 +162,9 @@ def get_model_stats():
 
     Returns R² (OLS on log-log), Pearson correlation, exponent β with 95% CI,
     the reconstructed equation, current deviation from model, plus windowed
-    and rolling estimates of β for a stability panel, and a cached expanding-window
-    OLS series (β + R²) for the Strengthening Power Law chart.
+    and rolling estimates of β for a stability panel, a cached expanding-window
+    OLS series (β + R²) for the Strengthening Power Law chart, and Santostasi
+    Section 10 falsifiability tests (F1–F5) under ``falsifiability``.
     """
     if not model.results:
         raise HTTPException(status_code=503, detail="Model not fitted yet.")

@@ -24,6 +24,7 @@ import {
   loadGoldFlipCard,
   loadAssetCorrelationsCard,
   loadFitStrengthCard,
+  loadFalsifiabilityCard,
   renderGoldFlipChart,
 } from './cards';
 import { loadTickerStrip } from './ticker';
@@ -195,6 +196,7 @@ async function init() {
     loadGoldFlipCard(),
     loadAssetCorrelationsCard(),
     loadFitStrengthCard(),
+    loadFalsifiabilityCard(),
   ]);
 
   hideAppLoading();
