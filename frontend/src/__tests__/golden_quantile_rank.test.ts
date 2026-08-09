@@ -145,7 +145,9 @@ describe('golden quantile rank regression (btc_daily.csv)', () => {
   });
 
   it('matches backend latest_position from golden fixture (API/frontend parity)', () => {
-    // latest_position is generated from QuantilePowerLawModel.get_current_position().
+    // latest_position is a snapshot of QuantilePowerLawModel.get_current_position() at
+    // golden.data_end_date. Rank must use the same residual universe (through that date),
+    // not later automated CSV rows, or the empirical CDF drifts and CI fails daily.
     // Frontend full-history rank must reproduce it so mobile snapshot == Time Spent Below.
     if (allPoints.length < 100) return;
     if (!('latest_position' in golden) || !golden.latest_position) return;
@@ -160,7 +162,23 @@ describe('golden quantile rank regression (btc_daily.csv)', () => {
       model_q50: number;
     };
 
-    const point = allPoints.find(p => p.date === latest.date);
+    const dataEndDate =
+      typeof (golden as { data_end_date?: string }).data_end_date === 'string'
+        ? (golden as { data_end_date: string }).data_end_date
+        : latest.date;
+
+    // Freeze residual reference to the golden snapshot window.
+    const snapshotPoints = allPoints.filter(p => p.date <= dataEndDate);
+    expect(
+      snapshotPoints.length,
+      `no points on or before golden data_end_date ${dataEndDate}`
+    ).toBeGreaterThan(100);
+    const snapshotResiduals = buildLogResiduals(
+      snapshotPoints.map(p => ({ x: p.x, y: p.y })),
+      model
+    );
+
+    const point = snapshotPoints.find(p => p.date === latest.date);
     expect(point, `missing latest date ${latest.date} in btc_daily.csv`).toBeDefined();
     expect(point!.x).toBe(latest.days);
     expect(point!.y).toBeCloseTo(latest.actual_price, 2);
@@ -169,13 +187,13 @@ describe('golden quantile rank regression (btc_daily.csv)', () => {
     expect(residual).not.toBeNull();
     expect(residual!).toBeCloseTo(latest.residual, 5);
 
-    const rank = computePointQuantileRank(fullResiduals, model, point!.x, point!.y);
+    const rank = computePointQuantileRank(snapshotResiduals, model, point!.x, point!.y);
     expect(rank).not.toBeNull();
     expect(rank!.quantile).toBeCloseTo(latest.quantile, 4);
     expect(rank!.label).toBe(latest.quantile_label);
 
     // Residual reference must start at first CSV day (not day 800).
-    expect(Math.min(...allPoints.map(p => p.x))).toBeLessThan(800);
-    expect(fullResiduals.length).toBe(allPoints.length);
+    expect(Math.min(...snapshotPoints.map(p => p.x))).toBeLessThan(800);
+    expect(snapshotResiduals.length).toBe(snapshotPoints.length);
   });
 });
