@@ -32,7 +32,7 @@
               <span class="sm:hidden">BTC Power Law</span>
               <span class="hidden sm:inline">Bitcoin Power Law &amp; Stats Dashboard</span>
             </h1>
-            <p class="terminal-card-subtitle mt-0.5">Power-law quantiles, historical stats, and forward context</p>
+            <p class="terminal-card-subtitle mt-0.5">Where Bitcoin sits versus the long-term trend</p>
           </div>
         </div>
         <div id="data-freshness-pill"
@@ -45,22 +45,22 @@
         </div>
       </div>
 
-      <!-- Scrolling market tape (v1) -->
-      <div id="terminal-ticker" class="terminal-ticker terminal-reveal-stagger-2" aria-label="Market summary ticker" role="region" aria-live="polite">
+      <div id="terminal-ticker" class="terminal-ticker terminal-reveal-stagger-2" aria-label="Market snapshot" role="region">
         <div class="terminal-ticker-viewport">
           <div id="terminal-ticker-track" class="terminal-ticker-track">
-            <span class="terminal-ticker-loading">Loading market tape…</span>
+            <span class="terminal-ticker-loading">Loading snapshot…</span>
           </div>
         </div>
       </div>
       </div>
     </header>
 
+    <section id="section-model" class="page-section">
     <!-- Chart Card -->
     <div id="main-chart-card" class="terminal-card terminal-card-hero terminal-card-accent-hero terminal-reveal-stagger-3 p-4 sm:p-6">
       <div class="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 px-1">
         <div class="min-w-0 max-w-sm lg:max-w-md">
-          <div class="terminal-card-title">Power Law + Quantile Corridor</div>
+          <div class="terminal-card-title">Power-law corridor</div>
           <p class="terminal-card-desc mt-1">Q50 is the fitted power law. Other bands are historical rich/cheap offsets around that line, compressed after the last data day — not separate forecasts.</p>
         </div>
 
@@ -70,9 +70,9 @@
           <div class="terminal-control-group">
             <span class="terminal-control-label">RANGE</span>
             <button data-range="all" class="range-btn terminal-seg-btn">All</button>
-            <button data-range="5y" class="range-btn terminal-seg-btn">5y</button>
+            <button data-range="5y" class="range-btn terminal-seg-btn terminal-seg-active">5y</button>
             <button data-range="3y" class="range-btn terminal-seg-btn">3y</button>
-            <button data-range="1y" class="range-btn terminal-seg-btn terminal-seg-active">1y</button>
+            <button data-range="1y" class="range-btn terminal-seg-btn">1y</button>
           </div>
 
           <!-- Inner Bands Toggle (Q25–Q75) -->
@@ -84,9 +84,9 @@
 
           <!-- Outer Bands Toggle (Q10–Q90) -->
           <button id="outer-bands-toggle"
-                  class="terminal-toggle-btn terminal-toggle-on">
+                  class="terminal-toggle-btn terminal-toggle-off">
             <span>Show Q10–Q90</span>
-            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-on"></div>
+            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
           </button>
 
           <!-- Export PNG -->
@@ -165,12 +165,14 @@
         <p class="chart-snapshot-hint terminal-text-muted">Tap and drag on the chart for full details.</p>
       </div>
 
+      <p id="chart-time-below-line" class="terminal-card-desc mt-3 px-1"></p>
+
     </div>
 
     <!-- Year End Projections Table -->
     <div class="mt-6 terminal-card terminal-card-accent-model terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-3 flex items-center justify-between">
-        <span>Power Law Year-End Projections (Next 10 Years)</span>
+        <span>Year-end prices</span>
         <span class="terminal-card-subtitle font-normal">Same curves as the chart</span>
       </div>
 
@@ -234,118 +236,32 @@
         </div>
       </div>
     </div>
+    </section>
 
-    <!-- Conditional Forward Returns by Quantile Regime -->
-    <div class="mt-6 terminal-card terminal-card-accent-model terminal-reveal-in-view p-5" id="conditional-returns-card">
-      <div class="terminal-card-title mb-3 flex items-center justify-between">
-        <span>Conditional Forward Returns by Quantile Regime</span>
-        <span class="terminal-card-subtitle font-normal">Historical behavior, not model projection</span>
-      </div>
-
-      <div class="terminal-card-desc mb-3">
-        Realized forward returns after past days in each power-law quantile bucket (empirical rank vs the Q50 trend).
-        <span id="conditional-returns-now-date" class="text-zinc-400"></span>
-      </div>
-
-      <div id="conditional-returns-summary" class="text-[11px] terminal-text-muted mb-3 px-1 font-light"></div>
-
-      <div class="terminal-table-scroll overflow-x-auto">
-        <table class="projection-table w-full text-sm">
-          <thead>
-            <tr id="conditional-returns-table-head" class="border-b border-[var(--tb-border-muted)]">
-              <th class="text-left font-normal px-4 py-2">Regime bucket</th>
-              <th class="text-right font-normal px-4 py-2">Episodes</th>
-              <th class="text-right font-normal px-4 py-2">+3 months</th>
-              <th class="text-right font-normal px-4 py-2">+6 months</th>
-              <th class="text-right font-normal px-4 py-2">+1 year</th>
-              <th class="text-right font-normal px-4 py-2">+2 years</th>
-            </tr>
-          </thead>
-          <tbody id="conditional-returns-table" class="divide-y text-sm">
-            <tr>
-              <td colspan="6" class="px-4 py-3 terminal-text-muted">
-                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading conditional returns…</span></span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="mt-2 terminal-footnote">
-        Each cell shows median return with 25–75% range in parentheses and hit rate (% of episodes with positive return). Highlighted row = today's quantile regime. Not a forecast.
-      </div>
-    </div>
-
-    <!-- Time Spent Below Quantile -->
-    <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5" id="time-below-quantile-card">
-      <div class="terminal-card-title mb-2 flex items-center justify-between">
-        <span>Time Spent Below Quantile</span>
-        <span class="terminal-card-subtitle font-normal">Historical context for today's power-law rank</span>
-      </div>
-
-      <div class="terminal-card-desc mb-4">
-        Compares today's deviation from the central power-law trend against every trading day in the price history.
-        <span id="time-below-quantile-now-date" class="text-zinc-400"></span>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="terminal-stat-box">
-          <div class="terminal-stat-label">Current Quantile</div>
-          <div id="time-below-current-quantile" class="text-3xl font-semibold font-mono terminal-text-live tabular-nums mt-1">—</div>
-          <div id="time-below-current-quantile-sub" class="terminal-text-muted text-[10px] mt-1">—</div>
-        </div>
-        <div class="terminal-stat-box">
-          <div class="terminal-stat-label">Time Below</div>
-          <div id="time-below-pct" class="text-3xl font-semibold font-mono terminal-text-accent tabular-nums mt-1">—</div>
-          <div id="time-below-pct-sub" class="terminal-text-muted text-[10px] mt-1">—</div>
-        </div>
-      </div>
-
-      <div id="time-below-explanation" class="text-sm terminal-text-muted mt-4 px-1 leading-relaxed">
-        <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading time-below quantile stats…</span></span>
-      </div>
-
-      <div class="mt-3 terminal-footnote">
-        Quantile rank = where today's log-residual sits in the full historical distribution around the Q50 power-law fit. "Time below" counts days since the start of the price history at or below that same rank.
-      </div>
-    </div>
+    <section id="section-today" class="page-section">
+    <div class="page-section-label">Today</div>
 
     <!-- Bitcoin Stats at a Glance -->
-    <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
-      <div class="terminal-card-title mb-3 flex items-center justify-between">
-        <span>Bitcoin Stats at a Glance</span>
-        <span class="terminal-card-subtitle font-normal">Computed from on-chain daily close history</span>
+    <div class="terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
+      <div class="terminal-card-title mb-3">At a glance</div>
+      <div id="bitcoin-stats-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div class="terminal-stat-box px-3 py-2 col-span-2 sm:col-span-3">
+          <span class="inline-flex items-center gap-2 terminal-text-muted text-sm">
+            <span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span>
+            <span class="loading-pulse">Loading snapshot…</span>
+          </span>
+        </div>
       </div>
-
-      <div class="terminal-table-scroll overflow-x-auto">
-        <table class="projection-table w-full text-sm">
-          <thead>
-            <tr class="border-b border-[var(--tb-border-muted)]">
-              <th class="text-left font-normal px-4 py-2">Metric</th>
-              <th class="text-right font-normal px-4 py-2">Value</th>
-              <th class="text-right font-normal px-4 py-2">Context</th>
-            </tr>
-          </thead>
-          <tbody id="bitcoin-stats-table" class="divide-y text-sm">
-            <tr>
-              <td colspan="3" class="px-4 py-3 terminal-text-muted">
-                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading Bitcoin stats…</span></span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
       <div class="mt-2 terminal-footnote">
-        Power-law quantile from <code>/current</code>. Price metrics from <code>/historical</code> daily closes (full history from ~2011 for ATH). 200 DMA / 200 WMA (≈1400d SMA) / Mayer Multiple / RSI (14) / 30d realized vol are computed client-side. Next halving date is an estimate.
+        Daily closes since 2010. 200-week MA is a 1,400-day average.
       </div>
     </div>
 
-    <!-- Mayer Multiple History (new card: full-history oscillator chart + current indicator) -->
+    <!-- Mayer Multiple History -->
     <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-2 flex items-center justify-between">
-        <span>Mayer Multiple History</span>
-        <span class="terminal-card-subtitle font-normal">Price ÷ 200-day SMA (Trace Mayer)</span>
+        <span>Mayer Multiple</span>
+        <span class="terminal-card-subtitle font-normal">Price ÷ 200-day SMA</span>
       </div>
 
       <!-- Range toggle for the Mayer chart -->
@@ -375,15 +291,15 @@
       </div>
 
       <div class="mt-3 terminal-footnote">
-        Independent of the power-law model. Computed client-side from <code>/historical</code> daily closes. SMA window = 200 trading days.
+        Independent of the power-law model. 200-day simple moving average.
       </div>
     </div>
 
     <!-- Bitcoin Historical CAGR -->
     <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-3 flex items-center justify-between">
-        <span>Bitcoin CAGR (Compound Annual Growth Rate)</span>
-        <span class="terminal-card-subtitle font-normal">Historical annualized returns</span>
+        <span>Historical CAGR</span>
+        <span class="terminal-card-subtitle font-normal">Annualized returns to the latest close</span>
       </div>
 
       <div class="terminal-card-desc mb-3">
@@ -412,15 +328,60 @@
       </div>
 
       <div class="mt-2 terminal-footnote">
-        CAGR = (End Price / Start Price) ^ (1 / years) - 1. Uses the closest available daily close within ~30 days of the exact anniversary. Updates with <code>/historical</code> data.
+        Compound annual growth from the closest daily close about N years ago.
+      </div>
+    </div>
+    </section>
+
+    <section id="section-more" class="page-section">
+    <div class="page-section-label">More analysis</div>
+
+    <!-- Conditional forward returns -->
+    <div class="terminal-card terminal-card-accent-model terminal-reveal-in-view p-5" id="conditional-returns-card">
+      <div class="terminal-card-title mb-3 flex items-center justify-between">
+        <span>When cheap, what happened next</span>
+        <span class="terminal-card-subtitle font-normal">Historical, not a forecast</span>
+      </div>
+
+      <div class="terminal-card-desc mb-3">
+        Median forward return after past days in each power-law regime.
+        <span id="conditional-returns-now-date" class="text-zinc-400"></span>
+      </div>
+
+      <div id="conditional-returns-summary" class="text-sm terminal-text-muted mb-3 px-1"></div>
+
+      <div class="terminal-table-scroll overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr id="conditional-returns-table-head" class="border-b border-[var(--tb-border-muted)]">
+              <th class="text-left font-normal px-4 py-2">Regime</th>
+              <th class="text-right font-normal px-4 py-2">n</th>
+              <th class="text-right font-normal px-4 py-2">+3 months</th>
+              <th class="text-right font-normal px-4 py-2">+6 months</th>
+              <th class="text-right font-normal px-4 py-2">+1 year</th>
+              <th class="text-right font-normal px-4 py-2">+2 years</th>
+            </tr>
+          </thead>
+          <tbody id="conditional-returns-table" class="divide-y text-sm">
+            <tr>
+              <td colspan="6" class="px-4 py-3 terminal-text-muted">
+                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading historical returns…</span></span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-2 terminal-footnote">
+        Each cell is the median historical return and episode count. Highlighted row is today’s regime. Not a forecast.
       </div>
     </div>
 
     <!-- Bitcoin vs Gold Market Cap Flip -->
     <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-2 flex items-center justify-between">
-        <span>Bitcoin Gold Flip • Market Cap Crossover</span>
-        <span class="terminal-card-subtitle font-normal">Power law projection vs gold growing at long-term rates</span>
+        <span>vs gold</span>
+        <span class="terminal-card-subtitle font-normal">Model market cap vs gold growing at a set rate</span>
       </div>
 
       <div class="terminal-card-desc mb-3">
@@ -467,8 +428,8 @@
     <!-- Bitcoin vs Major Asset Classes — Rolling Correlations -->
     <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="asset-correlations-card">
       <div class="terminal-card-title mb-2 flex items-center justify-between">
-        <span>Bitcoin vs Major Asset Classes — Rolling Correlations</span>
-        <span class="terminal-card-subtitle font-normal">Daily log-return Pearson correlation</span>
+        <span>vs other assets</span>
+        <span class="terminal-card-subtitle font-normal">Rolling daily return correlation</span>
       </div>
 
       <div class="terminal-card-desc mb-3">
@@ -517,8 +478,8 @@
     <!-- Strengthening Power Law — expanding-window fit quality -->
     <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="fit-strength-card">
       <div class="terminal-card-title mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-        <span>The Strengthening Power Law</span>
-        <span class="terminal-card-subtitle font-normal">Expanding-window OLS fit on log-log data</span>
+        <span>Fit over time</span>
+        <span class="terminal-card-subtitle font-normal">Expanding-window OLS on log-log data</span>
       </div>
 
       <div class="terminal-card-desc mb-3" id="fit-strength-desc">
@@ -579,7 +540,7 @@
     <!-- Santostasi Section 10 — Falsifiability of the Power Law -->
     <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="falsifiability-card">
       <div class="terminal-card-title mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-        <span>Is the Power Law Still Valid?</span>
+        <span>Is the fit still holding?</span>
         <span class="terminal-card-subtitle font-normal">Santostasi §10 falsifiability tests</span>
       </div>
 
@@ -633,6 +594,7 @@
         need on-chain address series and are not monitored here.
       </div>
     </div>
+    </section>
 
     <div class="mt-8 terminal-footer pt-6 pb-2">
       <p class="terminal-disclaimer text-center leading-relaxed max-w-2xl mx-auto px-4">

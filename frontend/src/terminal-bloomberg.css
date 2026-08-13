@@ -88,11 +88,10 @@ body.terminal-bloomberg code {
 }
 
 .terminal-card-title {
-  font-size: 0.9375rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.015em;
   color: var(--tb-text);
-  text-transform: uppercase;
 }
 
 .terminal-card-subtitle {
@@ -176,52 +175,25 @@ body.terminal-bloomberg code {
   border: 1px solid var(--tb-border);
   background: var(--tb-card-inset);
   border-radius: 0.375rem;
-  overflow: hidden;
 }
 
 .terminal-ticker-viewport {
-  overflow: hidden;
-  mask-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    #000 3%,
-    #000 97%,
-    transparent 100%
-  );
+  overflow: visible;
 }
 
 .terminal-ticker-track {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0;
-  padding: 0.5rem 0.75rem;
-  white-space: nowrap;
+  gap: 0.15rem 0;
+  padding: 0.55rem 0.85rem;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.6875rem;
-  letter-spacing: 0.03em;
-}
-
-.terminal-ticker-track--ready {
-  animation: terminal-ticker-scroll 48s linear infinite;
+  font-size: 0.8125rem;
+  letter-spacing: 0.01em;
 }
 
 .terminal-ticker-track--ready.terminal-ticker-track--entering {
-  animation:
-    terminal-ticker-fade-in 0.45s ease forwards,
-    terminal-ticker-scroll 48s linear 0.45s infinite;
-}
-
-.terminal-ticker-item--pulse .terminal-ticker-value {
-  animation: terminal-ticker-pulse 2.8s ease-in-out infinite;
-}
-
-.terminal-ticker-track--ready:hover {
-  animation-play-state: paused;
-}
-
-@keyframes terminal-ticker-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  animation: terminal-ticker-fade-in 0.45s ease forwards;
 }
 
 .terminal-ticker-item {
@@ -233,10 +205,9 @@ body.terminal-bloomberg code {
 
 .terminal-ticker-label {
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 0.5625rem;
+  font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--tb-text-dim);
 }
 
@@ -254,9 +225,8 @@ body.terminal-bloomberg code {
 .terminal-ticker-loading,
 .terminal-ticker-error {
   color: var(--tb-text-dim);
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
 }
 
 .terminal-ticker-error {
@@ -288,24 +258,22 @@ body.terminal-bloomberg code {
   50% { opacity: 0.82; text-shadow: 0 0 6px rgba(34, 211, 238, 0.35); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .terminal-ticker-track--ready {
-    animation: none;
-    flex-wrap: wrap;
-    white-space: normal;
-    row-gap: 0.35rem;
-  }
+.page-section {
+  scroll-margin-top: 1.5rem;
+}
 
+.page-section-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tb-text-dim);
+  margin: 1.75rem 0 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
   .terminal-ticker-track--entering {
     animation: none;
-  }
-
-  .terminal-ticker-item--pulse .terminal-ticker-value {
-    animation: none;
-  }
-
-  .terminal-ticker-viewport {
-    mask-image: none;
   }
 
   .terminal-reveal-stagger-1,

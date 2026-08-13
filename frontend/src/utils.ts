@@ -125,14 +125,10 @@ export function formatConditionalReturnCell(stats: ConditionalHorizonStats): { m
   if (!stats.count || stats.median_return == null) {
     return { main: '—', sub: '' };
   }
-  const main = formatReturnPct(stats.median_return);
-  const range =
-    stats.p25_return != null && stats.p75_return != null
-      ? `${formatReturnPct(stats.p25_return)} – ${formatReturnPct(stats.p75_return)}`
-      : '';
-  const hit = stats.hit_rate != null ? `${Math.round(stats.hit_rate * 100)}% positive` : '';
-  const sub = [range, hit].filter(Boolean).join(' · ');
-  return { main, sub };
+  return {
+    main: formatReturnPct(stats.median_return),
+    sub: `${stats.count.toLocaleString()} episodes`,
+  };
 }
 
 export function conditionalReturnColorClass(value: number | null): string {

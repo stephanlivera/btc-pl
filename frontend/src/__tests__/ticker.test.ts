@@ -11,18 +11,19 @@ describe('buildTickerStripHtml', () => {
     return pts;
   })();
 
-  it('includes all v1 tape fields', () => {
+  it('includes the static KPI fields once', () => {
     const stats = computeBitcoinGlancePriceStats(points, '2026-07-04');
     expect(stats).not.toBeNull();
 
     const html = buildTickerStripHtml(stats!, { quantile: 0.62, quantile_label: 'Q62', deviation_pct: 12.4 }, '2026-07-04');
 
-    for (const label of ['BTC', 'AS OF', 'QUANTILE', 'VS Q50', 'VS ATH', 'YTD', '30D', 'MAYER', 'RSI (14)', 'VOL 30D']) {
+    for (const label of ['BTC', 'Q', 'vs Q50', 'vs ATH', 'Mayer']) {
       expect(html).toContain(label);
     }
+    expect(html).not.toContain('AS OF');
+    expect(html).not.toContain('RSI (14)');
     expect(html).toContain('Q62');
     expect(html).toContain('+12.4%');
-    // Duplicated for marquee loop
-    expect(html.split('BTC').length).toBeGreaterThan(2);
+    expect(html.split('>BTC<').length).toBe(2);
   });
 });

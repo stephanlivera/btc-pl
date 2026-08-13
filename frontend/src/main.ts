@@ -181,7 +181,7 @@ async function init() {
   updateDataFreshnessDisplay();
   setAppLoadingMessage('Loading power law chart and price data…');
 
-  await loadAndRender('1y');
+  await loadAndRender('5y');
 
   setAppLoadingMessage('Loading analysis panels…');
 

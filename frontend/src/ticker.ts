@@ -3,7 +3,6 @@ import { state } from './state';
 import {
   formatPrice,
   formatReturnPct,
-  ordinal,
   computeBitcoinGlancePriceStats,
   conditionalReturnColorClass,
 } from './utils';
@@ -42,46 +41,26 @@ export function buildTickerStripHtml(
     quantile_label?: string;
     deviation_pct?: number;
   },
-  asOfDate: string,
+  _asOfDate: string,
 ): string {
-  const asOfLabel = asOfDate
-    ? new Date(asOfDate + 'T00:00:00Z').toLocaleDateString('en-US', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      })
-    : '—';
-
   const quantileLabel = pos.quantile_label ?? '—';
-  const quantilePct =
-    typeof pos.quantile === 'number' ? `${ordinal(Math.round(pos.quantile * 100))} pctile` : '—';
-
-  const volLabel =
-    stats.realizedVol30d != null ? `${(stats.realizedVol30d * 100).toFixed(1)}% ann.` : '—';
 
   const items = [
-    tickerItem('BTC', formatPrice(stats.currentPrice), tu.textLive, true),
-    tickerItem('AS OF', asOfLabel, tu.textMuted),
-    tickerItem('QUANTILE', `${quantileLabel} (${quantilePct})`, tu.textAccent, true),
-    tickerItem('VS Q50', formatDeviationPct(pos.deviation_pct), deviationColorClass(pos.deviation_pct)),
-    tickerItem('VS ATH', formatReturnPct(stats.ath.pctFromAth), conditionalReturnColorClass(stats.ath.pctFromAth)),
-    tickerItem('YTD', formatReturnPct(stats.ytdReturn), conditionalReturnColorClass(stats.ytdReturn)),
-    tickerItem('30D', formatReturnPct(stats.return30d), conditionalReturnColorClass(stats.return30d)),
-    tickerItem('MAYER', stats.mayerMultiple.toFixed(2), tu.textAccent),
-    tickerItem('RSI (14)', stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—', tu.textLive),
-    tickerItem('VOL 30D', volLabel, tu.textMuted),
+    tickerItem('BTC', formatPrice(stats.currentPrice), tu.textLive),
+    tickerItem('Q', quantileLabel, tu.textAccent),
+    tickerItem('vs Q50', formatDeviationPct(pos.deviation_pct), deviationColorClass(pos.deviation_pct)),
+    tickerItem('vs ATH', formatReturnPct(stats.ath.pctFromAth), conditionalReturnColorClass(stats.ath.pctFromAth)),
+    tickerItem('Mayer', stats.mayerMultiple.toFixed(2), tu.textAccent),
   ];
 
-  const strip = items.join(tickerSep());
-  // Duplicate for seamless marquee loop
-  return `${strip}${tickerSep()}${strip}`;
+  return items.join(tickerSep());
 }
 
 export async function loadTickerStrip(): Promise<void> {
   const track = document.getElementById('terminal-ticker-track');
   if (!track) return;
 
-  track.innerHTML = `<span class="terminal-ticker-loading">Loading market tape…</span>`;
+  track.innerHTML = `<span class="terminal-ticker-loading">Loading snapshot…</span>`;
   track.classList.remove('terminal-ticker-track--ready');
 
   try {
@@ -94,7 +73,7 @@ export async function loadTickerStrip(): Promise<void> {
 
     const stats = computeBitcoinGlancePriceStats(points, asOfDate);
     if (!stats) {
-      track.innerHTML = `<span class="terminal-ticker-error">Tape unavailable — insufficient price history</span>`;
+      track.innerHTML = `<span class="terminal-ticker-error">Snapshot unavailable — insufficient price history</span>`;
       return;
     }
 
@@ -104,6 +83,6 @@ export async function loadTickerStrip(): Promise<void> {
     window.setTimeout(() => track.classList.remove('terminal-ticker-track--entering'), 500);
   } catch (err) {
     console.error('Failed to load ticker strip', err);
-    track.innerHTML = `<span class="terminal-ticker-error">Tape unavailable — is the backend running?</span>`;
+    track.innerHTML = `<span class="terminal-ticker-error">Snapshot unavailable — is the backend running?</span>`;
   }
 }

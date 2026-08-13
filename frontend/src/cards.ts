@@ -14,8 +14,6 @@ import {
   findNearestPoint,
   getCurveValue,
   quantileLabel,
-  buildTimeBelowQuantileExplanation,
-  formatTimeBelowQuantileSubtext,
   formatQuantilePercentileSubtext,
   formatDeviationPct,
   END_OF_2035_DAYS as IMPORTED_END_OF_2035_DAYS,
@@ -37,7 +35,6 @@ import {
   conditionalReturnColorClass,
   computeBitcoinGlancePriceStats,
   rsiContextLabel,
-  ordinal,
   buildFitStrengthColoredSegments,
   falsifiabilityStatusClass,
   falsifiabilityStatusLabel,
@@ -258,9 +255,7 @@ export async function fetchConditionalReturns() {
   return res.json();
 }
 
-export function conditionalBucketRowColor(low: number): string {
-  if (low < 0.25) return tu.textPositive;
-  if (low >= 0.75) return tu.textNegative;
+export function conditionalBucketRowColor(_low: number): string {
   return 'text-[var(--tb-text)]';
 }
 
@@ -304,10 +299,9 @@ export async function loadConditionalReturnsCard() {
           count: 0,
         };
         const { main, sub } = formatConditionalReturnCell(stats);
-        const color = conditionalReturnColorClass(stats.median_return);
         return `
           <td class="px-4 py-2 text-right ${rowClass}">
-            <div class="font-mono ${color}">${main}</div>
+            <div class="font-mono text-[var(--tb-text)]">${main}</div>
             ${sub ? `<div class="text-[10px] terminal-text-muted mt-0.5">${sub}</div>` : ''}
           </td>
         `;
@@ -331,12 +325,12 @@ export async function loadConditionalReturnsCard() {
       const sixMonth = currentBucket?.horizons?.['183'] as ConditionalHorizonStats | undefined;
       let extra = '';
       if (sixMonth?.median_return != null) {
-        extra = ` In this bucket, the historical median <span class="font-mono terminal-text-accent">${formatReturnPct(sixMonth.median_return)}</span> 6-month return was observed across <span class="font-mono">${sixMonth.count?.toLocaleString() ?? '—'}</span> episodes.`;
+        extra = ` Median 6-month return in this bucket: ${formatReturnPct(sixMonth.median_return)} (n=${sixMonth.count?.toLocaleString() ?? '—'}).`;
       }
       summaryEl.innerHTML =
-        `Today is <span class="font-semibold">${current.quantile_label ?? 'Q??'}</span> ` +
-        `(${formatQuantilePercentileSubtext(current.quantile).replace(' percentile vs model', ' percentile')})` +
-        ` — highlighted row shows how BTC typically moved after past days in the same regime.${extra}`;
+        `Today is ${current.quantile_label ?? 'Q??'} ` +
+        `(${formatQuantilePercentileSubtext(current.quantile).replace(' percentile vs model', ' percentile')}).` +
+        extra;
     }
   } catch (err) {
     console.error('Failed to load conditional returns card', err);
@@ -346,19 +340,7 @@ export async function loadConditionalReturnsCard() {
 }
 
 export async function loadTimeBelowQuantileCard() {
-  const card = document.getElementById('time-below-quantile-card');
-  if (!card) return;
-
-  const quantileEl = document.getElementById('time-below-current-quantile');
-  const quantileSubEl = document.getElementById('time-below-current-quantile-sub');
-  const pctEl = document.getElementById('time-below-pct');
-  const pctSubEl = document.getElementById('time-below-pct-sub');
-  const explanationEl = document.getElementById('time-below-explanation');
-  const nowDateEl = document.getElementById('time-below-quantile-now-date');
-
-  if (nowDateEl && state.currentDataEndDate) {
-    nowDateEl.textContent = ` (through ${state.currentDataEndDate})`;
-  }
+  const line = document.getElementById('chart-time-below-line');
 
   try {
     const data = await fetchCurrentPosition();
@@ -370,41 +352,14 @@ export async function loadTimeBelowQuantileCard() {
       throw new Error('time_below_quantile missing from /current response');
     }
 
-    // Prefer time_below block, but labels must match position (same backend source).
-    const qLabel = stats.quantile_label || pos.quantile_label || 'Q??';
     const timeBelow = stats.time_below_pct;
-
-    if (quantileEl) quantileEl.textContent = qLabel;
-    if (quantileSubEl) {
-      quantileSubEl.textContent = formatQuantilePercentileSubtext(stats.current_quantile ?? pos.quantile ?? 0);
-    }
-    if (pctEl) pctEl.textContent = `${timeBelow.toFixed(1)}%`;
-    if (pctSubEl && stats.days_at_or_below != null && stats.total_days != null) {
-      pctSubEl.textContent = formatTimeBelowQuantileSubtext(
-        stats.days_at_or_below,
-        stats.total_days,
-        stats.since_date,
-      );
-    }
-
-    if (explanationEl) {
-      explanationEl.textContent = buildTimeBelowQuantileExplanation({
-        currentQuantile: stats.current_quantile ?? pos.quantile ?? 0,
-        quantileLabel: qLabel,
-        timeBelowPct: timeBelow,
-        sinceDate: stats.since_date,
-      });
-    }
-
     updateChartSnapshot(timeBelow);
-  } catch (err) {
-    console.error('Failed to load time-below quantile card', err);
-    if (quantileEl) quantileEl.textContent = '—';
-    if (pctEl) pctEl.textContent = '—';
-    if (explanationEl) {
-      explanationEl.textContent = 'Failed to load time-below quantile stats (is the backend running?).';
-      explanationEl.classList.add('terminal-text-error');
+    if (line) {
+      line.textContent = `${timeBelow.toFixed(1)}% of days have been this cheap versus the model.`;
     }
+  } catch (err) {
+    console.error('Failed to load time-below quantile stats', err);
+    if (line) line.textContent = '';
   }
 }
 
@@ -840,11 +795,19 @@ export function populateGoldFlipTable(selectedRate?: number) {
   });
 }
 
-export async function loadBitcoinStatsCard() {
-  const tableBody = document.getElementById('bitcoin-stats-table') as HTMLElement | null;
-  if (!tableBody) return;
+function glanceStatBox(label: string, value: string, sub: string, valueClass = 'text-[var(--tb-text)]'): string {
+  return `
+    <div class="terminal-stat-box px-3 py-2">
+      <div class="terminal-stat-label">${label}</div>
+      <div class="font-mono font-semibold mt-0.5 ${valueClass}">${value}</div>
+      <div class="text-[11px] terminal-text-muted mt-0.5">${sub}</div>
+    </div>
+  `;
+}
 
-  tableBody.innerHTML = skeletonTableRows(3, 6);
+export async function loadBitcoinStatsCard() {
+  const grid = document.getElementById('bitcoin-stats-grid') as HTMLElement | null;
+  if (!grid) return;
 
   try {
     const asOfDate = state.currentDataEndDate ?? '';
@@ -853,127 +816,56 @@ export async function loadBitcoinStatsCard() {
       fetchCurrentPosition(),
     ]);
     cacheCurrentPosition(posData?.position);
-    // Keep mobile snapshot in sync if glance loads after / before time-below card.
     updateChartSnapshot();
 
     const stats = computeBitcoinGlancePriceStats(points, asOfDate);
     if (!stats) {
-      tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 terminal-text-error">Not enough price history</td></tr>`;
+      grid.innerHTML = `<div class="terminal-stat-box px-3 py-2 col-span-2 sm:col-span-3 terminal-text-error">Not enough price history</div>`;
       return;
     }
 
-    const pos = posData?.position ?? {};
-    const fmtPrice = (p: number) => formatPrice(p);
     const fmtRet = (r: number | null) => formatReturnPct(r);
-    const retColor = (r: number | null) => conditionalReturnColorClass(r);
-
-    const currentDate = asOfDate
-      ? new Date(asOfDate + 'T00:00:00Z').toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        })
-      : '';
-
     const athDate = daysToDate(stats.ath.athDay).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
     });
-    const athContext =
-      stats.ath.pctFromAth >= -0.001
-        ? `at ATH · ${athDate}`
-        : `${fmtRet(stats.ath.pctFromAth)} below ATH · ${athDate}`;
-
-    const quantileLabel = pos.quantile_label ?? '—';
-    const quantilePct =
-      typeof pos.quantile === 'number' ? ordinal(Math.round(pos.quantile * 100)) : '—';
-    const devPct =
-      typeof pos.deviation_pct === 'number'
-        ? `${pos.deviation_pct >= 0 ? '+' : ''}${pos.deviation_pct.toFixed(1)}%`
-        : '—';
-    const modelQ50 =
-      typeof pos.model_q50 === 'number' ? fmtPrice(pos.model_q50) : '—';
-
     const dmaVs = ((stats.currentPrice / stats.dma200 - 1) * 100);
-    const wmaVs = ((stats.currentPrice / stats.wma200 - 1) * 100);
-
     const ytdYear = asOfDate ? asOfDate.slice(0, 4) : 'YTD';
-    const volPct =
-      stats.realizedVol30d != null
-        ? `${(stats.realizedVol30d * 100).toFixed(1)}% ann.`
-        : '—';
+    const nextHalving =
+      stats.halving.daysUntilNextHalving != null
+        ? `~${stats.halving.daysUntilNextHalving.toLocaleString()}d to next`
+        : 'next date unavailable';
 
-    const halvingContext = stats.halving.daysUntilNextHalving != null
-      ? `~${stats.halving.daysUntilNextHalving.toLocaleString()}d to next halving (est.)`
-      : 'next halving estimate unavailable';
-
-    const rowsHtml = `
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Current Price</td>
-        <td class="px-4 py-2 text-right font-mono terminal-text-live">${fmtPrice(stats.currentPrice)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${currentDate}</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Power-Law Quantile</td>
-        <td class="px-4 py-2 text-right font-mono terminal-text-live font-semibold">${quantileLabel} <span class="text-xs font-normal terminal-text-muted">(${quantilePct} pctile)</span></td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${devPct} vs Q50 · model ${modelQ50}</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">All-Time High</td>
-        <td class="px-4 py-2 text-right font-mono terminal-text-gold">${fmtPrice(stats.ath.athPrice)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${athContext}</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">YTD Return</td>
-        <td class="px-4 py-2 text-right font-mono ${retColor(stats.ytdReturn)}">${fmtRet(stats.ytdReturn)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">since Jan 1, ${ytdYear}</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">30-Day Return</td>
-        <td class="px-4 py-2 text-right font-mono ${retColor(stats.return30d)}">${fmtRet(stats.return30d)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">simple return</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">90-Day Return</td>
-        <td class="px-4 py-2 text-right font-mono ${retColor(stats.return90d)}">${fmtRet(stats.return90d)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">simple return</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">200-Day MA (DMA)</td>
-        <td class="px-4 py-2 text-right font-mono terminal-text-gold">${fmtPrice(stats.dma200)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${dmaVs.toFixed(1)}% ${dmaVs >= 0 ? 'above' : 'below'}</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">200-Week MA (WMA)</td>
-        <td class="px-4 py-2 text-right font-mono terminal-text-gold">${fmtPrice(stats.wma200)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">≈1400d SMA; ${wmaVs.toFixed(1)}% ${wmaVs >= 0 ? 'above' : 'below'}</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Mayer Multiple</td>
-        <td class="px-4 py-2 text-right font-mono terminal-text-accent font-semibold">${stats.mayerMultiple.toFixed(2)}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">Price ÷ 200 DMA</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">RSI (14)</td>
-        <td class="px-4 py-2 text-right font-mono terminal-text-live">${stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—'}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">${stats.rsi14 != null ? rsiContextLabel(stats.rsi14) : '—'}</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">30d Realized Vol</td>
-        <td class="px-4 py-2 text-right font-mono text-[var(--tb-text)]">${volPct}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">annualized from daily log returns</td>
-      </tr>
-      <tr>
-        <td class="px-4 py-2 text-[var(--tb-text)] font-medium">Halving Cycle</td>
-        <td class="px-4 py-2 text-right font-mono text-[var(--tb-text)]">Day ${stats.halving.daysSinceHalving.toLocaleString()}</td>
-        <td class="px-4 py-2 text-right text-xs terminal-text-muted">post-${ordinal(stats.halving.halvingNumber)} halving (${stats.halving.lastHalvingDate.slice(0, 7)}) · ${halvingContext}</td>
-      </tr>
-    `;
-    tableBody.innerHTML = rowsHtml;
+    grid.innerHTML = [
+      glanceStatBox(
+        'All-time high',
+        formatPrice(stats.ath.athPrice),
+        stats.ath.pctFromAth >= -0.001 ? `at ATH · ${athDate}` : `${fmtRet(stats.ath.pctFromAth)} · ${athDate}`,
+        tu.textGold,
+      ),
+      glanceStatBox('YTD', fmtRet(stats.ytdReturn), `since Jan 1, ${ytdYear}`),
+      glanceStatBox('90-day', fmtRet(stats.return90d), 'simple return'),
+      glanceStatBox(
+        '200-day MA',
+        formatPrice(stats.dma200),
+        `${dmaVs.toFixed(1)}% ${dmaVs >= 0 ? 'above' : 'below'}`,
+        tu.textGold,
+      ),
+      glanceStatBox(
+        'RSI (14)',
+        stats.rsi14 != null ? stats.rsi14.toFixed(1) : '—',
+        stats.rsi14 != null ? rsiContextLabel(stats.rsi14) : '—',
+      ),
+      glanceStatBox(
+        'Halving cycle',
+        `Day ${stats.halving.daysSinceHalving.toLocaleString()}`,
+        nextHalving,
+      ),
+    ].join('');
   } catch (err) {
     console.error('Failed to load bitcoin stats', err);
-    tableBody.innerHTML = `<tr><td colspan="3" class="px-4 py-3 terminal-text-error">Failed to load stats (backend /historical?)</td></tr>`;
+    grid.innerHTML = `<div class="terminal-stat-box px-3 py-2 col-span-2 sm:col-span-3 terminal-text-error">Failed to load stats</div>`;
   }
 }
 

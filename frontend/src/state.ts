@@ -8,9 +8,9 @@ export const state = {
   currentLatestDays: 6355,
   currentDataEndDate: null as string | null,
 
-  currentRange: '1y' as 'all' | '5y' | '3y' | '1y',
+  currentRange: '5y' as 'all' | '5y' | '3y' | '1y',
   showBands: true,
-  showOuterBands: true,
+  showOuterBands: false,
   chart: null as any,
 
   // Gold flip card

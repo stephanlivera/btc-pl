@@ -219,7 +219,7 @@ describe('conditional return formatters', () => {
     expect(formatReturnPct(null)).toBe('—');
   });
 
-  it('builds a median + range + hit-rate cell', () => {
+  it('builds a median + episode-count cell', () => {
     const cell = formatConditionalReturnCell({
       median_return: 0.18,
       p25_return: -0.05,
@@ -228,9 +228,7 @@ describe('conditional return formatters', () => {
       count: 120,
     });
     expect(cell.main).toBe('+18.0%');
-    expect(cell.sub).toContain('-5.0%');
-    expect(cell.sub).toContain('+35.0%');
-    expect(cell.sub).toContain('64% positive');
+    expect(cell.sub).toBe('120 episodes');
   });
 
   it('colors returns by sign and magnitude', () => {
