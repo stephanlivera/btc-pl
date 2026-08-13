@@ -58,14 +58,14 @@
 
     <!-- Chart Card -->
     <div id="main-chart-card" class="terminal-card terminal-card-hero terminal-card-accent-hero terminal-reveal-stagger-3 p-4 sm:p-6">
-      <div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-1">
-        <div>
+      <div class="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 px-1">
+        <div class="min-w-0 max-w-sm lg:max-w-md">
           <div class="terminal-card-title">Power Law + Quantile Corridor</div>
-          <div class="terminal-card-subtitle mt-0.5">Quantile regression analysis</div>
+          <p class="terminal-card-desc mt-1">Q50 is the fitted power law. Other bands are historical rich/cheap offsets around that line, compressed after the last data day — not separate forecasts.</p>
         </div>
 
         <!-- Controls -->
-        <div class="terminal-chart-controls flex flex-wrap items-center gap-2 text-xs">
+        <div class="terminal-chart-controls flex flex-wrap items-center justify-start sm:justify-end gap-2 text-xs shrink-0">
           <!-- Time Range -->
           <div class="terminal-control-group">
             <span class="terminal-control-label">RANGE</span>
@@ -171,13 +171,9 @@
     <div class="mt-6 terminal-card terminal-card-accent-model terminal-reveal-in-view p-5">
       <div class="terminal-card-title mb-3 flex items-center justify-between">
         <span>Power Law Year-End Projections (Next 10 Years)</span>
-        <span class="terminal-card-subtitle font-normal">Model projections from quantile regression</span>
+        <span class="terminal-card-subtitle font-normal">Same curves as the chart</span>
       </div>
 
-      <div class="terminal-card-desc mb-3">
-        The table shows the same bands as the chart. Use the toggles above to show or hide Q25–Q75 and Q10–Q90.
-      </div>
-      
       <div class="terminal-table-scroll overflow-x-auto">
         <table class="projection-table w-full text-sm">
           <thead>
@@ -192,13 +188,13 @@
       </div>
       
       <div class="mt-2 terminal-footnote">
-        These are deterministic outputs from the power law quantile regression model.
+        Q50 is the trend at each 31 Dec; other columns are that corridor, not 10/25/75/90% outcome probabilities. Toggle bands on the chart.
       </div>
 
       <div id="projections-scenario" class="projections-scenario mt-5 pt-4 border-t border-[var(--tb-border-muted)]">
         <div class="terminal-card-subtitle mb-1">Scenario explorer</div>
         <p class="terminal-card-desc mb-3">
-          Pick a future year-end and model quantile to see the implied price and CAGR from today's actual BTC price.
+          Pick a year-end and a corridor line to see the implied price and CAGR from today's actual BTC price.
         </p>
 
         <div class="flex flex-col sm:flex-row sm:items-end gap-3 mb-3">
@@ -207,7 +203,7 @@
             <select id="scenario-year-select" class="projections-scenario-select w-full"></select>
           </div>
           <div class="flex-1 min-w-0">
-            <div class="terminal-control-label mb-1.5">Model quantile</div>
+            <div class="terminal-control-label mb-1.5">Corridor line</div>
             <div id="scenario-quantile-chips" class="flex flex-wrap gap-1.5"></div>
           </div>
         </div>

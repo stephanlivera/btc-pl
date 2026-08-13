@@ -103,17 +103,22 @@ body.terminal-bloomberg code {
   color: var(--tb-text-dim);
 }
 
-.terminal-card-desc,
+.terminal-card-desc {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--tb-text-muted);
+}
+
 .terminal-footnote {
-  font-size: 0.625rem;
-  line-height: 1.5;
-  color: var(--tb-text-dim);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--tb-text-muted);
 }
 
 .terminal-card-desc code,
 .terminal-footnote code {
-  font-size: 0.6rem;
-  color: var(--tb-text-muted);
+  font-size: 0.8125rem;
+  color: var(--tb-text);
   background: rgba(30, 41, 59, 0.5);
   padding: 0.1rem 0.3rem;
   border-radius: 0.2rem;
@@ -907,9 +912,12 @@ body.terminal-bloomberg .terminal-shell {
     gap: 0.25rem;
   }
 
-  .terminal-card-desc,
+  .terminal-card-desc {
+    font-size: 0.8125rem;
+  }
+
   .terminal-footnote {
-    font-size: 0.6875rem;
+    font-size: 0.875rem;
   }
 
   body.terminal-bloomberg .projection-table {
