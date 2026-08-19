@@ -9,12 +9,25 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List
+from typing import List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .asset_correlations import AssetCorrelationModel
+from .monte_carlo import (
+    DEFAULT_HALF_LIFE_MONTHS,
+    DEFAULT_N_PATHS,
+    DEFAULT_VOL_SCALE,
+    MAX_HORIZON_DAYS,
+    MAX_PATHS,
+    MAX_SAMPLE_PATHS,
+    MIN_HORIZON_DAYS,
+    MIN_PATHS,
+    build_calibration,
+    run_simulation,
+)
 from .quantile_model import QuantilePowerLawModel
 
 # Configurable data paths (Docker / Render / Vercel). Repo root = parent of backend/.
@@ -303,6 +316,65 @@ def reload_correlations():
             "status": "success",
             "data_end_date": correlation_model.data_end_date,
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class MonteCarloSimulateRequest(BaseModel):
+    horizon_days: int = Field(..., ge=MIN_HORIZON_DAYS, le=MAX_HORIZON_DAYS)
+    half_life_months: float = Field(DEFAULT_HALF_LIFE_MONTHS, ge=1.0, le=60.0)
+    vol_scale: float = Field(DEFAULT_VOL_SCALE, ge=0.1, le=3.0)
+    n_paths: int = Field(DEFAULT_N_PATHS, ge=MIN_PATHS, le=MAX_PATHS)
+    soft_floor: bool = False
+    shock: Literal["normal", "student_t"] = "normal"
+    seed: Optional[int] = None
+    output_step: int = Field(7, ge=1, le=30)
+    sample_paths: int = Field(16, ge=0, le=MAX_SAMPLE_PATHS)
+
+
+@app.get("/monte-carlo/calibration")
+def get_monte_carlo_calibration():
+    """Q50 residual series + OU defaults for the Monte Carlo futures card.
+
+    The browser runs interactive path ensembles from these calibrated
+    parameters (and can later switch to residual-bootstrap using the
+    returned residual_series). POST /monte-carlo/simulate is available
+    for larger server-side ensembles.
+    """
+    if not model.results:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not fitted yet. Call /refit or restart the service after ensuring btc_daily.csv exists.",
+        )
+    try:
+        return build_calibration(model)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/monte-carlo/simulate")
+def post_monte_carlo_simulate(req: MonteCarloSimulateRequest):
+    """Run an OU residual ensemble around the live Q50 power-law trend."""
+    if not model.results:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not fitted yet. Call /refit or restart the service after ensuring btc_daily.csv exists.",
+        )
+    try:
+        return run_simulation(
+            model,
+            horizon_days=req.horizon_days,
+            half_life_months=req.half_life_months,
+            vol_scale=req.vol_scale,
+            n_paths=req.n_paths,
+            soft_floor=req.soft_floor,
+            shock=req.shock,
+            seed=req.seed,
+            output_step=req.output_step,
+            sample_paths=req.sample_paths,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

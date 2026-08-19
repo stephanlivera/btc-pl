@@ -231,6 +231,31 @@ def test_stats_endpoint_includes_falsifiability_suite():
     assert len(fb.get("rolling_r2_3y_diagnostic") or []) > 10
 
 
+def test_monte_carlo_calibration_endpoint():
+    response = client.get("/monte-carlo/calibration")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["meta"]["mode"] == "ou"
+    assert data["current"]["price"] > 0
+    assert data["ou"]["sigma"] > 0
+    assert data["ou"]["defaults"]["half_life_months"] == 10
+    assert data["ou"]["defaults"]["n_paths"] == 250
+    assert len(data["history"]["points"]) > 200
+    assert len(data["residual_series"]["values"]) > 1000
+
+
+def test_monte_carlo_simulate_endpoint():
+    response = client.post(
+        "/monte-carlo/simulate",
+        json={"horizon_days": 365, "n_paths": 30, "seed": 1},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "ou"
+    assert data["median"][0] == pytest.approx(data["current"]["price"], rel=1e-3)
+    assert data["q10"][-1] <= data["q90"][-1]
+
+
 def test_correlations_endpoint():
     response = client.get("/correlations?window=90&step=7")
     assert response.status_code == 200

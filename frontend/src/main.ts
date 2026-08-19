@@ -27,6 +27,7 @@ import {
   loadFalsifiabilityCard,
   renderGoldFlipChart,
 } from './cards';
+import { loadMonteCarloCard } from './monteCarloCard';
 import { loadTickerStrip } from './ticker';
 import { initMotion, revealStaggerSequence } from './motion';
 
@@ -197,6 +198,7 @@ async function init() {
     loadAssetCorrelationsCard(),
     loadFitStrengthCard(),
     loadFalsifiabilityCard(),
+    loadMonteCarloCard(),
   ]);
 
   hideAppLoading();

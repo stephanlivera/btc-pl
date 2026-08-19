@@ -33,6 +33,9 @@ export const state = {
   fitStrengthBetaChart: null as any,
   fitStrengthR2Chart: null as any,
 
+  // Power Law Monte Carlo futures card
+  monteCarloChart: null as any,
+
   // Tooltip / chart context
   lastHistoricalPoints: [] as Array<{ x: number; y: number }>,
   lastCurves: {} as Record<string, Array<{ x: number; y: number }>>,

@@ -596,6 +596,126 @@
     </div>
     </section>
 
+    <section id="section-futures" class="page-section">
+    <div class="page-section-label">Futures</div>
+
+    <div class="terminal-card terminal-card-accent-model terminal-reveal-in-view p-5" id="monte-carlo-card">
+      <div class="terminal-card-title mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <span>Power Law Monte Carlo Futures</span>
+        <span class="terminal-card-subtitle font-normal">OU residuals around Q50 <span id="mc-through"></span></span>
+      </div>
+
+      <div class="mc-disclaimer mb-4" role="note">
+        <strong>Educational simulation only — not a forecast, valuation, or investment recommendation.</strong>
+        These paths are random draws from a simple mean-reverting model of the log<sub>10</sub> residual around
+        the fitted Q50 power-law trend. They illustrate a range of trajectories consistent with that model,
+        not probabilities of what Bitcoin will do. Past residual behavior does not predict the future.
+      </div>
+
+      <p class="terminal-card-desc mb-3">
+        Every path starts at today's price. The residual
+        <span class="font-mono text-[var(--tb-text)]">r = log₁₀(price) − log₁₀(Q50)</span>
+        then follows a daily Ornstein–Uhlenbeck step
+        <span class="font-mono text-[var(--tb-text)]">r ← r − κ(r − 0)Δt + σ√Δt · Z</span>
+        with <span class="font-mono text-[var(--tb-text)]">κ = ln(2) / half-life</span>.
+        The deterministic power-law trend is projected forward and the residual path is added back.
+      </p>
+
+      <div class="mc-controls mb-3">
+        <div class="mc-control-row">
+          <span class="terminal-control-label">Horizon</span>
+          <div id="mc-horizon-controls" class="terminal-control-group"></div>
+        </div>
+
+        <div class="mc-control-row mc-control-row--slider">
+          <div class="flex items-baseline justify-between gap-2">
+            <label for="mc-half-life" class="terminal-control-label">Mean-reversion half-life</label>
+            <span id="mc-half-life-value" class="font-mono text-xs terminal-text-accent">10 mo</span>
+          </div>
+          <input id="mc-half-life" class="mc-range" type="range" min="3" max="24" step="1" value="10" />
+          <div class="flex items-baseline justify-between gap-2">
+            <span id="mc-half-life-hint" class="text-[11px] terminal-text-muted">3–24 months</span>
+            <span id="mc-kappa-readout" class="text-[11px] font-mono terminal-text-muted">κ = —</span>
+          </div>
+        </div>
+
+        <div class="mc-control-row mc-control-row--slider">
+          <div class="flex items-baseline justify-between gap-2">
+            <label for="mc-vol-scale" class="terminal-control-label">Volatility scale</label>
+            <span class="text-xs terminal-text-muted"><span id="mc-vol-value" class="font-mono terminal-text-accent">1.00</span> × historical</span>
+          </div>
+          <input id="mc-vol-scale" class="mc-range" type="range" min="0.6" max="1.5" step="0.05" value="1" />
+          <div class="text-[11px] terminal-text-muted">1.0 = historical residual innovation σ</div>
+        </div>
+
+        <div class="mc-control-row">
+          <span class="terminal-control-label">Paths</span>
+          <div id="mc-paths-controls" class="terminal-control-group"></div>
+        </div>
+
+        <details class="mc-advanced">
+          <summary>Advanced</summary>
+          <div class="mc-advanced-body">
+            <div class="flex flex-wrap items-center gap-2">
+              <button id="mc-soft-floor-toggle" type="button" class="terminal-toggle-btn terminal-toggle-off" aria-pressed="false">
+                <span>Soft residual floor (−2σ)</span>
+                <div id="mc-soft-floor-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
+              </button>
+            </div>
+            <div class="mt-3">
+              <span class="terminal-control-label">Shock distribution</span>
+              <div id="mc-shock-controls" class="terminal-control-group mt-1.5"></div>
+            </div>
+            <p class="mt-2 text-[11px] terminal-text-muted">
+              Floor reflects residuals below the historical mean − 2σ. Student's t uses 5 degrees of freedom, scaled to unit variance.
+            </p>
+          </div>
+        </details>
+
+        <div class="mc-control-row mc-control-row--actions">
+          <button id="mc-regenerate" type="button" class="mc-regenerate-btn">Regenerate</button>
+        </div>
+      </div>
+
+      <p id="mc-error" class="hidden text-sm terminal-text-error mb-2 px-1"></p>
+
+      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 360px;">
+        <div id="mc-chart-loading" class="chart-loading-overlay" aria-hidden="true">
+          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
+          <p class="chart-loading-message">Loading residual calibration…</p>
+        </div>
+        <canvas id="mc-futures-chart"></canvas>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2 text-sm">
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">Median at horizon</div>
+          <div id="mc-metric-median" class="font-mono font-semibold mt-0.5 terminal-text-accent">—</div>
+        </div>
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">10–90% range</div>
+          <div id="mc-metric-range" class="font-mono mt-0.5 text-[var(--tb-text)]">—</div>
+        </div>
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">Median vs Q50</div>
+          <div id="mc-metric-vs-trend" class="font-mono mt-0.5 text-[var(--tb-text)]">—</div>
+        </div>
+        <div class="terminal-stat-box px-3 py-2">
+          <div class="terminal-stat-label">Median CAGR</div>
+          <div id="mc-metric-cagr" class="font-mono font-semibold mt-0.5">—</div>
+        </div>
+      </div>
+      <p id="mc-metric-extra" class="text-xs terminal-text-muted px-1 mb-2"></p>
+
+      <div class="mt-2 terminal-footnote">
+        Fan shows simulated 10–90% and 25–75% quantiles of the ensemble, plus a light sample of individual paths.
+        Calibration (current residual, historical σ, residual series) comes from <code>/monte-carlo/calibration</code>.
+        Paths are generated in the browser so sliders stay responsive; the same OU engine is also available at
+        <code>POST /monte-carlo/simulate</code>. Residual-bootstrap is a planned alternative to the OU shocks.
+      </div>
+    </div>
+    </section>
+
     <div class="mt-8 terminal-footer pt-6 pb-2">
       <p class="terminal-disclaimer text-center leading-relaxed max-w-2xl mx-auto px-4">
         <strong>Disclaimer:</strong>

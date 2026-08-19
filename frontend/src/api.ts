@@ -49,6 +49,12 @@ export async function fetchModelStats() {
   return res.json();
 }
 
+export async function fetchMonteCarloCalibration() {
+  const res = await fetch('/api/monte-carlo/calibration');
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  return res.json();
+}
+
 /**
  * Load Q50 coefficients + full-history residuals for tooltip / snapshot quantile ranks.
  *
