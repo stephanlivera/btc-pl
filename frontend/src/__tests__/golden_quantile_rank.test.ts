@@ -69,10 +69,24 @@ describe('golden quantile rank regression (btc_daily.csv)', () => {
     it(`ranks ${goldenDate.date} at ${goldenDate.expected_label} on full history`, () => {
       if (allPoints.length < 100) return;
 
-      const point = allPoints.find(p => p.date === goldenDate.date);
+      // Rank against the golden snapshot, not rows appended after data_end_date.
+      // Those later closes shift the empirical CDF enough to fail toBeCloseTo.
+      const dataEndDate =
+        typeof (golden as { data_end_date?: string }).data_end_date === 'string'
+          ? (golden as { data_end_date: string }).data_end_date
+          : undefined;
+      const referencePoints = dataEndDate
+        ? allPoints.filter(p => p.date <= dataEndDate)
+        : allPoints;
+      const residuals = buildLogResiduals(
+        referencePoints.map(p => ({ x: p.x, y: p.y })),
+        model
+      );
+
+      const point = referencePoints.find(p => p.date === goldenDate.date);
       expect(point, `missing ${goldenDate.date} in btc_daily.csv`).toBeDefined();
 
-      const rank = computePointQuantileRank(fullResiduals, model, point!.x, point!.y);
+      const rank = computePointQuantileRank(residuals, model, point!.x, point!.y);
       expect(rank).not.toBeNull();
       expect(rank!.label).toBe(goldenDate.expected_label);
       expect(rank!.quantile).toBeCloseTo(goldenDate.expected_quantile, 2);
