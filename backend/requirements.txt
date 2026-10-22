@@ -5,3 +5,4 @@ numpy
 statsmodels
 python-dateutil
 requests
+certifi>=2026.10.19
