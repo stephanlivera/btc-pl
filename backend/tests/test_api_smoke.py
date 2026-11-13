@@ -273,3 +273,29 @@ def test_correlations_endpoint():
         assert "90" in row["windows"]
     for pts in data["series"].values():
         assert len(pts) > 100
+
+
+def test_floor_endpoint():
+    response = client.get("/floor")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["quantile"] == 0.01
+    assert data["today"]["floor"] > 0
+    assert data["all_history"]["closes_below"] >= 0
+    assert len(data["ratio_series"]) > 100
+    assert len(data["closest_approaches"]) >= 5
+
+    pos = client.get("/current").json()["position"]
+    assert pos["floor_q1"] > 0
+    assert "floor_gap_pct" in pos
+
+
+def test_curves_floor_quantile_not_decayed():
+    """/curves returns a Q1 floor at a constant ratio to Q50 in the projection."""
+    ref = client.get("/current").json()["meta"]["ref_days"]
+    data = client.get(
+        f"/curves?start_days={ref}&end_days={ref + 3650}&step=3650&quantiles=0.01&quantiles=0.5"
+    ).json()["curves"]
+    first = data["0.01"][0]["y"] / data["0.5"][0]["y"]
+    last = data["0.01"][-1]["y"] / data["0.5"][-1]["y"]
+    assert abs(first - last) < 1e-3

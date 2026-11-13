@@ -28,7 +28,7 @@ from .monte_carlo import (
     build_calibration,
     run_simulation,
 )
-from .quantile_model import QuantilePowerLawModel
+from .quantile_model import FLOOR_QUANTILE, QuantilePowerLawModel
 
 # Configurable data paths (Docker / Render / Vercel). Repo root = parent of backend/.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -163,7 +163,12 @@ def get_parameters():
         "rate": 0.12,
         "min_factor": 0.30,
         "ref_days": model.ref_days,
-        "description": "offset(t) = base_offset * max(min_factor, 1 / (1 + rate * years_ahead)) for t > ref_days"
+        "description": "offset(t) = base_offset * max(min_factor, 1 / (1 + rate * years_ahead)) for t > ref_days",
+        "exempt_quantiles": [0.5, FLOOR_QUANTILE],
+    }
+    response["floor"] = {
+        "quantile": FLOOR_QUANTILE,
+        "note": "Q1 floor is parallel to the Q50 trend and is not decayed in projections.",
     }
 
     return response
@@ -284,6 +289,21 @@ def get_current(
             "similar-residual regimes; scaled_* fields apply those multipliers to today's actual price."
         )
     return response
+
+
+@app.get("/floor")
+def get_floor():
+    """Q1 floor line statistics: today's floor, closes below it, closest approaches by era,
+    and the price ÷ floor series for the floor card."""
+    if not model.results:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not fitted yet. Call /refit or restart the service after ensuring btc_daily.csv exists.",
+        )
+    try:
+        return model.get_floor_summary()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/correlations")

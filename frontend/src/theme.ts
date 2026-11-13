@@ -12,6 +12,8 @@ export const terminal = {
   accentBright: '#fbbf24',
   cyan: '#22d3ee',
   cyanDim: '#0891b2',
+  floor: '#a78bfa',
+  floorFill: 'rgba(167, 139, 250, 0.2)',
   positive: '#34d399',
   negative: '#f87171',
   grid: '#1e293b',
@@ -58,6 +60,7 @@ export const terminalUi = {
   textQ25: 'terminal-text-q25',
   textQ75: 'terminal-text-q75',
   textGold: 'terminal-text-gold',
+  textFloor: 'terminal-text-floor',
   textMuted: 'terminal-text-muted',
   textError: 'terminal-text-error',
 } as const;

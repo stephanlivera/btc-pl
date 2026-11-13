@@ -10,6 +10,7 @@ import {
   setAppLoadingMessage,
   updateBandsToggle,
   updateOuterBandsToggle,
+  updateFloorToggle,
 } from './ui';
 import { loadAndRender } from './mainChart';
 import { state } from './state';
@@ -25,10 +26,10 @@ import {
   loadAssetCorrelationsCard,
   loadFitStrengthCard,
   loadFalsifiabilityCard,
+  loadFloorCard,
   renderGoldFlipChart,
 } from './cards';
 import { loadMonteCarloCard } from './monteCarloCard';
-import { loadTickerStrip } from './ticker';
 import { initMotion, revealStaggerSequence } from './motion';
 
 // --- Event Listeners ---
@@ -167,8 +168,17 @@ function setupControls() {
     loadYearEndProjections();
   });
 
+  const floorToggleBtn = document.getElementById('floor-toggle');
+  floorToggleBtn?.addEventListener('click', () => {
+    state.showFloor = !state.showFloor;
+    updateFloorToggle();
+    loadAndRender(state.currentRange);
+    loadYearEndProjections();
+  });
+
   updateBandsToggle();
   updateOuterBandsToggle();
+  updateFloorToggle();
   initProjectionsScenarioExplorer();
 }
 
@@ -187,8 +197,8 @@ async function init() {
   setAppLoadingMessage('Loading analysis panels…');
 
   await Promise.allSettled([
-    loadTickerStrip(),
     loadYearEndProjections(),
+    loadFloorCard(),
     loadConditionalReturnsCard(),
     loadTimeBelowQuantileCard(),
     loadBitcoinStatsCard(),

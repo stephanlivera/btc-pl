@@ -11,6 +11,9 @@ import {
   type QuantileScenarioResult,
   getTimeTickValues,
   yearLabelForTickDay,
+  formatTimeTickLabel,
+  getLogLadderTicks,
+  FLOOR_QUANTILE,
   findNearestPoint,
   getCurveValue,
   quantileLabel,
@@ -54,11 +57,13 @@ import {
   fetchCurrentPosition,
   fetchLongTermCurves,
   fetchModelStats,
+  fetchFloorSummary,
   goldMcAt,
   computeBtcMcT,
   cacheCurrentPosition,
 } from './api';
-import { loadingTableRow, skeletonTableRows, setChartLoading, updateChartSnapshot } from './ui';
+import { loadingTableRow, skeletonTableRows, setChartLoading } from './ui';
+import { renderVerdict } from './verdict';
 import { chartAnimationDuration } from './motion';
 import { terminal as T, terminalUi as tu, terminalChartBackgroundPlugin } from './theme';
 
@@ -81,7 +86,7 @@ function resolveTodayPriceAndDays(): { todayPrice: number; todayDays: number } |
 }
 
 function getScenarioQuantileColumns(): ProjectionsColumn[] {
-  return getProjectionsColumns(state.showBands, state.showOuterBands);
+  return getProjectionsColumns(state.showBands, state.showOuterBands, state.showFloor);
 }
 
 function resolveScenarioSelection(yearEnds: Array<{ year: number; days: number }>): {
@@ -173,9 +178,13 @@ function populateScenarioStats(result: QuantileScenarioResult | null) {
 
   if (priceEl) priceEl.textContent = formatPrice(result.impliedPrice);
   if (cagrEl) {
+    // Under one year there is no meaningful annualized figure — say so instead of compounding weeks.
+    const subYear = result.cagrFromToday == null && result.yearsFromToday > 0 && result.yearsFromToday < 1;
     cagrEl.textContent =
-      result.cagrFromToday != null ? formatReturnPct(result.cagrFromToday) : '—';
-    cagrEl.className = `font-mono font-semibold mt-0.5 ${conditionalReturnColorClass(result.cagrFromToday)}`;
+      result.cagrFromToday != null ? formatReturnPct(result.cagrFromToday) : subYear ? 'n/a (under 1y)' : '—';
+    cagrEl.className = `font-mono font-semibold mt-0.5 ${
+      subYear ? tu.textMuted : conditionalReturnColorClass(result.cagrFromToday)
+    }`;
   }
   if (totalEl) {
     totalEl.textContent =
@@ -339,27 +348,20 @@ export async function loadConditionalReturnsCard() {
   }
 }
 
+/** Loads GET /current once and renders the verdict block (headline, figures, position rail). */
 export async function loadTimeBelowQuantileCard() {
-  const line = document.getElementById('chart-time-below-line');
-
   try {
     const data = await fetchCurrentPosition();
-    const stats = data.time_below_quantile;
     const pos = data.position || {};
     cacheCurrentPosition(pos);
-
-    if (!stats) {
+    if (!data.time_below_quantile) {
       throw new Error('time_below_quantile missing from /current response');
     }
-
-    const timeBelow = stats.time_below_pct;
-    updateChartSnapshot(timeBelow);
-    if (line) {
-      line.textContent = `${timeBelow.toFixed(1)}% of days have been this cheap versus the model.`;
-    }
+    await renderVerdict(pos, data.time_below_quantile);
   } catch (err) {
-    console.error('Failed to load time-below quantile stats', err);
-    if (line) line.textContent = '';
+    console.error('Failed to load verdict / time-below quantile stats', err);
+    const headline = document.getElementById('verdict-headline');
+    if (headline) headline.textContent = 'Today\'s position is unavailable — is the backend running?';
   }
 }
 
@@ -370,11 +372,13 @@ export async function loadYearEndProjections() {
 
   bindProjectionsScenarioExplorer();
 
-  const projectionColumns = getProjectionsColumns(state.showBands, state.showOuterBands);
+  const projectionColumns = getProjectionsColumns(state.showBands, state.showOuterBands, state.showFloor);
   const tableColumns = projectionColumns.map((col) => ({
     ...col,
     color:
-      col.quantile === 0.5
+      col.quantile === FLOOR_QUANTILE
+        ? tu.textFloor
+        : col.quantile === 0.5
         ? 'terminal-text-accent'
         : col.quantile <= 0.25
           ? col.quantile === 0.1
@@ -382,8 +386,10 @@ export async function loadYearEndProjections() {
             : tu.textPositive
           : tu.textQ75,
     headerLabel:
-      col.quantile === 0.5
-        ? 'Central (Q50)'
+      col.quantile === FLOOR_QUANTILE
+        ? col.label
+        : col.quantile === 0.5
+        ? 'Trend (Q50)'
         : col.quantile <= 0.25
           ? `${col.label} (Lower)`
           : `${col.label} (Upper)`,
@@ -429,6 +435,7 @@ export async function loadYearEndProjections() {
         state.currentLatestDays,
         state.showBands,
         state.showOuterBands,
+        state.showFloor,
       ),
       yearEnds,
       curves,
@@ -816,7 +823,6 @@ export async function loadBitcoinStatsCard() {
       fetchCurrentPosition(),
     ]);
     cacheCurrentPosition(posData?.position);
-    updateChartSnapshot();
 
     const stats = computeBitcoinGlancePriceStats(points, asOfDate);
     if (!stats) {
@@ -849,7 +855,7 @@ export async function loadBitcoinStatsCard() {
       glanceStatBox(
         '200-day MA',
         formatPrice(stats.dma200),
-        `${dmaVs.toFixed(1)}% ${dmaVs >= 0 ? 'above' : 'below'}`,
+        `price ${Math.abs(dmaVs).toFixed(1)}% ${dmaVs >= 0 ? 'above' : 'below'}`,
         tu.textGold,
       ),
       glanceStatBox(
@@ -1040,8 +1046,7 @@ function renderAssetCorrelationsChart(data: any) {
             color: T.textDim,
             font: { size: 10 },
             callback: function (value: number) {
-              const year = Math.round(2009 + (value as number) / 365.25);
-              return year.toString();
+              return formatTimeTickLabel(value as number, firstX, lastX);
             },
           },
           afterBuildTicks: (axis: any) => {
@@ -1328,8 +1333,7 @@ function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
             color: T.textDim,
             font: { size: 10 },
             callback: function (value: number) {
-              const year = Math.round(2009 + (value as number) / 365.25);
-              return year.toString();
+              return formatTimeTickLabel(value as number, firstX, lastX);
             },
           },
           afterBuildTicks: (axis: any) => {
@@ -1518,8 +1522,7 @@ function buildFitStrengthXScale(firstX: number, lastX: number) {
       color: T.textDim,
       font: { size: 10 },
       callback: function (value: number) {
-        const year = Math.round(2009 + (value as number) / 365.25);
-        return year.toString();
+        return formatTimeTickLabel(value as number, firstX, lastX);
       },
     },
     afterBuildTicks: (axis: any) => {
@@ -1856,5 +1859,211 @@ export async function loadFalsifiabilityCard() {
     }
     const details = document.getElementById('falsifiability-details');
     if (details) details.innerHTML = '';
+  }
+}
+
+
+// --- Q1 floor card ---
+
+type FloorPoint = { date: string; days: number; close: number; floor: number; gap_pct: number; era?: string };
+
+function formatFloorDate(dateStr: string): string {
+  return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function formatGapPct(gapPct: number): string {
+  return `${gapPct >= 0 ? '+' : '−'}${Math.abs(gapPct).toFixed(1)}%`;
+}
+
+function floorFact(value: string, label: string): string {
+  return `<div class="floor-fact"><div class="floor-fact-value">${value}</div><div class="floor-fact-label">${label}</div></div>`;
+}
+
+function renderFloorRatioChart(series: Array<{ x: number; y: number }>) {
+  const canvas = document.getElementById('floor-ratio-chart') as HTMLCanvasElement | null;
+  if (!canvas || !series.length) return;
+  if (state.floorChart) {
+    state.floorChart.destroy();
+    state.floorChart = null;
+  }
+
+  const firstX = series[0].x;
+  const lastX = series[series.length - 1].x;
+  const maxRatio = Math.max(...series.map((p) => p.y));
+  const yMax = Math.max(10, Math.pow(10, Math.ceil(Math.log10(maxRatio) * 5) / 5) * 1.1);
+  // A Jan-1 tick every third year across the whole price history.
+  const xTicks: number[] = [];
+  for (let year = daysToDate(firstX).getUTCFullYear() + 1; year <= daysToDate(lastX).getUTCFullYear(); year += 3) {
+    xTicks.push(dateToDays(`${year}-01-01`));
+  }
+  const mono = { family: "'IBM Plex Mono', monospace", size: 10 };
+
+  const floorLinePlugin = {
+    id: 'floorRatioLine',
+    afterDatasetsDraw(chart: any) {
+      const { ctx, chartArea, scales } = chart;
+      const y = scales.y.getPixelForValue(1);
+      ctx.save();
+      ctx.strokeStyle = T.floor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.stroke();
+      ctx.font = '600 10px "IBM Plex Mono", monospace';
+      ctx.fillStyle = T.text;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      ctx.fillText('Floor = 1×', chartArea.right - 4, y + 6);
+      ctx.restore();
+    },
+  };
+
+  state.floorChart = new Chart(canvas, {
+    type: 'line',
+    plugins: [terminalChartBackgroundPlugin, floorLinePlugin],
+    data: {
+      datasets: [
+        {
+          label: 'Price ÷ floor',
+          data: series,
+          borderColor: T.cyan,
+          borderWidth: 1.25,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          tension: 0,
+          // Closes under the floor are drawn in the negative colour.
+          segment: {
+            borderColor: (c: any) => (c.p0.parsed.y < 1 && c.p1.parsed.y < 1 ? T.negative : T.cyan),
+          },
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: chartAnimationDuration(220) },
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      scales: {
+        x: {
+          type: 'linear',
+          min: firstX,
+          max: lastX,
+          grid: { display: false },
+          border: { color: T.border },
+          ticks: {
+            color: T.textDim,
+            font: mono,
+            maxRotation: 0,
+            callback: (value: number) => yearLabelForTickDay(value),
+          },
+          afterBuildTicks: (axis: any) => {
+            if (xTicks.length > 0) axis.ticks = xTicks.map((value: number) => ({ value }));
+          },
+        },
+        y: {
+          type: 'logarithmic',
+          min: 0.5,
+          max: yMax,
+          grid: { color: T.grid },
+          border: { display: false },
+          ticks: { color: T.textDim, font: mono, callback: (value: number) => `${value}×` },
+          afterBuildTicks: (axis: any) => {
+            const ladder = getLogLadderTicks(axis.min, axis.max);
+            if (ladder.length >= 3) axis.ticks = ladder.map((value: number) => ({ value }));
+          },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: T.tooltipBg,
+          borderColor: T.tooltipBorder,
+          borderWidth: 1,
+          displayColors: false,
+          titleFont: { family: "'IBM Plex Mono', monospace", size: 11, weight: '600' },
+          bodyFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+          callbacks: {
+            title: (items: any[]) =>
+              items.length
+                ? daysToDate(items[0].raw.x).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    timeZone: 'UTC',
+                  })
+                : '',
+            label: (item: any) => {
+              const ratio = item.raw.y as number;
+              const gap = (ratio - 1) * 100;
+              return `${ratio.toFixed(2)}× the floor (${formatGapPct(gap)})`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/** "Has the Q1 line worked as a floor?" — stats, closest approaches and the price ÷ floor chart. */
+export async function loadFloorCard() {
+  const lede = document.getElementById('floor-lede');
+  const facts = document.getElementById('floor-facts');
+  const table = document.getElementById('floor-table');
+  if (!lede || !facts || !table) return;
+
+  setChartLoading('floor-chart-loading', true, 'Loading floor history…');
+  try {
+    const data = await fetchFloorSummary();
+    const today: FloorPoint = data.today;
+    const since = data.since;
+    const all = data.all_history;
+    const sinceYear = since ? String(since.since_date).slice(0, 4) : '';
+
+    lede.textContent = since
+      ? `The floor is the trend shifted down to the 1st percentile of past gaps, ${Math.abs(data.pct_below_trend).toFixed(0)}% below the trend on every day. ` +
+        `Since the start of ${sinceYear}, ${since.closes_below} of ${since.total_days.toLocaleString()} daily closes have been below it` +
+        (since.closes_below > 0
+          ? `, and the deepest was ${Math.abs(since.closest.gap_pct).toFixed(1)}% under on ${formatFloorDate(since.closest.date)}.`
+          : `; the closest came within ${Math.abs(since.closest.gap_pct).toFixed(1)}% on ${formatFloorDate(since.closest.date)}.`)
+      : '';
+
+    facts.innerHTML = [
+      floorFact(`${all.closes_below} of ${all.total_days.toLocaleString()}`, 'closes below the floor, all history'),
+      since ? floorFact(String(since.closes_below), `closes below it since ${sinceYear}`) : '',
+      since
+        ? floorFact(
+            `${Math.abs(since.closest.gap_pct).toFixed(1)}%`,
+            since.closest.gap_pct < 0 ? `deepest close under it since ${sinceYear}` : `closest approach since ${sinceYear}`,
+          )
+        : '',
+      floorFact(formatGapPct(today.gap_pct), `today against the floor (${formatPrice(today.floor)})`),
+    ].join('');
+
+    table.innerHTML = (data.closest_approaches as FloorPoint[])
+      .map(
+        (p) => `
+        <tr>
+          <td class="px-4 py-2 text-[var(--tb-text)]">${formatFloorDate(p.date)}</td>
+          <td class="px-4 py-2 text-right font-mono">${formatPrice(p.close)}</td>
+          <td class="px-4 py-2 text-right font-mono ${tu.textFloor}">${formatPrice(p.floor)}</td>
+          <td class="px-4 py-2 text-right font-mono ${p.gap_pct < 0 ? tu.textNegative : ''}">${formatGapPct(p.gap_pct)}</td>
+        </tr>`,
+      )
+      .join('');
+
+    renderFloorRatioChart(data.ratio_series ?? []);
+    setChartLoading('floor-chart-loading', false);
+  } catch (err) {
+    console.error('Failed to load floor card', err);
+    lede.textContent = '';
+    facts.innerHTML = `<div class="terminal-text-error text-sm">Failed to load floor statistics</div>`;
+    table.innerHTML = '';
+    setChartLoading('floor-chart-loading', true, 'Failed to load — try refreshing');
   }
 }

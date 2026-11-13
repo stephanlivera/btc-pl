@@ -15,6 +15,9 @@ import {
   computeQuantileScenario,
   findClosestCurvePoint,
   getProjectionsColumns,
+  FLOOR_QUANTILE,
+  formatTimeTickLabel,
+  getLogLadderTicks,
   buildLogResiduals,
   findPriceAtYearsAgo,
   formatCorrelation,
@@ -340,6 +343,13 @@ describe('getProjectionsColumns', () => {
       'Q90',
     ]);
   });
+
+  it('puts the Q1 floor first when it is shown', () => {
+    const columns = getProjectionsColumns(true, false, true);
+    expect(columns.map((col) => col.label)).toEqual(['Floor Q1', 'Q25', 'Q50', 'Q75']);
+    expect(columns[0].quantile).toBe(FLOOR_QUANTILE);
+    expect(columns[0].key).toBe('0.01');
+  });
 });
 
 describe('findClosestCurvePoint', () => {
@@ -359,14 +369,42 @@ describe('computeQuantileScenario', () => {
     '0.5': [
       { x: 7000, y: 100000 },
       { x: 7300, y: 200000 },
+      { x: 7800, y: 300000 },
     ],
     '0.75': [
       { x: 7000, y: 130000 },
       { x: 7300, y: 260000 },
+      { x: 7800, y: 390000 },
     ],
   };
 
   it('computes CAGR from today actual price to the selected quantile', () => {
+    const result = computeQuantileScenario({
+      year: 2031,
+      targetDays: 7800,
+      quantile: 0.75,
+      quantileLabel: 'Q75',
+      curves,
+      todayPrice: 100000,
+      todayDays: 7000,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.impliedPrice).toBe(390000);
+    expect(result!.pctVsToday).toBeCloseTo(290, 5);
+    expect(result!.pctVsQ50AtYear).toBeCloseTo(30, 5);
+    expect(result!.cagrFromToday).toBeCloseTo(
+      calculateCAGR(100000, 390000, (7800 - 7000) / 365.25)!,
+      6,
+    );
+    expect(result!.summary).toContain('Q75');
+    expect(result!.summary).toContain('annualized');
+    expect(result!.summary).toContain("today's $100k");
+  });
+
+  it('does not annualize horizons shorter than one year', () => {
+    // +160% over 300 days used to be reported as a ~220% "CAGR"; over 49 days
+    // the same arithmetic produced +18,462%.
     const result = computeQuantileScenario({
       year: 2030,
       targetDays: 7300,
@@ -378,15 +416,10 @@ describe('computeQuantileScenario', () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.impliedPrice).toBe(260000);
+    expect(result!.cagrFromToday).toBeNull();
     expect(result!.pctVsToday).toBeCloseTo(160, 5);
-    expect(result!.pctVsQ50AtYear).toBeCloseTo(30, 5);
-    expect(result!.cagrFromToday).toBeCloseTo(
-      calculateCAGR(100000, 260000, (7300 - 7000) / 365.25)!,
-      6,
-    );
-    expect(result!.summary).toContain('Q75');
-    expect(result!.summary).toContain("today's $100k");
+    expect(result!.summary).toContain('over 300 days');
+    expect(result!.summary).not.toContain('annualized from');
   });
 });
 
@@ -507,6 +540,37 @@ describe('computeMayerStats + percentileRank', () => {
   });
 });
 
+describe('time and price tick helpers', () => {
+  it('labels wide spans with the real calendar year of each tick', () => {
+    const start = dateToDays('2021-11-12');
+    const end = dateToDays('2031-11-12');
+    const labels = getTimeTickValues(start, end).map((d) => formatTimeTickLabel(d, start, end));
+    expect(labels).toEqual(['2022', '2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030', '2031']);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('labels short spans by month, with the year only on January', () => {
+    const start = dateToDays('2025-11-12');
+    const end = dateToDays('2027-11-12');
+    const labels = getTimeTickValues(start, end).map((d) => formatTimeTickLabel(d, start, end));
+    expect(labels).toContain('2026');
+    expect(labels).toContain('Mar');
+    expect(labels.filter((l) => l === '2026').length).toBe(1);
+  });
+
+  it('builds a 1-2-5 ladder for log price axes', () => {
+    expect(getLogLadderTicks(10_000, 2_000_000)).toEqual([
+      10_000, 20_000, 50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000,
+    ]);
+    expect(getLogLadderTicks(0.5, 30)).toEqual([0.5, 1, 2, 5, 10, 20]);
+  });
+
+  it('falls back to one tick per decade on very tall ranges', () => {
+    const ticks = getLogLadderTicks(0.01, 10_000_000);
+    expect(ticks).toEqual([0.01, 0.1, 1, 10, 100, 1000, 10_000, 100_000, 1_000_000, 10_000_000]);
+  });
+});
+
 describe('computeChartYAxisLimits', () => {
   const history = [
     { x: 6000, y: 50_000 },
@@ -547,15 +611,37 @@ describe('computeChartYAxisLimits', () => {
   });
 
   it('includes band curves when toggled on', () => {
-    const withoutBands = computeChartYAxisLimits(history, curves, 6000, 6200, '1y', {
+    // Wider Q75 than the shared fixture so the two cases land on different tight steps.
+    const wideCurves = { ...curves, '0.75': [{ x: 6000, y: 90_000 }, { x: 6200, y: 200_000 }] };
+    const withoutBands = computeChartYAxisLimits(history, wideCurves, 6000, 6200, '1y', {
       includeInnerBands: false,
       includeOuterBands: false,
     });
-    const withBands = computeChartYAxisLimits(history, curves, 6000, 6200, '1y', {
+    const withBands = computeChartYAxisLimits(history, wideCurves, 6000, 6200, '1y', {
       includeInnerBands: true,
       includeOuterBands: false,
     });
     expect(withBands.max).toBeGreaterThan(withoutBands.max);
+  });
+
+  it('extends the lower bound to keep the Q1 floor in view', () => {
+    const withFloorCurve = { ...curves, '0.01': [{ x: 6000, y: 9_000 }, { x: 6200, y: 16_000 }] };
+    const opts = { includeInnerBands: true, includeOuterBands: false };
+    const without = computeChartYAxisLimits(history, withFloorCurve, 6000, 6200, '1y', opts);
+    const withFloor = computeChartYAxisLimits(history, withFloorCurve, 6000, 6200, '1y', { ...opts, includeFloor: true });
+    expect(withFloor.min).toBeLessThan(without.min);
+    expect(withFloor.min).toBeLessThanOrEqual(9_000);
+  });
+
+  it('snaps short-window bounds to tight steps instead of whole decades', () => {
+    const limits = computeChartYAxisLimits(history, curves, 6000, 6200, '1y', {
+      includeInnerBands: true,
+      includeOuterBands: false,
+    });
+    // Lowest value is $40k → padded to ~$34.8k → snaps down to $30k (not $10k).
+    expect(limits.min).toBe(30_000);
+    // Highest value is $120k → padded to $144k → snaps up to $150k (not $500k).
+    expect(limits.max).toBe(150_000);
   });
 });
 

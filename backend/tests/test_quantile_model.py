@@ -369,3 +369,51 @@ def test_get_historical_analog_projections(fitted_model):
         assert "count" in h and h["count"] > 0
         if h["median_mult"] is not None:
             assert h["median_mult"] > 0
+
+
+# ------------------------------------------------------------------
+# Q1 floor line
+# ------------------------------------------------------------------
+
+def test_floor_is_parallel_and_never_decayed(fitted_model):
+    """The Q1 floor keeps a constant log-distance below Q50, past and future."""
+    from backend.quantile_model import FLOOR_QUANTILE
+
+    ref = fitted_model.ref_days
+    curves = fitted_model.predict_curve(
+        ref - 2000, ref + 3650, step=365, quantiles=[FLOOR_QUANTILE, 0.10, 0.50], parallel=True
+    )
+    floor, q10, q50 = curves[FLOOR_QUANTILE], curves[0.10], curves[0.50]
+    gaps = [np.log10(f["y"] / c["y"]) for f, c in zip(floor, q50)]
+    assert max(gaps) - min(gaps) < 1e-4, "Floor offset must not change over time"
+    assert gaps[0] == pytest.approx(fitted_model._residual_offset(FLOOR_QUANTILE), abs=1e-4)
+    # Q10 still decays toward the trend, so it must stay above the floor everywhere.
+    for f, lo in zip(floor, q10):
+        assert f["y"] < lo["y"]
+
+
+def test_get_floor_summary(fitted_model):
+    summary = fitted_model.get_floor_summary()
+    total = summary["all_history"]["total_days"]
+    below = summary["all_history"]["closes_below"]
+    assert total == len(fitted_model.df)
+    # In-sample 1st percentile: about 1% of closes sit below the floor.
+    assert 0.005 <= below / total <= 0.015
+    assert summary["offset_log10"] < 0
+    assert -90 < summary["pct_below_trend"] < 0
+
+    today = summary["today"]
+    pos = fitted_model.get_current_position()
+    assert today["close"] == pos["actual_price"]
+    assert today["floor"] == pytest.approx(pos["floor_q1"], rel=1e-3)
+    assert today["gap_pct"] == pytest.approx(pos["floor_gap_pct"], abs=0.05)
+
+    since = summary["since"]
+    assert since["closes_below"] <= below
+    assert since["closest"]["gap_pct"] == pytest.approx(
+        min(p["gap_pct"] for p in summary["closest_approaches"] if p["date"] >= since["since_date"]), abs=1e-6
+    )
+    assert len(summary["closest_approaches"]) >= 5
+    series = summary["ratio_series"]
+    assert series[-1]["x"] == pos["days"]
+    assert all(p["y"] > 0 for p in series)

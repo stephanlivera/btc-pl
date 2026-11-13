@@ -45,15 +45,39 @@
         </div>
       </div>
 
-      <div id="terminal-ticker" class="terminal-ticker terminal-reveal-stagger-2" aria-label="Market snapshot" role="region">
-        <div class="terminal-ticker-viewport">
-          <div id="terminal-ticker-track" class="terminal-ticker-track">
-            <span class="terminal-ticker-loading">Loading snapshot…</span>
-          </div>
-        </div>
-      </div>
       </div>
     </header>
+
+    <!-- Verdict: the answer before any chart -->
+    <section id="section-verdict" class="verdict terminal-reveal-stagger-2" aria-label="Where Bitcoin sits today">
+      <h2 id="verdict-headline" class="verdict-headline">Loading today's position…</h2>
+      <div class="verdict-figures">
+        <div class="verdict-fig">
+          <div class="verdict-fig-label"><i class="verdict-swatch verdict-swatch--price"></i>Price</div>
+          <div id="verdict-price" class="verdict-fig-value">—</div>
+          <div id="verdict-price-sub" class="verdict-fig-sub">&nbsp;</div>
+        </div>
+        <div class="verdict-fig">
+          <div class="verdict-fig-label"><i class="verdict-swatch verdict-swatch--trend"></i>Trend (Q50)</div>
+          <div id="verdict-trend" class="verdict-fig-value">—</div>
+          <div id="verdict-trend-sub" class="verdict-fig-sub">&nbsp;</div>
+        </div>
+        <div class="verdict-fig">
+          <div class="verdict-fig-label"><i class="verdict-swatch verdict-swatch--floor"></i>Floor (Q1)</div>
+          <div id="verdict-floor" class="verdict-fig-value">—</div>
+          <div id="verdict-floor-sub" class="verdict-fig-sub">&nbsp;</div>
+        </div>
+        <div class="verdict-fig">
+          <div class="verdict-fig-label">Days this cheap or cheaper</div>
+          <div id="verdict-time-below" class="verdict-fig-value">—</div>
+          <div id="verdict-time-below-sub" class="verdict-fig-sub">&nbsp;</div>
+        </div>
+      </div>
+      <div id="verdict-rail-block" class="rail-block hidden">
+        <div class="rail-head"><span>Cheap against trend</span><span>Rich against trend</span></div>
+        <div id="verdict-rail" class="rail" role="img"></div>
+      </div>
+    </section>
 
     <section id="section-model" class="page-section">
     <!-- Chart Card -->
@@ -61,7 +85,7 @@
       <div class="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 px-1">
         <div class="min-w-0 max-w-sm lg:max-w-md">
           <div class="terminal-card-title">Power-law corridor</div>
-          <p class="terminal-card-desc mt-1">Q50 is the fitted power law. Other bands are historical rich/cheap offsets around that line, compressed after the last data day — not separate forecasts.</p>
+          <p class="terminal-card-desc mt-1">Q50 is the fitted power law. Bands are historical rich/cheap offsets around it, compressed after the last data day. The Q1 floor stays a fixed distance below the trend. None of these are forecasts.</p>
         </div>
 
         <!-- Controls -->
@@ -84,9 +108,18 @@
 
           <!-- Outer Bands Toggle (Q10–Q90) -->
           <button id="outer-bands-toggle"
-                  class="terminal-toggle-btn terminal-toggle-off">
+                  class="terminal-toggle-btn terminal-toggle-on">
             <span>Show Q10–Q90</span>
-            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
+            <div id="outer-bands-indicator" class="w-2 h-2 rounded-full terminal-indicator-on"></div>
+          </button>
+
+          <!-- Floor Toggle (Q1) -->
+          <button id="floor-toggle"
+                  type="button"
+                  aria-pressed="true"
+                  class="terminal-toggle-btn terminal-toggle-on">
+            <span>Show Q1 floor</span>
+            <div id="floor-indicator" class="w-2 h-2 rounded-full terminal-indicator-on"></div>
           </button>
 
           <!-- Export PNG -->
@@ -139,33 +172,49 @@
         <canvas id="chart"></canvas>
       </div>
 
-      <!-- Mobile today snapshot (price / quantile / Q50 without needing chart tooltips) -->
-      <div id="chart-snapshot" class="chart-snapshot mt-3" aria-live="polite">
-        <div class="chart-snapshot-grid">
-          <div class="terminal-stat-box chart-snapshot-stat">
-            <div class="terminal-stat-label">BTC Price</div>
-            <div id="chart-snapshot-price" class="chart-snapshot-value terminal-text-live">—</div>
+    </div>
+
+    <!-- Q1 floor -->
+    <div class="mt-6 terminal-card terminal-reveal-in-view p-5" id="floor-card">
+      <div class="terminal-card-title mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <span>Has the Q1 line worked as a floor?</span>
+        <span class="terminal-card-subtitle font-normal">1st-percentile line, parallel to trend</span>
+      </div>
+      <p id="floor-lede" class="terminal-card-desc mb-4 max-w-3xl"></p>
+
+      <div class="floor-split">
+        <div class="min-w-0">
+          <div class="chart-container p-3" style="height: 300px;">
+            <div id="floor-chart-loading" class="chart-loading-overlay" aria-hidden="true">
+              <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
+              <p class="chart-loading-message">Loading floor history…</p>
+            </div>
+            <canvas id="floor-ratio-chart" aria-label="Price as a multiple of the Q1 floor over time"></canvas>
           </div>
-          <div class="terminal-stat-box chart-snapshot-stat">
-            <div class="terminal-stat-label">Power-Law Rank</div>
-            <div id="chart-snapshot-quantile" class="chart-snapshot-value terminal-text-accent">—</div>
-            <div id="chart-snapshot-quantile-sub" class="chart-snapshot-sub terminal-text-muted">—</div>
-          </div>
-          <div class="terminal-stat-box chart-snapshot-stat">
-            <div class="terminal-stat-label">Model Q50</div>
-            <div id="chart-snapshot-q50" class="chart-snapshot-value">—</div>
-            <div id="chart-snapshot-deviation" class="chart-snapshot-sub terminal-text-muted">—</div>
-          </div>
-          <div class="terminal-stat-box chart-snapshot-stat">
-            <div class="terminal-stat-label">Time Below</div>
-            <div id="chart-snapshot-time-below" class="chart-snapshot-value terminal-text-accent">—</div>
-            <div id="chart-snapshot-time-below-sub" class="chart-snapshot-sub terminal-text-muted">—</div>
+          <p class="terminal-footnote mt-2">Price divided by the Q1 floor on each day, log scale. At 1× the close is on the floor.</p>
+          <p class="floor-note mt-4">
+            <strong>Read it with care.</strong> Most closes under the line came in August to October 2010, when Bitcoin traded near $0.06 on thin early exchanges.
+            The line is fitted to the same history it is judged against, so about 1% of closes sit below it by construction.
+            It describes where lows have been and does not guarantee where they will be. Unlike the other bands, it is not compressed in the projection.
+          </p>
+        </div>
+        <div class="min-w-0">
+          <div id="floor-facts" class="floor-facts mb-4"></div>
+          <div class="terminal-table-scroll overflow-x-auto">
+            <table class="projection-table w-full text-sm">
+              <thead>
+                <tr class="border-b border-[var(--tb-border-muted)]">
+                  <th class="text-left font-normal px-4 py-2">Closest approach</th>
+                  <th class="text-right font-normal px-4 py-2">Close</th>
+                  <th class="text-right font-normal px-4 py-2">Floor that day</th>
+                  <th class="text-right font-normal px-4 py-2">Gap</th>
+                </tr>
+              </thead>
+              <tbody id="floor-table" class="divide-y text-sm"></tbody>
+            </table>
           </div>
         </div>
-        <p class="chart-snapshot-hint terminal-text-muted">Tap and drag on the chart for full details.</p>
       </div>
-
-      <p id="chart-time-below-line" class="terminal-card-desc mt-3 px-1"></p>
 
     </div>
 
@@ -190,7 +239,7 @@
       </div>
       
       <div class="mt-2 terminal-footnote">
-        Q50 is the trend at each 31 Dec; other columns are that corridor, not 10/25/75/90% outcome probabilities. Toggle bands on the chart.
+        Q50 is the trend at each 31 Dec; other columns are that corridor, not 10/25/75/90% outcome probabilities. The Q1 floor is not compressed over time. Toggle bands and the floor on the chart.
       </div>
 
       <div id="projections-scenario" class="projections-scenario mt-5 pt-4 border-t border-[var(--tb-border-muted)]">
@@ -232,7 +281,7 @@
         <p id="scenario-summary" class="text-sm terminal-text-muted px-1 leading-relaxed">—</p>
 
         <div class="mt-2 terminal-footnote">
-          Model-implied scenario only — not a forecast. CAGR is computed from today's actual price, not the Q50 trend.
+          Model-implied scenario only — not a forecast. CAGR is computed from today's actual price, not the Q50 trend, and is shown only for horizons of a year or more.
         </div>
       </div>
     </div>

@@ -2,12 +2,15 @@ import {
   daysToDate,
   formatPrice,
   getTimeTickValues,
-  yearLabelForTickDay,
   findNearestPoint,
   getCurveValue,
   computeChartYAxisLimits,
   computePointQuantileRank,
   quantileLabel,
+  formatTimeTickLabel,
+  getLogLadderTicks,
+  FLOOR_QUANTILE,
+  FLOOR_LABEL,
 } from './utils';
 import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
 import {
@@ -15,7 +18,7 @@ import {
   fetchHistorical,
   ensureQuantileRankContext,
 } from './api';
-import { showAppLoading, setChartLoading, updateChartSnapshot, updateRangeButtons, updateProjectionsInfo } from './ui';
+import { showAppLoading, setChartLoading, updateRangeButtons } from './ui';
 import { getRequestedQuantiles } from './api';
 import { terminal as T, terminalChartBackgroundPlugin } from './theme';
 import { chartAnimationDuration, chartUpdateOptions } from './motion';
@@ -66,7 +69,12 @@ function formatTooltipDate(date: Date, narrow: boolean): string {
 }
 
 function formatTooltipQuantileLine(quantile: number, price: number): string {
-  return `${quantileLabel(quantile)} ${formatPrice(price)}`;
+  const label = quantile === FLOOR_QUANTILE ? FLOOR_LABEL : quantile === 0.5 ? 'Trend Q50' : quantileLabel(quantile);
+  return `${label} ${formatPrice(price)}`;
+}
+
+function floorCurve(curves: Record<string, any>): Array<{ x: number; y: number }> | undefined {
+  return curves[String(FLOOR_QUANTILE)] ?? curves[FLOOR_QUANTILE];
 }
 
 function buildTooltipPriceLine(hist: { x: number; y: number }): string {
@@ -109,9 +117,35 @@ function buildTooltipModelLines(x: number, curves: Record<string, any>, narrow: 
     if (q90 != null) modelLines.push({ q: 0.9, text: formatTooltipQuantileLine(0.9, q90) });
   }
 
-  // High → low so tooltip order matches chart top → bottom (Q90 above Q10).
+  if (state.showFloor) {
+    const floor = getCurveValue(floorCurve(curves), x, 30);
+    if (floor != null) modelLines.push({ q: FLOOR_QUANTILE, text: formatTooltipQuantileLine(FLOOR_QUANTILE, floor) });
+  }
+
+  // High → low so tooltip order matches chart top → bottom (Q90 above Q10, floor last).
   modelLines.sort((a, b) => b.q - a.q);
   return modelLines.map((m) => m.text);
+}
+
+let floorHatchPattern: CanvasPattern | null = null;
+
+/** Diagonal hatch for the zone under the Q1 floor (texture, so it never reads as another band). */
+function getFloorHatchPattern(): CanvasPattern | string {
+  if (floorHatchPattern) return floorHatchPattern;
+  if (typeof document === 'undefined') return T.floorFill;
+  const tile = document.createElement('canvas');
+  tile.width = tile.height = 8;
+  const g = tile.getContext('2d');
+  if (!g) return T.floorFill;
+  g.strokeStyle = T.floorFill;
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(-2, 10); g.lineTo(10, -2);
+  g.moveTo(-2, 2); g.lineTo(2, -2);
+  g.moveTo(6, 10); g.lineTo(10, 6);
+  g.stroke();
+  floorHatchPattern = g.createPattern(tile, 'repeat');
+  return floorHatchPattern ?? T.floorFill;
 }
 
 const MAIN_CHART_INNER_FILL_ORDER = 5;
@@ -152,7 +186,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
 
   if (historicalData?.points?.length) {
     datasets.push({
-      label: 'Historical Price',
+      label: 'Daily close',
       data: historicalData.points,
       borderColor: T.cyan,
       backgroundColor: T.cyan,
@@ -184,9 +218,24 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
     );
   }
 
+  const floor = floorCurve(curves);
+  if (state.showFloor && floor) {
+    datasets.push({
+      label: 'Floor (Q1)',
+      data: floor,
+      borderColor: T.floor,
+      backgroundColor: getFloorHatchPattern(),
+      fill: 'start',
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0,
+      order: 3,
+    });
+  }
+
   if (curves[0.5]) {
     datasets.push({
-      label: 'Central (Q50)',
+      label: 'Trend (Q50)',
       data: curves[0.5],
       borderColor: T.accent,
       borderWidth: 3,
@@ -198,7 +247,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
 
   if (state.showOuterBands && curves[0.1]) {
     datasets.push({
-      label: 'Q10 (Lower)',
+      label: 'Q10–Q90',
       data: curves[0.1],
       borderColor: 'rgba(245, 158, 11, 0.35)',
       borderWidth: 1.5,
@@ -210,7 +259,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
   }
   if (state.showOuterBands && curves[0.9]) {
     datasets.push({
-      label: 'Q90 (Upper)',
+      label: '_q90',
       data: curves[0.9],
       borderColor: 'rgba(245, 158, 11, 0.35)',
       borderWidth: 1.5,
@@ -223,7 +272,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
 
   if (state.showBands && curves[0.25]) {
     datasets.push({
-      label: 'Q25 (Lower)',
+      label: 'Q25–Q75',
       data: curves[0.25],
       borderColor: 'rgba(245, 158, 11, 0.55)',
       borderWidth: 2,
@@ -235,7 +284,7 @@ export function buildMainChartDatasets(curvesData: any, historicalData: any): an
   }
   if (state.showBands && curves[0.75]) {
     datasets.push({
-      label: 'Q75 (Upper)',
+      label: '_q75',
       data: curves[0.75],
       borderColor: 'rgba(245, 158, 11, 0.55)',
       borderWidth: 2,
@@ -294,6 +343,62 @@ export function drawTodayPriceCallout(
   ctx.font = '600 12px "IBM Plex Mono", monospace';
   ctx.fillText(priceStr, left + padX, top + padY + 13);
 }
+
+/** Right-hand padding reserved for the line-end labels (name + projected value). */
+function lineEndLabelPadding(): number {
+  const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+  return narrow ? 44 : 96;
+}
+
+/**
+ * Label each model line where it leaves the plot ("Trend $583k", "Floor $285k"), so the
+ * projection can be read without hovering. Labels are nudged apart when lines converge.
+ */
+function drawLineEndLabels(ctx: CanvasRenderingContext2D, chart: any): void {
+  const { chartArea, scales } = chart;
+  const xMax = scales.x.max;
+  const narrow = lineEndLabelPadding() < 60;
+  const curves = state.lastCurves;
+  const specs: Array<{ q: number; name: string; strong: boolean; color: string; show: boolean }> = [
+    { q: 0.9, name: 'Q90', strong: false, color: T.textMuted, show: state.showOuterBands },
+    { q: 0.75, name: 'Q75', strong: false, color: T.textMuted, show: state.showBands },
+    { q: 0.5, name: 'Trend', strong: true, color: T.accent, show: true },
+    { q: 0.25, name: 'Q25', strong: false, color: T.textMuted, show: state.showBands },
+    { q: 0.1, name: 'Q10', strong: false, color: T.textMuted, show: state.showOuterBands },
+    { q: FLOOR_QUANTILE, name: 'Floor', strong: true, color: T.floor, show: state.showFloor },
+  ];
+
+  const items = specs
+    .filter((s) => s.show)
+    .map((s) => {
+      const value = getCurveValue(curves[String(s.q)] ?? (curves as any)[s.q], xMax, 30);
+      return value == null ? null : { ...s, value, y: scales.y.getPixelForValue(value) };
+    })
+    .filter((s): s is NonNullable<typeof s> => s != null && s.y >= chartArea.top - 2 && s.y <= chartArea.bottom + 2)
+    .sort((a, b) => a.y - b.y);
+
+  const minGap = 13;
+  for (let i = 1; i < items.length; i++) {
+    if (items[i].y - items[i - 1].y < minGap) items[i].y = items[i - 1].y + minGap;
+  }
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (const item of items) {
+    const x = chartArea.right + 6;
+    if (item.strong) {
+      ctx.fillStyle = item.color;
+      ctx.fillRect(x, item.y - 1, 8, 2);
+    }
+    ctx.font = `${item.strong ? 600 : 400} 10px "IBM Plex Mono", monospace`;
+    ctx.fillStyle = item.strong ? T.text : T.textMuted;
+    const text = narrow ? item.name : `${item.name} ${formatPrice(item.value)}`;
+    ctx.fillText(text, x + (item.strong ? 12 : 0), item.y);
+  }
+}
+
+/** Tick positions the x-axis must use; module-level so the very first build sees them. */
+let desiredMainXTicks: number[] = [];
 
 const mainChartDecorationsPlugin = {
   id: 'mainChartDecorations',
@@ -376,6 +481,8 @@ const mainChartDecorationsPlugin = {
       }
     }
 
+    drawLineEndLabels(ctx, chart);
+
     const crosshairX = (chart as any)._crosshairX;
     if (crosshairX != null && crosshairX >= chartArea.left && crosshairX <= chartArea.right) {
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
@@ -404,10 +511,9 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
 
   const timeTicks = getTimeTickValues(startDays, endDays);
 
-  // We store the exact tick positions we want so we can enforce them via afterBuildTicks.
-  // This is needed because on logarithmic scales Chart.js can generate extra ticks
-  // beyond what we put in `values`, leading to duplicate year labels in 3y/5y views.
-  const desiredXTicks = timeTicks;
+  // Exact tick positions are enforced via afterBuildTicks (see desiredMainXTicks): on a
+  // logarithmic scale Chart.js otherwise generates its own ticks, which repeated year
+  // labels (2022, 2022, 2022) on the first render of the 3y/5y views.
 
   const yLimits = computeChartYAxisLimits(
     state.lastHistoricalPoints,
@@ -415,8 +521,9 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
     startDays,
     endDays,
     state.currentRange,
-    { includeInnerBands: state.showBands, includeOuterBands: state.showOuterBands }
+    { includeInnerBands: state.showBands, includeOuterBands: state.showOuterBands, includeFloor: state.showFloor }
   );
+  desiredMainXTicks = timeTicks;
 
   const isNarrowViewport =
     typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
@@ -428,10 +535,14 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
     title: { display: true, text: 'Price (USD)', color: T.textMuted, font: { family: "'IBM Plex Sans', sans-serif", size: 11 } },
     grid: { color: T.grid },
     border: { color: T.border },
+    // 1–2–5 ladder ($10k, $20k, $50k, …) instead of Chart.js's every-mantissa log ticks.
+    afterBuildTicks: (axis: any) => {
+      const ladder = getLogLadderTicks(axis.min, axis.max);
+      if (ladder.length >= 3) axis.ticks = ladder.map((value: number) => ({ value }));
+    },
     ticks: {
       color: T.textDim,
       font: { family: "'IBM Plex Mono', monospace", size: 10 },
-      font: { size: 11 },
       padding: 6,
       callback: (value: number) => formatPrice(value),
     },
@@ -447,17 +558,7 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
     state.chart.options.scales.x.ticks.values = timeTicks;
     state.chart.options.scales.y.min = yLimits.min;
     state.chart.options.scales.y.max = yLimits.max;
-    (state.chart as any)._desiredXTicks = desiredXTicks;
-
-    // Make sure the enforcement hook exists on updates
-    if (!(state.chart.options.scales.x as any).afterBuildTicks) {
-      (state.chart.options.scales.x as any).afterBuildTicks = (axis: any) => {
-        const desired = (axis.chart as any)._desiredXTicks;
-        if (desired && desired.length > 0) {
-          axis.ticks = desired.map((value: number) => ({ value }));
-        }
-      };
-    }
+    state.chart.options.layout.padding.right = lineEndLabelPadding();
 
     // Longer, gentler animation when changing time ranges
     // Shorter animation when only toggling bands
@@ -472,6 +573,7 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
         maintainAspectRatio: false,
         animation: { duration: chartAnimationDuration(300) },
         interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        layout: { padding: { right: lineEndLabelPadding() } },
         scales: {
           x: {
             type: 'logarithmic',
@@ -484,38 +586,17 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
               font: { family: "'IBM Plex Mono', monospace", size: 10 },
               values: timeTicks,
               callback: function (value: number) {
-                // Always compute the decision from the *live* scale bounds.
-                // This prevents stale closures when we reuse the chart instance
-                // (range changes or band toggles) and guarantees that 3y/5y/All
-                // never emit month names.
+                // Use the *live* scale bounds so range changes never emit stale labels.
                 const scale = (this as any).chart?.scales?.x;
-                const min = scale?.min ?? startDays;
-                const max = scale?.max ?? endDays;
-                const spanYears = (max - min) / 365.25;
-                const onlyYears = spanYears > 2.2;
-
-                if (onlyYears) {
-                  return yearLabelForTickDay(value);
-                } else {
-                  const year = Math.round(2009 + value / 365.25);
-                  const d = daysToDate(value);
-                  const month = d.getUTCMonth();
-                  if (month === 0) {
-                    return year.toString();
-                  } else {
-                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                    return months[month];
-                  }
-                }
+                return formatTimeTickLabel(value, scale?.min ?? startDays, scale?.max ?? endDays);
               },
             },
             // Force the exact tick positions we calculated (log-spaced for All, annual
             // for 3y/5y, bi-monthly for 1y). This defeats Chart.js's automatic extra tick
             // on logarithmic scales that was causing duplicate year labels.
             afterBuildTicks: (axis: any) => {
-              const desired = (axis.chart as any)._desiredXTicks;
-              if (desired && desired.length > 0) {
-                axis.ticks = desired.map((value: number) => ({ value }));
+              if (desiredMainXTicks.length > 0) {
+                axis.ticks = desiredMainXTicks.map((value: number) => ({ value }));
               }
             },
           },
@@ -530,7 +611,8 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
               color: T.textMuted,
               font: { family: "'IBM Plex Sans', sans-serif", size: isNarrowViewport ? 9 : 10 },
               usePointStyle: true,
-              pointStyle: 'circle',
+              pointStyle: 'line',
+              pointStyleWidth: 22,
               padding: isNarrowViewport ? 10 : 14,
               filter: (item: any) => !String(item.text).startsWith('_'),
             },
@@ -584,6 +666,13 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
                   lines.push(buildTooltipPriceLine(hist));
                 }
                 lines.push(...buildTooltipModelLines(x, state.lastCurves, isNarrowViewport));
+                if (hist && state.showFloor) {
+                  const floor = getCurveValue(floorCurve(state.lastCurves), hist.x, 30);
+                  if (floor != null && floor > 0) {
+                    const gap = (hist.y / floor - 1) * 100;
+                    lines.push(`Close ${Math.abs(gap).toFixed(1)}% ${gap >= 0 ? 'above' : 'below'} floor`);
+                  }
+                }
 
                 return lines;
               }
@@ -596,8 +685,6 @@ export function renderChart(curvesData: any, historicalData: any, startDays: num
       },
     });
 
-    // Store the desired ticks so the afterBuildTicks hook (defined above) can enforce them
-    (state.chart as any)._desiredXTicks = desiredXTicks;
   }
 }
 
@@ -620,8 +707,6 @@ export async function loadAndRender(range: 'all' | '5y' | '3y' | '1y') {
     ]);
 
     renderChart(curvesData, historicalData, ranges.curveStart, ranges.curveEnd);
-    updateChartSnapshot();
-    updateProjectionsInfo(curvesData);
     setChartLoading('main-chart-loading', false);
   } catch (err) {
     console.error(err);

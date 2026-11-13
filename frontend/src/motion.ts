@@ -30,17 +30,6 @@ function initStickyHeaderFade(): void {
   if (isNarrowViewport()) return;
 
   header.classList.add('terminal-header--sticky');
-
-  const onScroll = () => {
-    const scrollY = window.scrollY;
-    const bgOpacity = Math.max(0.12, 0.42 - scrollY * 0.0009);
-    const scrollFade = Math.min(1, scrollY / 140);
-    header.style.setProperty('--header-bg-opacity', String(bgOpacity));
-    header.style.setProperty('--header-scroll-fade', String(scrollFade));
-  };
-
-  window.addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
 }
 
 function initRevealInView(): void {
@@ -67,7 +56,7 @@ function initRevealInView(): void {
   targets.forEach(el => observer.observe(el));
 }
 
-/** Staggered reveal: header → ticker → main chart shell (~80ms apart). */
+/** Staggered reveal: header → verdict → main chart shell (~80ms apart). */
 export function revealStaggerSequence(): void {
   const selectors = [
     '.terminal-reveal-stagger-1',

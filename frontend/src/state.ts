@@ -10,8 +10,13 @@ export const state = {
 
   currentRange: '5y' as 'all' | '5y' | '3y' | '1y',
   showBands: true,
-  showOuterBands: false,
+  showOuterBands: true,
+  /** Q1 floor line (trend shifted to the 1st-percentile residual, never decayed). */
+  showFloor: true,
   chart: null as any,
+
+  // Q1 floor card
+  floorChart: null as any,
 
   // Gold flip card
   goldFlipChart: null as any,
@@ -53,6 +58,8 @@ export const state = {
     model_q50?: number;
     deviation_pct?: number;
     actual_price?: number;
+    floor_q1?: number;
+    floor_gap_pct?: number;
   },
 
   // Year-end projections + scenario explorer

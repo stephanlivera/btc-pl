@@ -140,12 +140,18 @@ export function conditionalReturnColorClass(value: number | null): string {
 
 export type ProjectionsColumn = { key: string; quantile: number; label: string };
 
-/** Quantile columns for the year-end projections table (low → central → high). */
+/** Q1 "floor" line: Q50 trend shifted down to the 1st-percentile residual, never decayed. */
+export const FLOOR_QUANTILE = 0.01;
+export const FLOOR_LABEL = 'Floor Q1';
+
+/** Quantile columns for the year-end projections table (floor → low → central → high). */
 export function getProjectionsColumns(
   showBands: boolean,
   showOuterBands: boolean,
+  showFloor = false,
 ): ProjectionsColumn[] {
   const columns: ProjectionsColumn[] = [];
+  if (showFloor) columns.push({ key: String(FLOOR_QUANTILE), quantile: FLOOR_QUANTILE, label: FLOOR_LABEL });
   if (showOuterBands) columns.push({ key: '0.1', quantile: 0.1, label: 'Q10' });
   if (showBands) columns.push({ key: '0.25', quantile: 0.25, label: 'Q25' });
   columns.push({ key: '0.5', quantile: 0.5, label: 'Q50' });
@@ -158,8 +164,9 @@ export function buildProjectionsCacheKey(
   latestDays: number,
   showBands: boolean,
   showOuterBands: boolean,
+  showFloor = false,
 ): string {
-  return `${latestDays}:${showBands}:${showOuterBands}`;
+  return `${latestDays}:${showBands}:${showOuterBands}:${showFloor}`;
 }
 
 export function findClosestCurvePoint(
@@ -205,17 +212,22 @@ export function computeQuantileScenario(input: {
   const q50Curve = input.curves[0.5] ?? input.curves['0.5'];
   const q50Point = findClosestCurvePoint(q50Curve, input.targetDays);
   const yearsFromToday = (input.targetDays - input.todayDays) / 365.25;
+  // Annualizing a horizon shorter than a year compounds a few weeks into an
+  // absurd figure (e.g. +100% over 49 days → +18,000% "CAGR"), so under one
+  // year we report the simple return only.
   const cagrFromToday =
-    yearsFromToday > 0 ? calculateCAGR(input.todayPrice, point.y, yearsFromToday) : null;
+    yearsFromToday >= 1 ? calculateCAGR(input.todayPrice, point.y, yearsFromToday) : null;
   const pctVsToday = (point.y / input.todayPrice - 1) * 100;
   const pctVsQ50AtYear =
     q50Point && q50Point.y > 0 ? (point.y / q50Point.y - 1) * 100 : null;
 
-  const cagrText = cagrFromToday != null ? formatReturnPct(cagrFromToday) : '—';
-  const summary =
-    yearsFromToday > 0
-      ? `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)} — ${cagrText} annualized from today's ${formatPrice(input.todayPrice)}.`
-      : `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)}.`;
+  const daysFromToday = Math.round(input.targetDays - input.todayDays);
+  let summary = `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)}.`;
+  if (cagrFromToday != null) {
+    summary = `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)} — ${formatReturnPct(cagrFromToday)} annualized from today's ${formatPrice(input.todayPrice)}.`;
+  } else if (daysFromToday > 0) {
+    summary = `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)} — ${formatReturnPct(pctVsToday / 100)} from today's ${formatPrice(input.todayPrice)} over ${daysFromToday} days (too short to annualize).`;
+  }
 
   return {
     year: input.year,
@@ -346,6 +358,58 @@ export function getTimeTickValues(startDays: number, endDays: number): number[] 
   return getAnnualTimeTicks(startDays, endDays);
 }
 
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Label for a time tick produced by getTimeTickValues(). Wide spans show the
+ * calendar year; spans under ~2.2 years use bi-monthly ticks, so those show the
+ * month name and only January shows the year. Always derived from the real date
+ * (never `2009 + days / 365.25`, which repeats or skips years).
+ */
+export function formatTimeTickLabel(day: number, startDays: number, endDays: number): string {
+  const date = daysToDate(day);
+  const spanYears = (endDays - startDays) / 365.25;
+  if (spanYears > 2.2) return date.getUTCFullYear().toString();
+  const month = date.getUTCMonth();
+  return month === 0 ? date.getUTCFullYear().toString() : MONTH_ABBR[month];
+}
+
+/** 1–2–5 ladder of tick values for a logarithmic axis ($10k, $20k, $50k, $100k, …). */
+export function getLogLadderTicks(min: number, max: number): number[] {
+  if (!(min > 0) || !(max > min)) return [];
+  const ticks: number[] = [];
+  for (let exp = Math.floor(Math.log10(min)); exp <= Math.ceil(Math.log10(max)); exp++) {
+    for (const mantissa of [1, 2, 5]) {
+      const value = mantissa * Math.pow(10, exp);
+      if (value >= min * 0.999 && value <= max * 1.001) ticks.push(Number(value.toPrecision(6)));
+    }
+  }
+  // Very tall ranges (All view spans 8+ decades): keep one tick per decade.
+  return ticks.length > 14
+    ? ticks.filter((v) => Math.abs(Math.log10(v) - Math.round(Math.log10(v))) < 1e-9)
+    : ticks;
+}
+
+const TIGHT_LOG_STEPS = [1, 1.5, 2, 3, 5, 7];
+
+/** Largest tight step × 10^n at or below val (lower bound for a short-window log axis). */
+function tightLogLowerBound(val: number): number {
+  if (val <= 0) return 0.01;
+  const base = Math.pow(10, Math.floor(Math.log10(val)));
+  const mantissa = val / base;
+  const step = [...TIGHT_LOG_STEPS].reverse().find((s) => s <= mantissa + 1e-9) ?? 1;
+  return Number((base * step).toPrecision(6));
+}
+
+/** Smallest tight step × 10^n at or above val (upper bound for a short-window log axis). */
+function tightLogUpperBound(val: number): number {
+  if (val <= 0) return 1;
+  const base = Math.pow(10, Math.floor(Math.log10(val)));
+  const mantissa = val / base;
+  const step = TIGHT_LOG_STEPS.find((s) => s >= mantissa - 1e-9) ?? 10;
+  return Number((base * step).toPrecision(6));
+}
+
 /** Year label for a genesis-day tick (used by chart x-axis callbacks). */
 export function yearLabelForTickDay(day: number): string {
   return daysToDate(day).getUTCFullYear().toString();
@@ -387,6 +451,7 @@ export type ChartRange = 'all' | '5y' | '3y' | '1y';
 export interface ChartYAxisOptions {
   includeInnerBands: boolean;
   includeOuterBands: boolean;
+  includeFloor?: boolean;
 }
 
 function curveByQuantile(
@@ -436,6 +501,7 @@ export function computeChartYAxisLimits(
   const quantiles = [0.5];
   if (options.includeInnerBands) quantiles.push(0.25, 0.75);
   if (options.includeOuterBands) quantiles.push(0.1, 0.9);
+  if (options.includeFloor) quantiles.push(FLOOR_QUANTILE);
 
   for (const q of quantiles) {
     allY.push(...yValuesInRange(curveByQuantile(curves, q), startDays, endDays));
@@ -448,8 +514,9 @@ export function computeChartYAxisLimits(
   const dataMin = Math.min(...allY);
   const dataMax = Math.max(...allY);
   const isShortWindow = range !== 'all';
-  const minPad = isShortWindow ? 1.4 : 2.8;
-  const maxPad = isShortWindow ? 1.7 : 3.2;
+  // Short windows hug the data (the line-end labels need no headroom); All keeps generous padding.
+  const minPad = isShortWindow ? 1.15 : 2.8;
+  const maxPad = isShortWindow ? 1.2 : 3.2;
 
   let yMin = dataMin / minPad;
   let yMax = dataMax * maxPad;
@@ -465,9 +532,12 @@ export function computeChartYAxisLimits(
     yMin = Math.max(yMin, 200);
   }
 
-  yMax = niceLogUpperBound(yMax);
-  const minExp = Math.floor(Math.log10(Math.max(yMin, 0.001)));
-  const niceMin = Math.pow(10, minExp);
+  // Short windows snap both ends to tight steps (…, 5k, 7k, 10k, 15k, …) so a 5y view
+  // does not waste a third of its height on empty decades; All keeps whole decades.
+  yMax = isShortWindow ? tightLogUpperBound(yMax) : niceLogUpperBound(yMax);
+  const niceMin = isShortWindow
+    ? tightLogLowerBound(yMin)
+    : Math.pow(10, Math.floor(Math.log10(Math.max(yMin, 0.001))));
 
   return {
     min: Math.max(0.01, niceMin),

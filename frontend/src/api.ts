@@ -2,7 +2,7 @@ import {
   buildLogResiduals,
 } from './utils';
 import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
-import { getEndOfYearDays } from './utils';
+import { getEndOfYearDays, FLOOR_QUANTILE } from './utils';
 
 // --- API Helpers ---
 
@@ -33,6 +33,12 @@ export async function fetchHistorical(startDays: number, endDays: number, step =
 export async function fetchCurrentPosition() {
   const url = `/api/current`;
   const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchFloorSummary() {
+  const res = await fetch('/api/floor');
   if (!res.ok) throw new Error(`Backend error: ${res.status}`);
   return res.json();
 }
@@ -99,6 +105,8 @@ export function cacheCurrentPosition(pos: Record<string, unknown> | null | undef
     model_q50: typeof pos.model_q50 === 'number' ? pos.model_q50 : undefined,
     deviation_pct: typeof pos.deviation_pct === 'number' ? pos.deviation_pct : undefined,
     actual_price: typeof pos.actual_price === 'number' ? pos.actual_price : undefined,
+    floor_q1: typeof pos.floor_q1 === 'number' ? pos.floor_q1 : undefined,
+    floor_gap_pct: typeof pos.floor_gap_pct === 'number' ? pos.floor_gap_pct : undefined,
   };
 }
 
@@ -132,6 +140,9 @@ export function computeBtcMcT(price: number): number {
 /** Returns the list of quantiles we should request from the backend based on current toggles */
 export function getRequestedQuantiles(): number[] {
   const qs = new Set<number>([0.5]);
+  if (state.showFloor) {
+    qs.add(FLOOR_QUANTILE);
+  }
   if (state.showBands) {
     qs.add(0.25);
     qs.add(0.75);

@@ -41,6 +41,24 @@ CONDITIONAL_HORIZON_LABELS: Dict[int, str] = {
 DECAY_RATE = 0.12          # Controls compression speed (1 / (1 + rate * years_ahead))
 MIN_DECAY_FACTOR = 0.30    # Never compress bands tighter than this fraction of historical width
 
+# Q1 "floor" line: the 1st-percentile residual offset below the Q50 trend.
+# It is drawn parallel to the trend and is deliberately NOT decayed in projections:
+# compressing it would pull the floor up toward the trend (51% below today -> ~29%
+# below by 2035), which is a much stronger claim than "where lows have been".
+FLOOR_QUANTILE = 0.01
+FLOOR_SINCE_DATE = dt.date(2013, 1, 1)   # "modern era" cut for floor statistics
+FLOOR_RATIO_SERIES_STEP = 2              # downsample step (days) for the price/floor series
+# Calendar-year eras used for the "closest approach" table (last era is open-ended).
+FLOOR_ERAS: List[Tuple[int, int | None]] = [
+    (2010, 2010), (2011, 2013), (2014, 2017), (2018, 2019),
+    (2020, 2021), (2022, 2024), (2025, None),
+]
+
+
+def is_floor_quantile(q: float) -> bool:
+    return abs(float(q) - FLOOR_QUANTILE) < 1e-9
+
+
 # Expanding-window diagnostics for the "Strengthening Power Law" chart (OLS on log-log data).
 EXPANDING_WINDOW_MIN_DAYS = 365
 EXPANDING_WINDOW_STEP_DAYS = 30
@@ -220,7 +238,9 @@ class QuantilePowerLawModel:
               This guarantees parallel, non-crossing bands by construction.
             - Q50 itself uses offset ≈ 0 (the median residual). The central line
               is *never* decayed.
-            - For q != 0.5 and future days (d > ref_days), a time-based decay is
+            - The Q1 floor (q == FLOOR_QUANTILE) is also never decayed: it stays a
+              constant log-distance below the trend, past and future.
+            - For every other q and future days (d > ref_days), a time-based decay is
               applied *only to the offset*:
                   years_ahead = (d - ref_days) / 365.25
                   decay = max(MIN_DECAY_FACTOR, 1 / (1 + DECAY_RATE * years_ahead))
@@ -264,9 +284,10 @@ class QuantilePowerLawModel:
                 else:
                     continue
 
-                if q == 0.5 or ref <= 0:
-                    # Q50 (central) or no reference day: use the raw residual offset (≈0 for median)
-                    # with *no* decay ever. The year-end Q50 projections are exactly this
+                if q == 0.5 or ref <= 0 or is_floor_quantile(q):
+                    # Q50 (central), the Q1 floor, or no reference day: use the raw residual
+                    # offset (≈0 for median) with *no* decay ever. The floor stays a fixed
+                    # distance below the trend so it is never pulled up in projections. The year-end Q50 projections are exactly this
                     # central power-law line evaluated at the target day counts.
                     offsets = np.full_like(days, base_offset, dtype=float)
                 else:
@@ -831,15 +852,97 @@ class QuantilePowerLawModel:
         quantile = float((self._log_residuals <= residual).mean())
         quantile_label = f"Q{int(round(quantile * 100))}"
 
+        floor_price = model_q50 * 10 ** self._residual_offset(FLOOR_QUANTILE)
+
         return {
             "actual_price": round(actual_price, 2),
             "days": days,
             "date": str(self.data_end_date) if self.data_end_date else None,
             "model_q50": round(model_q50, 2),
+            "floor_q1": round(floor_price, 2),
+            "floor_gap_pct": round((actual_price / floor_price - 1.0) * 100.0, 2),
             "deviation_pct": round(deviation_pct, 2),
             "residual": round(residual, 6),
             "quantile": round(quantile, 4),
             "quantile_label": quantile_label,
+        }
+
+    def get_floor_summary(self) -> dict:
+        """Statistics for the Q1 floor line (trend shifted down to the 1st-percentile residual).
+
+        The floor on any day is ``Q50(d) * 10 ** offset`` where ``offset`` is the
+        1st percentile of historical log-residuals. Because it is fitted in-sample,
+        about 1% of all closes sit below it by construction; the useful questions are
+        *when* those closes happened and how deep they went.
+        """
+        if self.df is None or self.df.empty:
+            raise RuntimeError("Data not loaded")
+        if 0.5 not in self.results or not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
+            raise RuntimeError("Central model or residuals not available; fit the model first.")
+
+        offset = self._residual_offset(FLOOR_QUANTILE)
+        residuals = self._log_residuals
+        # log10(price / floor) for every day; ratio < 1 means the close was under the floor.
+        log_ratio = residuals - offset
+        ratio = 10 ** log_ratio
+        dates = self.df["Date"].dt.date.to_numpy()
+        closes = self.df["Close"].to_numpy(dtype=float)
+        days = self.df["days"].to_numpy()
+        years = self.df["Date"].dt.year.to_numpy()
+
+        def _point(i: int) -> dict:
+            return {
+                "date": str(dates[i]),
+                "days": int(days[i]),
+                "close": round(float(closes[i]), 2),
+                "floor": round(float(closes[i] / ratio[i]), 2),
+                "gap_pct": round(float((ratio[i] - 1.0) * 100.0), 2),
+            }
+
+        since_mask = dates >= FLOOR_SINCE_DATE
+        since_idx = np.flatnonzero(since_mask)
+        since_stats = None
+        if since_idx.size:
+            deepest = int(since_idx[np.argmin(ratio[since_idx])])
+            since_stats = {
+                "since_date": str(FLOOR_SINCE_DATE),
+                "closes_below": int((ratio[since_idx] < 1.0).sum()),
+                "total_days": int(since_idx.size),
+                "closest": _point(deepest),
+            }
+
+        last_year = int(years[-1])
+        closest_approaches = []
+        for start_year, end_year in FLOOR_ERAS:
+            era_end = end_year if end_year is not None else last_year
+            idx = np.flatnonzero((years >= start_year) & (years <= era_end))
+            if not idx.size:
+                continue
+            best = int(idx[np.argmin(ratio[idx])])
+            closest_approaches.append({"era": f"{start_year}–{era_end}" if era_end != start_year else str(start_year), **_point(best)})
+
+        latest = len(closes) - 1
+        step = FLOOR_RATIO_SERIES_STEP
+        series_idx = list(range(0, latest + 1, step))
+        if series_idx[-1] != latest:
+            series_idx.append(latest)
+
+        return {
+            "meta": {
+                "data_end_date": str(self.data_end_date) if self.data_end_date else None,
+                "method": "Q50 trend shifted down by the 1st-percentile log-residual; parallel to the trend, not decayed in projections",
+            },
+            "quantile": FLOOR_QUANTILE,
+            "offset_log10": round(float(offset), 6),
+            "pct_below_trend": round(float((10 ** offset - 1.0) * 100.0), 2),
+            "today": _point(latest),
+            "all_history": {
+                "closes_below": int((ratio < 1.0).sum()),
+                "total_days": int(len(ratio)),
+            },
+            "since": since_stats,
+            "closest_approaches": closest_approaches,
+            "ratio_series": [{"x": int(days[i]), "y": round(float(ratio[i]), 4)} for i in series_idx],
         }
 
     @staticmethod

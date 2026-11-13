@@ -1,12 +1,5 @@
 import { state } from './state';
 import { terminalUi as tu } from './theme';
-import {
-  computePointQuantileRank,
-  findNearestPoint,
-  formatDeviationPct,
-  formatQuantilePercentileSubtext,
-  getCurveValue,
-} from './utils';
 
 // --- Loading Indicators (cold-start / slow backend) ---
 
@@ -140,75 +133,13 @@ export function updateOuterBandsToggle() {
   }
 }
 
-export function updateProjectionsInfo(data: any) {
-  console.log('Projections info updated (now using table)');
-}
-
-/** Mobile snapshot below the main chart — price, quantile, Q50, optional time-below. */
-export function updateChartSnapshot(timeBelowPct?: number | null) {
-  const priceEl = document.getElementById('chart-snapshot-price');
-  const quantileEl = document.getElementById('chart-snapshot-quantile');
-  const quantileSubEl = document.getElementById('chart-snapshot-quantile-sub');
-  const q50El = document.getElementById('chart-snapshot-q50');
-  const deviationEl = document.getElementById('chart-snapshot-deviation');
-  const timeBelowEl = document.getElementById('chart-snapshot-time-below');
-  const timeBelowSubEl = document.getElementById('chart-snapshot-time-below-sub');
-  if (!priceEl) return;
-
-  const todayPoint = findNearestPoint(state.lastHistoricalPoints, state.currentLatestDays, 3);
-  const curveQ50 = getCurveValue(
-    state.lastCurves['0.5'] ?? state.lastCurves[0.5],
-    state.currentLatestDays,
-    3,
-  );
-  // Prefer GET /current so snapshot Q-label matches Time Spent Below + glance cards.
-  const pos = state.currentPosition;
-
-  if (pos?.actual_price != null) {
-    priceEl.textContent = `$${pos.actual_price.toLocaleString()}`;
-  } else if (todayPoint) {
-    priceEl.textContent = `$${todayPoint.y.toLocaleString()}`;
-  } else {
-    priceEl.textContent = '—';
-  }
-
-  const q50 = pos?.model_q50 ?? curveQ50;
-  if (q50 != null) {
-    q50El && (q50El.textContent = `$${q50.toLocaleString()}`);
-    if (deviationEl) {
-      if (typeof pos?.deviation_pct === 'number') {
-        deviationEl.textContent = formatDeviationPct(pos.deviation_pct);
-      } else if (todayPoint) {
-        deviationEl.textContent = formatDeviationPct((todayPoint.y / q50 - 1) * 100);
-      }
-    }
-  } else {
-    q50El && (q50El.textContent = '—');
-    deviationEl && (deviationEl.textContent = '—');
-  }
-
-  if (pos && typeof pos.quantile === 'number') {
-    quantileEl && (quantileEl.textContent = pos.quantile_label);
-    quantileSubEl && (quantileSubEl.textContent = formatQuantilePercentileSubtext(pos.quantile));
-  } else if (todayPoint && state.q50Model && state.fullLogResiduals.length > 0) {
-    // Fallback before /current resolves: full-history client rank (same method as backend).
-    const rank = computePointQuantileRank(
-      state.fullLogResiduals,
-      state.q50Model,
-      todayPoint.x,
-      todayPoint.y,
-    );
-    if (rank) {
-      quantileEl && (quantileEl.textContent = rank.label);
-      quantileSubEl && (quantileSubEl.textContent = formatQuantilePercentileSubtext(rank.quantile));
-    }
-  } else {
-    quantileEl && (quantileEl.textContent = '—');
-    quantileSubEl && (quantileSubEl.textContent = '—');
-  }
-
-  if (timeBelowPct != null && timeBelowEl) {
-    timeBelowEl.textContent = `${timeBelowPct.toFixed(1)}%`;
-    timeBelowSubEl && (timeBelowSubEl.textContent = 'of history at or below today');
-  }
+export function updateFloorToggle() {
+  const btn = document.getElementById('floor-toggle');
+  const indicator = document.getElementById('floor-indicator');
+  if (!btn || !indicator) return;
+  btn.classList.toggle(tu.toggleOn, state.showFloor);
+  btn.classList.toggle(tu.toggleOff, !state.showFloor);
+  btn.setAttribute('aria-pressed', String(state.showFloor));
+  indicator.classList.toggle(tu.indicatorOn, state.showFloor);
+  indicator.classList.toggle(tu.indicatorOff, !state.showFloor);
 }
