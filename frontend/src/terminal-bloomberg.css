@@ -42,15 +42,26 @@ body.terminal-bloomberg code {
 }
 
 /* Cards */
+/* Sections are flat with a rule above; only the main chart (hero) is a framed card. */
 .terminal-card {
-  background: var(--tb-card);
-  border: 1px solid var(--tb-border);
-  border-radius: 0.5rem;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--tb-border);
+  border-radius: 0;
+  padding: 1.5rem 0 0.25rem !important;
+  margin-top: 2.5rem !important;
 }
 
-.terminal-card-hero {
-  border-color: #3d4a63;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+.page-section-label + .terminal-card {
+  margin-top: 0 !important;
+}
+
+.terminal-card.terminal-card-hero {
+  background: var(--tb-card);
+  border: 1px solid var(--tb-border);
+  border-radius: 0.625rem;
+  padding: 1.25rem !important;
+  margin-top: 0 !important;
 }
 
 .terminal-card-title {
@@ -128,12 +139,13 @@ body.terminal-bloomberg code {
 }
 
 .page-section-label {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
   font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  font-weight: 500;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--tb-text-dim);
-  margin: 1.75rem 0 0.75rem;
+  margin: 3.5rem 0 0.6rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -157,9 +169,22 @@ html.terminal-reduced-motion .terminal-reveal-in-view {
 }
 
 .terminal-logo {
-  background: linear-gradient(135deg, var(--tb-accent) 0%, var(--tb-accent-bright) 100%);
-  border: 1px solid rgba(251, 191, 36, 0.35);
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
+  background: var(--tb-accent);
+}
+
+.terminal-brand {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--tb-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-brand-sub {
+  font-weight: 400;
+  color: var(--tb-text-dim);
 }
 
 .terminal-freshness-pill {
@@ -291,20 +316,32 @@ body.terminal-bloomberg .chart-container {
 }
 
 /* Stat highlight boxes */
+/* Figures: flat, left-aligned, ruled above — the same treatment as the verdict figures */
 .terminal-stat-box {
-  text-align: center;
-  padding: 1rem;
-  border-radius: 0.375rem;
-  background: var(--tb-card-inset);
-  border: 1px solid var(--tb-border-muted);
+  text-align: left;
+  padding: 0.7rem 0.75rem 0.5rem 0 !important;
+  border: 0;
+  border-top: 1px solid var(--tb-border-muted);
+  border-radius: 0;
+  background: transparent;
+  min-width: 0;
+}
+
+.terminal-stat-box > .font-mono {
+  font-size: 1.15rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
 }
 
 .terminal-stat-label {
-  font-size: 0.5625rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--tb-text-muted);
+}
+
+.terminal-stat-label::first-letter {
   text-transform: uppercase;
-  color: var(--tb-text-dim);
 }
 
 /* Semantic text colors for JS-rendered cells */
@@ -327,10 +364,9 @@ body.terminal-bloomberg .projection-table {
 
 body.terminal-bloomberg .projection-table th {
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 0.5625rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
   color: var(--tb-text-dim);
   padding-top: 0.4rem;
   padding-bottom: 0.4rem;
@@ -816,8 +852,8 @@ body.terminal-bloomberg .terminal-shell {
   }
 
   /* --- Layout & typography --- */
-  .terminal-card {
-    padding: 1rem !important;
+  .terminal-card.terminal-card-hero {
+    padding: 0.85rem 0.75rem !important;
   }
 
   .terminal-card .terminal-card-title.flex {

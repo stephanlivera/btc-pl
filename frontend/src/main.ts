@@ -31,6 +31,7 @@ import {
 } from './cards';
 import { loadMonteCarloCard } from './monteCarloCard';
 import { initMotion, revealStaggerSequence } from './motion';
+import { applyChartDefaults } from './theme';
 
 // --- Event Listeners ---
 
@@ -183,6 +184,7 @@ function setupControls() {
 }
 
 async function init() {
+  applyChartDefaults();
   initMotion();
   revealStaggerSequence();
   setupControls();

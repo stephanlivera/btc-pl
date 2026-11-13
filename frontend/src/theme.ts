@@ -32,6 +32,29 @@ export const terminal = {
   property: '#94a3b8',
 } as const;
 
+/**
+ * Shared Chart.js defaults so every chart on the page reads as one system:
+ * IBM Plex Mono for axes and tooltips, line-sample legends in muted ink.
+ */
+export function applyChartDefaults(): void {
+  const ChartGlobal = (globalThis as any).Chart;
+  if (!ChartGlobal?.defaults) return;
+  const d = ChartGlobal.defaults;
+  d.font.family = "'IBM Plex Mono', ui-monospace, monospace";
+  d.font.size = 10;
+  d.color = terminal.textMuted;
+  d.plugins.legend.labels.usePointStyle = true;
+  d.plugins.legend.labels.pointStyle = 'line';
+  d.plugins.legend.labels.pointStyleWidth = 22;
+  d.plugins.legend.labels.color = terminal.textMuted;
+  d.plugins.legend.labels.font = { family: "'IBM Plex Sans', system-ui, sans-serif", size: 11 };
+  d.plugins.tooltip.backgroundColor = terminal.tooltipBg;
+  d.plugins.tooltip.borderColor = terminal.tooltipBorder;
+  d.plugins.tooltip.borderWidth = 1;
+  d.plugins.tooltip.titleColor = terminal.text;
+  d.plugins.tooltip.bodyColor = terminal.textMuted;
+}
+
 /** Paints the chart canvas with the terminal card-inset background (matches .chart-container CSS). */
 export const terminalChartBackgroundPlugin = {
   id: 'terminalChartBackground',

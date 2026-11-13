@@ -22,21 +22,15 @@
     <!-- Header -->
     <header class="terminal-header terminal-reveal-stagger-1 mb-6">
       <div class="terminal-header-panel">
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-3">
-        <div class="flex items-center gap-x-3 min-w-0">
-          <div class="terminal-logo w-9 h-9 rounded-md flex items-center justify-center shrink-0">
-            <span class="text-white text-2xl font-bold tracking-tighter">₿</span>
+      <div class="flex flex-row items-center justify-between gap-3 sm:gap-4 mb-2">
+        <div class="flex items-center gap-x-2.5 min-w-0">
+          <div class="terminal-logo w-7 h-7 rounded-md flex items-center justify-center shrink-0">
+            <span class="text-[var(--tb-bg)] text-lg font-bold leading-none">₿</span>
           </div>
-          <div class="min-w-0">
-            <h1 class="font-display text-xl sm:text-3xl tracking-tight text-[var(--tb-text)]">
-              <span class="sm:hidden">BTC Power Law</span>
-              <span class="hidden sm:inline">Bitcoin Power Law &amp; Stats Dashboard</span>
-            </h1>
-            <p class="terminal-card-subtitle mt-0.5">Where Bitcoin sits versus the long-term trend</p>
-          </div>
+          <h1 class="terminal-brand min-w-0">Bitcoin Power Law <span class="terminal-brand-sub hidden sm:inline">&amp; stats dashboard</span></h1>
         </div>
         <div id="data-freshness-pill"
-             class="terminal-freshness-pill inline-flex items-center gap-1.5 rounded px-3 py-1.5 cursor-default shrink-0 self-start"
+             class="terminal-freshness-pill inline-flex items-center gap-1.5 rounded-full px-3 py-1 cursor-default shrink-0"
              title="Source: btc_daily.csv">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 terminal-text-positive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -322,7 +316,7 @@
         <span id="mayer-now-date" class="text-zinc-400"></span>
       </div>
 
-      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 260px;">
+      <div class="chart-container p-3 mb-3" style="height: 260px;">
         <div id="mayer-chart-loading" class="chart-loading-overlay" aria-hidden="true">
           <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading Mayer Multiple history…</p>
@@ -443,7 +437,7 @@
 
       <div id="gold-flip-current" class="terminal-card-desc mb-2 px-1"></div>
 
-      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 320px;">
+      <div class="chart-container p-3 mb-3" style="height: 320px;">
         <div id="gold-flip-chart-loading" class="chart-loading-overlay" aria-hidden="true">
           <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading gold crossover analysis…</p>
@@ -490,7 +484,7 @@
       <div id="corr-window-controls" class="flex flex-wrap items-center gap-1 mb-2 text-xs"></div>
       <div id="corr-range-controls" class="flex flex-wrap items-center gap-1 mb-3 text-xs"></div>
 
-      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 300px;">
+      <div class="chart-container p-3 mb-3" style="height: 300px;">
         <div id="corr-chart-loading" class="chart-loading-overlay" aria-hidden="true">
           <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading rolling correlations…</p>
@@ -556,7 +550,7 @@
         </div>
       </div>
 
-      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-2" style="height: 240px;">
+      <div class="chart-container p-3 mb-2" style="height: 240px;">
         <div id="fit-strength-beta-loading" class="chart-loading-overlay" aria-hidden="true">
           <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading scale coefficient history…</p>
@@ -564,7 +558,7 @@
         <canvas id="fit-strength-beta-chart"></canvas>
       </div>
 
-      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 220px;">
+      <div class="chart-container p-3 mb-3" style="height: 220px;">
         <div id="fit-strength-r2-loading" class="chart-loading-overlay" aria-hidden="true">
           <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading R² history…</p>
@@ -728,7 +722,7 @@
 
       <p id="mc-error" class="hidden text-sm terminal-text-error mb-2 px-1"></p>
 
-      <div class="chart-container rounded-2xl border border-zinc-800 p-3 mb-3" style="height: 360px;">
+      <div class="chart-container p-3 mb-3" style="height: 360px;">
         <div id="mc-chart-loading" class="chart-loading-overlay" aria-hidden="true">
           <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
           <p class="chart-loading-message">Loading residual calibration…</p>
