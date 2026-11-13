@@ -1,8 +1,8 @@
 import {
   buildLogResiduals,
 } from './utils';
-import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
-import { getEndOfYearDays, FLOOR_QUANTILE } from './utils';
+import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
+import { FLOOR_QUANTILE } from './utils';
 
 // --- API Helpers ---
 
@@ -108,33 +108,6 @@ export function cacheCurrentPosition(pos: Record<string, unknown> | null | undef
     floor_q1: typeof pos.floor_q1 === 'number' ? pos.floor_q1 : undefined,
     floor_gap_pct: typeof pos.floor_gap_pct === 'number' ? pos.floor_gap_pct : undefined,
   };
-}
-
-// --- Gold Flip Helpers ---
-
-export function goldMcAt(targetDays: number, cagr: number): number {
-  const ref = state.currentLatestDays;
-  const years = (targetDays - ref) / 365.25;
-  if (years <= 0) return GOLD_MC_T;
-  return GOLD_MC_T * Math.pow(1 + cagr, years);
-}
-
-export async function fetchLongTermCurves() {
-  if (state.longTermCurvesCache) return state.longTermCurvesCache;
-  // Project to end of 2050 for crossover visibility under different gold growth rates
-  const endDays = getEndOfYearDays(2050);
-  const quantiles = [0.25, 0.5, 0.75]; // central + inner bands sufficient for viz + table
-  const qs = quantiles.map(q => `quantiles=${q}`).join('&');
-  const url = `/api/curves?start_days=${Math.floor(state.currentLatestDays)}&end_days=${endDays}&step=365&${qs}&parallel=true`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
-  const data = await res.json();
-  state.longTermCurvesCache = data;
-  return data;
-}
-
-export function computeBtcMcT(price: number): number {
-  return (price * BTC_SUPPLY) / 1e12;
 }
 
 /** Returns the list of quantiles we should request from the backend based on current toggles */

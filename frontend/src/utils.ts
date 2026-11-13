@@ -105,37 +105,12 @@ export function formatDeviationPct(deviationPct: number): string {
   return `${sign}${deviationPct.toFixed(1)}% vs Q50`;
 }
 
-export interface ConditionalHorizonStats {
-  median_return: number | null;
-  p25_return: number | null;
-  p75_return: number | null;
-  hit_rate: number | null;
-  count: number;
-}
-
 /** Format a simple return (0.18 → +18.0%). */
 export function formatReturnPct(value: number | null, decimals = 1): string {
   if (value == null || !Number.isFinite(value)) return '—';
   const pct = value * 100;
   const sign = pct > 0 ? '+' : '';
   return `${sign}${pct.toFixed(decimals)}%`;
-}
-
-export function formatConditionalReturnCell(stats: ConditionalHorizonStats): { main: string; sub: string } {
-  if (!stats.count || stats.median_return == null) {
-    return { main: '—', sub: '' };
-  }
-  return {
-    main: formatReturnPct(stats.median_return),
-    sub: `${stats.count.toLocaleString()} episodes`,
-  };
-}
-
-export function conditionalReturnColorClass(value: number | null): string {
-  if (value == null) return 'terminal-text-muted';
-  if (value > 0.05) return 'terminal-text-positive';
-  if (value < -0.05) return 'terminal-text-negative';
-  return 'text-[var(--tb-text)]';
 }
 
 export type ProjectionsColumn = { key: string; quantile: number; label: string };
@@ -160,15 +135,6 @@ export function getProjectionsColumns(
   return columns;
 }
 
-export function buildProjectionsCacheKey(
-  latestDays: number,
-  showBands: boolean,
-  showOuterBands: boolean,
-  showFloor = false,
-): string {
-  return `${latestDays}:${showBands}:${showOuterBands}:${showFloor}`;
-}
-
 export function findClosestCurvePoint(
   curve: Array<{ x: number; y: number }> | undefined,
   targetDay: number,
@@ -177,71 +143,6 @@ export function findClosestCurvePoint(
   return curve.reduce((prev, curr) =>
     Math.abs(curr.x - targetDay) < Math.abs(prev.x - targetDay) ? curr : prev
   );
-}
-
-export interface QuantileScenarioResult {
-  year: number;
-  targetDays: number;
-  quantile: number;
-  quantileLabel: string;
-  impliedPrice: number;
-  yearsFromToday: number;
-  cagrFromToday: number | null;
-  pctVsToday: number | null;
-  pctVsQ50AtYear: number | null;
-  q50PriceAtYear: number | null;
-  summary: string;
-}
-
-export function computeQuantileScenario(input: {
-  year: number;
-  targetDays: number;
-  quantile: number;
-  quantileLabel: string;
-  curves: Record<string, Array<{ x: number; y: number }>>;
-  todayPrice: number;
-  todayDays: number;
-}): QuantileScenarioResult | null {
-  const curve =
-    input.curves[input.quantile] ??
-    input.curves[String(input.quantile)] ??
-    input.curves[parseFloat(String(input.quantile))];
-  const point = findClosestCurvePoint(curve, input.targetDays);
-  if (!point || point.y <= 0 || input.todayPrice <= 0) return null;
-
-  const q50Curve = input.curves[0.5] ?? input.curves['0.5'];
-  const q50Point = findClosestCurvePoint(q50Curve, input.targetDays);
-  const yearsFromToday = (input.targetDays - input.todayDays) / 365.25;
-  // Annualizing a horizon shorter than a year compounds a few weeks into an
-  // absurd figure (e.g. +100% over 49 days → +18,000% "CAGR"), so under one
-  // year we report the simple return only.
-  const cagrFromToday =
-    yearsFromToday >= 1 ? calculateCAGR(input.todayPrice, point.y, yearsFromToday) : null;
-  const pctVsToday = (point.y / input.todayPrice - 1) * 100;
-  const pctVsQ50AtYear =
-    q50Point && q50Point.y > 0 ? (point.y / q50Point.y - 1) * 100 : null;
-
-  const daysFromToday = Math.round(input.targetDays - input.todayDays);
-  let summary = `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)}.`;
-  if (cagrFromToday != null) {
-    summary = `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)} — ${formatReturnPct(cagrFromToday)} annualized from today's ${formatPrice(input.todayPrice)}.`;
-  } else if (daysFromToday > 0) {
-    summary = `Ending ${input.year} at ${input.quantileLabel} implies ${formatPrice(point.y)} — ${formatReturnPct(pctVsToday / 100)} from today's ${formatPrice(input.todayPrice)} over ${daysFromToday} days (too short to annualize).`;
-  }
-
-  return {
-    year: input.year,
-    targetDays: input.targetDays,
-    quantile: input.quantile,
-    quantileLabel: input.quantileLabel,
-    impliedPrice: point.y,
-    yearsFromToday,
-    cagrFromToday,
-    pctVsToday,
-    pctVsQ50AtYear,
-    q50PriceAtYear: q50Point?.y ?? null,
-    summary,
-  };
 }
 
 export function getNextTenYearEnds(latestDays: number): { year: number; days: number }[] {
@@ -820,56 +721,6 @@ export function findPriceAtYearsAgo(
     };
   }
   return null;
-}
-
-/**
- * Compute the Mayer Multiple time series from daily close points.
- * Mayer Multiple (Trace Mayer) = price / 200-day simple moving average.
- * A full window of `maWindow` prior closes (inclusive) is required before emitting a value.
- * Returns points {x: day, y: mm} only for days where the SMA is fully defined.
- */
-export function computeMayerMultipleSeries(
-  points: Array<{ x: number; y: number }>,
-  maWindow: number = 200
-): Array<{ x: number; y: number }> {
-  if (!points || points.length < maWindow) return [];
-  const result: Array<{ x: number; y: number }> = [];
-  const closes = points.map(p => p.y);
-  for (let i = maWindow - 1; i < points.length; i++) {
-    let sum = 0;
-    for (let j = i - maWindow + 1; j <= i; j++) {
-      sum += closes[j];
-    }
-    const sma = sum / maWindow;
-    const mm = closes[i] / sma;
-    result.push({ x: points[i].x, y: mm });
-  }
-  return result;
-}
-
-/**
- * Basic summary stats over a Mayer Multiple series (for current indicator context).
- */
-export function computeMayerStats(mmSeries: Array<{ x: number; y: number }>) {
-  if (!mmSeries || mmSeries.length === 0) return null;
-  const values = mmSeries.map(p => p.y);
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  return { mean, min, max, count: values.length };
-}
-
-/**
- * Empirical percentile rank of target within values (0..1).
- * Fraction of values strictly less than target.
- * Useful to report "current MM is higher than X% of historical readings".
- */
-export function percentileRank(values: number[], target: number): number {
-  if (!values || values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  let i = 0;
-  while (i < sorted.length && sorted[i] < target) i++;
-  return i / sorted.length;
 }
 
 export interface Q50ModelParams {

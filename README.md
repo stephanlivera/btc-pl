@@ -7,7 +7,7 @@ Interactive visualization of Bitcoin's long-term power law trend using Giovanni 
 - **Core model**: Quantile regression (Q25 / Q50 / Q75) fit on log-log daily Bitcoin closes (`log10(price) ~ log10(days_since_2009-01-03)`).
 - **Data source**: `btc_daily.csv` (daily closes back to ~2012, kept fresh via script).
 - **Bands**: Residual-based parallel bands around the central (Q50) fit for stability. Long-term projections use **simple time-based decay** (Option 1) so the Q75/Q50 ratio compresses naturally toward ~1.3–1.45× by the early 2030s (matching how many analysts present maturing power law corridors).
-- **Features**: Verdict block with position rail, time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 and Q10–Q90 bands with shaded corridors, **Q1 floor line** (undecayed 1st-percentile floor, with its own history card), line-end labels with projected values, main chart fullscreen + PNG download/copy, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic log-scale Y-axis with readable price ticks, 10-year year-end projections table, **Conditional Forward Returns by Quantile Regime** card (historical return stats by power-law bucket), **Time Spent Below Quantile** card (today's rank + share of history at or below that level), **Bitcoin Stats at a Glance** (price, power-law quantile, ATH, YTD/30d/90d returns, moving averages, Mayer, RSI, 30d vol, halving cycle), Bitcoin CAGR table, Mayer Multiple history, rolling asset-class correlations, gold market-cap flip projections, **The Strengthening Power Law** card (expanding-window OLS β + R² over time), year + month tooltips.
+- **Features**: Verdict block with position rail, time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 and Q10–Q90 bands with shaded corridors, **Q1 floor line** (undecayed 1st-percentile floor, with its own history card), line-end labels with projected values, main chart fullscreen + PNG download/copy, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic log-scale Y-axis with readable price ticks, 10-year year-end projections table, **Time Spent Below Quantile** card (today's rank + share of history at or below that level), **Bitcoin Stats at a Glance** (price, power-law quantile, ATH, YTD/30d/90d returns, moving averages, Mayer, RSI, 30d vol, halving cycle), Bitcoin CAGR table, rolling asset-class correlations, **The Strengthening Power Law** card (expanding-window OLS β + R² over time), year + month tooltips.
 
 The old single-file `index.html` (root) is the legacy prototype. The current production experience lives in `frontend/` + `backend/`.
 
@@ -55,7 +55,7 @@ You can inspect the live fitted coefficients and decay settings at the `/paramet
 The **Q1 floor** is a power-law floor line: the Q50 trend shifted down by the 1st percentile of historical log-residuals (`FLOOR_QUANTILE = 0.01` in `backend/quantile_model.py`). It uses the same parallel-offset method as the other bands, with one deliberate difference:
 
 - **It is never decayed.** Q10–Q90 are compressed toward the trend after the last data day; the floor keeps a constant log-distance below Q50, past and future. Applying the decay rule would lift the floor from ~51% below trend today to ~29% below by 2035, which is a much stronger claim than "where lows have been".
-- It is requested like any other curve (`/curves?...&quantiles=0.01&parallel=true`) and drawn on the main chart with a hatched zone beneath it (toggle: **Show Q1 floor**, on by default). It also appears as the first column of the year-end table and as a line in the scenario explorer.
+- It is requested like any other curve (`/curves?...&quantiles=0.01&parallel=true`) and drawn on the main chart with a hatched zone beneath it (toggle: **Show Q1 floor**, on by default). It also appears as the first column of the year-end table.
 - `GET /current` returns `floor_q1` and `floor_gap_pct` for today; `GET /floor` returns the floor card's statistics: closes below the floor (all history and since 2013), the deepest close under it, the closest approach in each era, and the price ÷ floor series.
 
 **Caveat:** the floor is fitted in-sample, so about 1% of all closes sit below it by construction (most of them in Aug–Oct 2010). It describes where lows have been; it is not a guarantee.
@@ -64,6 +64,8 @@ The **Q1 floor** is a power-law floor line: the Q50 trend shifted down by the 1s
 The top of the page answers "where is Bitcoin today?" before any chart: a one-sentence verdict (quantile rank and share of days cheaper/richer), four figures (price, Q50 trend, Q1 floor, time this cheap) and a **position rail** that places today's close on a log-price scale from the floor to Q99. All values come from `GET /current` and `GET /curves` (rail levels); rendering lives in `frontend/src/verdict.ts`.
 
 ### Conditional Forward Returns by Quantile Regime
+> **Note:** this card was removed from the dashboard in the 2026-11 design pass, along with the scenario explorer, the Mayer Multiple history chart and the gold market-cap card. The `GET /conditional-returns` endpoint described here is still served by the backend.
+
 The **Conditional Forward Returns** card answers: "When BTC was historically in each power-law regime (cheap / fair / rich vs the Q50 trend), what did it typically return over the next 3m / 6m / 1y / 2y?"
 
 1. For every trading day in history, compute its **empirical quantile rank** against the full historical distribution of log-residuals around the central Q50 fit (same CDF method as chart tooltips and `/current`).
@@ -395,7 +397,7 @@ simplepowerlaw/
 │   │   ├── api.ts                # Backend fetch helpers
 │   │   ├── ui.ts                 # Loading overlays, toggles
 │   │   ├── mainChart.ts          # Main power-law chart
-│   │   ├── cards.ts              # Analysis cards (stats, Mayer, gold flip, …)
+│   │   ├── cards.ts              # Analysis cards (floor, year-end table, stats, CAGR, correlations, fit, falsifiability)
 │   │   ├── utils.ts              # Pure functions (extracted for testing) — CAGR, glance stats, etc.
 │   │   └── __tests__/            # Vitest tests (CAGR, glance stats, quantile rank, …)
 

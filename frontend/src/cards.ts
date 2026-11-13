@@ -4,11 +4,7 @@ import {
   formatPrice,
   getNextTenYearEnds,
   getProjectionsColumns,
-  buildProjectionsCacheKey,
   findClosestCurvePoint,
-  computeQuantileScenario,
-  type ProjectionsColumn,
-  type QuantileScenarioResult,
   getTimeTickValues,
   yearLabelForTickDay,
   formatTimeTickLabel,
@@ -23,9 +19,6 @@ import {
   getEndOfYearDays,
   calculateCAGR,
   findPriceAtYearsAgo,
-  computeMayerMultipleSeries,
-  computeMayerStats,
-  percentileRank,
   formatCorrelation,
   correlationColorClass,
   correlationWindowLabel,
@@ -33,9 +26,7 @@ import {
   computeChartYAxisLimits,
   computePointQuantileRank,
   buildLogResiduals,
-  formatConditionalReturnCell,
   formatReturnPct,
-  conditionalReturnColorClass,
   computeBitcoinGlancePriceStats,
   rsiContextLabel,
   buildFitStrengthColoredSegments,
@@ -43,310 +34,25 @@ import {
   falsifiabilityStatusLabel,
   buildFalsifiabilityHeadline,
   type Q50ModelParams,
-  type ConditionalHorizonStats,
   type ExpandingFitPoint,
   type FitStrengthR2Bucket,
   type FalsifiabilitySummary,
   type FalsifiabilityTest,
 } from './utils';
 
-import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
+import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
 import {
   fetchCurves,
   fetchHistorical,
   fetchCurrentPosition,
-  fetchLongTermCurves,
   fetchModelStats,
   fetchFloorSummary,
-  goldMcAt,
-  computeBtcMcT,
   cacheCurrentPosition,
 } from './api';
-import { loadingTableRow, skeletonTableRows, setChartLoading } from './ui';
+import { skeletonTableRows, setChartLoading } from './ui';
 import { renderVerdict } from './verdict';
 import { chartAnimationDuration } from './motion';
 import { terminal as T, terminalUi as tu, terminalChartBackgroundPlugin } from './theme';
-
-const CONDITIONAL_RETURN_HORIZONS = [91, 183, 365, 730] as const;
-
-let projectionsScenarioInitialized = false;
-
-function resolveTodayPriceAndDays(): { todayPrice: number; todayDays: number } | null {
-  const points = state.lastHistoricalPoints;
-  if (points.length > 0) {
-    const latest = points[points.length - 1];
-    if (latest.y > 0) {
-      return { todayPrice: latest.y, todayDays: latest.x };
-    }
-  }
-  if (state.currentLatestDays > 0) {
-    return { todayPrice: 0, todayDays: state.currentLatestDays };
-  }
-  return null;
-}
-
-function getScenarioQuantileColumns(): ProjectionsColumn[] {
-  return getProjectionsColumns(state.showBands, state.showOuterBands, state.showFloor);
-}
-
-function resolveScenarioSelection(yearEnds: Array<{ year: number; days: number }>): {
-  year: number;
-  days: number;
-  quantile: number;
-} {
-  const columns = getScenarioQuantileColumns();
-  const availableQuantiles = new Set(columns.map((col) => col.quantile));
-  let quantile = state.scenarioSelection.quantile;
-  if (!availableQuantiles.has(quantile)) {
-    quantile = 0.5;
-  }
-
-  const selectedYear = state.scenarioSelection.year;
-  const yearMatch = yearEnds.find((entry) => entry.year === selectedYear);
-  const target = yearMatch ?? yearEnds[0];
-
-  state.scenarioSelection.year = target.year;
-  state.scenarioSelection.quantile = quantile;
-
-  return { year: target.year, days: target.days, quantile };
-}
-
-function applyProjectionsTableHighlights(year: number, quantile: number) {
-  const tableBody = document.getElementById('projections-table');
-  if (!tableBody) return;
-
-  tableBody.querySelectorAll('tr').forEach((row) => {
-    const rowYear = Number((row as HTMLElement).dataset.year);
-    const isSelectedRow = rowYear === year;
-    row.classList.toggle(tu.rowSelected, isSelectedRow);
-
-    row.querySelectorAll('td[data-quantile]').forEach((cell) => {
-      const cellQuantile = Number((cell as HTMLElement).dataset.quantile);
-      const isSelectedCol = cellQuantile === quantile;
-      cell.classList.toggle('terminal-col-selected', isSelectedCol && !isSelectedRow);
-      cell.classList.toggle('terminal-cell-selected', isSelectedCol && isSelectedRow);
-    });
-  });
-}
-
-function renderScenarioQuantileChips(columns: ProjectionsColumn[], activeQuantile: number) {
-  const chipsEl = document.getElementById('scenario-quantile-chips');
-  if (!chipsEl) return;
-
-  chipsEl.innerHTML = columns
-    .map((col) => {
-      const active = col.quantile === activeQuantile;
-      return `
-        <button
-          type="button"
-          class="scenario-quantile-chip projections-scenario-chip terminal-seg-btn ${active ? tu.segActive : tu.segIdle}"
-          data-quantile="${col.quantile}"
-          aria-pressed="${active}"
-        >${col.label}</button>
-      `;
-    })
-    .join('');
-}
-
-function renderScenarioYearSelect(yearEnds: Array<{ year: number; days: number }>, activeYear: number) {
-  const selectEl = document.getElementById('scenario-year-select') as HTMLSelectElement | null;
-  if (!selectEl) return;
-
-  selectEl.innerHTML = yearEnds
-    .map(
-      ({ year }) =>
-        `<option value="${year}"${year === activeYear ? ' selected' : ''}>${year}</option>`,
-    )
-    .join('');
-}
-
-function populateScenarioStats(result: QuantileScenarioResult | null) {
-  const priceEl = document.getElementById('scenario-implied-price');
-  const cagrEl = document.getElementById('scenario-cagr');
-  const totalEl = document.getElementById('scenario-total-return');
-  const vsQ50El = document.getElementById('scenario-vs-q50');
-  const summaryEl = document.getElementById('scenario-summary');
-
-  if (!result) {
-    if (priceEl) priceEl.textContent = '—';
-    if (cagrEl) cagrEl.textContent = '—';
-    if (totalEl) totalEl.textContent = '—';
-    if (vsQ50El) vsQ50El.textContent = '—';
-    if (summaryEl) summaryEl.textContent = 'Scenario unavailable for the selected year and quantile.';
-    return;
-  }
-
-  if (priceEl) priceEl.textContent = formatPrice(result.impliedPrice);
-  if (cagrEl) {
-    // Under one year there is no meaningful annualized figure — say so instead of compounding weeks.
-    const subYear = result.cagrFromToday == null && result.yearsFromToday > 0 && result.yearsFromToday < 1;
-    cagrEl.textContent =
-      result.cagrFromToday != null ? formatReturnPct(result.cagrFromToday) : subYear ? 'n/a (under 1y)' : '—';
-    cagrEl.className = `font-mono font-semibold mt-0.5 ${
-      subYear ? tu.textMuted : conditionalReturnColorClass(result.cagrFromToday)
-    }`;
-  }
-  if (totalEl) {
-    totalEl.textContent =
-      result.pctVsToday != null ? formatReturnPct(result.pctVsToday / 100) : '—';
-    totalEl.className = `font-mono mt-0.5 ${conditionalReturnColorClass(
-      result.pctVsToday != null ? result.pctVsToday / 100 : null,
-    )}`;
-  }
-  if (vsQ50El) {
-    vsQ50El.textContent =
-      result.pctVsQ50AtYear != null
-        ? formatDeviationPct(result.pctVsQ50AtYear).replace(' vs Q50', '')
-        : '—';
-  }
-  if (summaryEl) summaryEl.textContent = result.summary;
-}
-
-export function updateProjectionsScenarioExplorer() {
-  const cache = state.projectionsCache;
-  if (!cache) return;
-
-  const columns = getScenarioQuantileColumns();
-  const selection = resolveScenarioSelection(cache.yearEnds);
-  const column =
-    columns.find((col) => col.quantile === selection.quantile) ??
-    columns.find((col) => col.quantile === 0.5);
-  if (!column) return;
-
-  renderScenarioYearSelect(cache.yearEnds, selection.year);
-  renderScenarioQuantileChips(columns, selection.quantile);
-
-  const result = computeQuantileScenario({
-    year: selection.year,
-    targetDays: selection.days,
-    quantile: selection.quantile,
-    quantileLabel: column.label,
-    curves: cache.curves,
-    todayPrice: cache.todayPrice,
-    todayDays: cache.todayDays,
-  });
-
-  populateScenarioStats(result);
-  applyProjectionsTableHighlights(selection.year, selection.quantile);
-}
-
-function bindProjectionsScenarioExplorer() {
-  if (projectionsScenarioInitialized) return;
-  projectionsScenarioInitialized = true;
-
-  const yearSelect = document.getElementById('scenario-year-select');
-  yearSelect?.addEventListener('change', () => {
-    const value = Number((yearSelect as HTMLSelectElement).value);
-    if (!Number.isFinite(value)) return;
-    state.scenarioSelection.year = value;
-    updateProjectionsScenarioExplorer();
-  });
-
-  const chipsEl = document.getElementById('scenario-quantile-chips');
-  chipsEl?.addEventListener('click', (event) => {
-    const target = (event.target as HTMLElement).closest<HTMLButtonElement>('.scenario-quantile-chip');
-    if (!target) return;
-    const quantile = Number(target.dataset.quantile);
-    if (!Number.isFinite(quantile)) return;
-    state.scenarioSelection.quantile = quantile;
-    updateProjectionsScenarioExplorer();
-  });
-}
-
-export function initProjectionsScenarioExplorer() {
-  bindProjectionsScenarioExplorer();
-}
-
-export async function fetchConditionalReturns() {
-  const qs = CONDITIONAL_RETURN_HORIZONS.map(h => `horizons=${h}`).join('&');
-  const res = await fetch(`/api/conditional-returns?${qs}`);
-  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
-  return res.json();
-}
-
-export function conditionalBucketRowColor(_low: number): string {
-  return 'text-[var(--tb-text)]';
-}
-
-export async function loadConditionalReturnsCard() {
-  const card = document.getElementById('conditional-returns-card');
-  if (!card) return;
-
-  const tableBody = document.getElementById('conditional-returns-table');
-  const summaryEl = document.getElementById('conditional-returns-summary');
-  const nowDateEl = document.getElementById('conditional-returns-now-date');
-  const colCount = 6;
-
-  if (!tableBody) return;
-
-  if (nowDateEl && state.currentDataEndDate) {
-    nowDateEl.textContent = ` (through ${state.currentDataEndDate})`;
-  }
-
-  tableBody.innerHTML = skeletonTableRows(colCount);
-
-  try {
-    const data = await fetchConditionalReturns();
-    const buckets = data.buckets ?? [];
-    const current = data.current ?? {};
-    const horizons: number[] = data.meta?.horizons_days ?? [...CONDITIONAL_RETURN_HORIZONS];
-
-    let rowsHtml = '';
-    for (const bucket of buckets) {
-      const isCurrent = Boolean(bucket.is_current);
-      const rowClass = isCurrent ? `font-semibold ${tu.rowCurrent}` : '';
-      const labelColor = conditionalBucketRowColor(bucket.low ?? 0);
-      const episodeCount =
-        bucket.horizons?.[String(horizons[horizons.length - 1])]?.count ?? '—';
-
-      const cells = horizons.map(h => {
-        const stats: ConditionalHorizonStats = bucket.horizons?.[String(h)] ?? {
-          median_return: null,
-          p25_return: null,
-          p75_return: null,
-          hit_rate: null,
-          count: 0,
-        };
-        const { main, sub } = formatConditionalReturnCell(stats);
-        return `
-          <td class="px-4 py-2 text-right ${rowClass}">
-            <div class="font-mono text-[var(--tb-text)]">${main}</div>
-            ${sub ? `<div class="text-[10px] terminal-text-muted mt-0.5">${sub}</div>` : ''}
-          </td>
-        `;
-      });
-
-      rowsHtml += `
-        <tr class="transition-colors ${rowClass}">
-          <td class="px-4 py-2 font-medium ${labelColor} ${rowClass}">
-            ${bucket.label}${isCurrent ? ' <span class="text-[10px] terminal-text-live font-normal">(today)</span>' : ''}
-          </td>
-          <td class="px-4 py-2 text-right font-mono terminal-text-muted text-xs ${rowClass}">${typeof episodeCount === 'number' ? episodeCount.toLocaleString() : episodeCount}</td>
-          ${cells.join('')}
-        </tr>
-      `;
-    }
-
-    tableBody.innerHTML = rowsHtml || loadingTableRow(colCount, 'No conditional return data');
-
-    if (summaryEl && current.quantile != null) {
-      const currentBucket = buckets.find((b: { is_current?: boolean }) => b.is_current);
-      const sixMonth = currentBucket?.horizons?.['183'] as ConditionalHorizonStats | undefined;
-      let extra = '';
-      if (sixMonth?.median_return != null) {
-        extra = ` Median 6-month return in this bucket: ${formatReturnPct(sixMonth.median_return)} (n=${sixMonth.count?.toLocaleString() ?? '—'}).`;
-      }
-      summaryEl.innerHTML =
-        `Today is ${current.quantile_label ?? 'Q??'} ` +
-        `(${formatQuantilePercentileSubtext(current.quantile).replace(' percentile vs model', ' percentile')}).` +
-        extra;
-    }
-  } catch (err) {
-    console.error('Failed to load conditional returns card', err);
-    tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 terminal-text-error">Failed to load conditional returns (is the backend running?)</td></tr>`;
-    if (summaryEl) summaryEl.textContent = '';
-  }
-}
 
 /** Loads GET /current once and renders the verdict block (headline, figures, position rail). */
 export async function loadTimeBelowQuantileCard() {
@@ -369,8 +75,6 @@ export async function loadYearEndProjections() {
   const tableBody = document.getElementById('projections-table')!;
   const tableHead = document.getElementById('projections-table-head')!;
   if (!tableBody || !tableHead) return;
-
-  bindProjectionsScenarioExplorer();
 
   const projectionColumns = getProjectionsColumns(state.showBands, state.showOuterBands, state.showFloor);
   const tableColumns = projectionColumns.map((col) => ({
@@ -412,36 +116,8 @@ export async function loadYearEndProjections() {
   const quantilesToFetch = projectionColumns.map((col) => col.quantile).sort((a, b) => a - b);
 
   try {
-    let today = resolveTodayPriceAndDays();
-    if (!today || today.todayPrice <= 0) {
-      const current = await fetchCurrentPosition();
-      const actualPrice = current?.position?.actual_price;
-      if (typeof actualPrice === 'number' && actualPrice > 0) {
-        today = {
-          todayPrice: actualPrice,
-          todayDays: state.currentLatestDays,
-        };
-      }
-    }
-    if (!today || today.todayPrice <= 0) {
-      throw new Error('Latest BTC price unavailable for scenario explorer');
-    }
-
     const curvesData = await fetchCurves(startDays, endDays, 1, quantilesToFetch, true);
     const curves = curvesData?.curves ?? {};
-
-    state.projectionsCache = {
-      key: buildProjectionsCacheKey(
-        state.currentLatestDays,
-        state.showBands,
-        state.showOuterBands,
-        state.showFloor,
-      ),
-      yearEnds,
-      curves,
-      todayPrice: today.todayPrice,
-      todayDays: today.todayDays,
-    };
 
     let rowsHtml = '';
 
@@ -468,12 +144,9 @@ export async function loadYearEndProjections() {
     }
 
     tableBody.innerHTML = rowsHtml;
-    updateProjectionsScenarioExplorer();
   } catch (err) {
     console.error(err);
-    state.projectionsCache = null;
     tableBody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-3 terminal-text-error">Failed to load projections</td></tr>`;
-    populateScenarioStats(null);
   }
 }
 
@@ -484,25 +157,6 @@ export async function fetchRecentHistoricalForStats() {
   const startDays = 800;
   const hist = await fetchHistorical(startDays, state.currentLatestDays, 1);
   return hist.points || [];
-}
-
-export async function fetchHistoricalForMayer() {
-  // Always fetch a long window so we can support "All" + recent filtered views.
-  // The 200-day SMA for points near the start of a recent view will still be accurate
-  // because we compute the full series first, then slice for display.
-  const startDays = 800; // ~2011
-  const hist = await fetchHistorical(startDays, state.currentLatestDays, 1);
-  return hist.points || [];
-}
-
-/** Returns the subset of the pre-computed full MM series for the selected view. */
-export function getMayerVisibleSeries(range: 'all' | '5y' | '2y'): Array<{ x: number; y: number }> {
-  if (!state.fullMayerSeries.length) return [];
-  if (range === 'all') return state.fullMayerSeries;
-
-  const years = range === '5y' ? 5 : 2;
-  const cutoff = Math.round(state.currentLatestDays - years * 365.25);
-  return state.fullMayerSeries.filter(p => p.x >= cutoff);
 }
 
 export async function fetchHistoricalForCAGR() {
@@ -563,244 +217,6 @@ export function computeBitcoinCAGRs(points: Array<{ x: number; y: number }>) {
   };
 }
 
-// --- Gold Market Cap Flip Card (new bottom section) ---
-
-export async function renderGoldFlipChart(cagr: number) {
-  const curvesData = await fetchLongTermCurves();
-  const canvas = document.getElementById('gold-flip-chart') as HTMLCanvasElement;
-  if (!canvas) return;
-
-  if (state.goldFlipChart) {
-    state.goldFlipChart.destroy();
-    state.goldFlipChart = null;
-  }
-
-  const q50Points = curvesData.curves?.[0.5] ?? [];
-  if (q50Points.length === 0) return;
-
-  // Populate "today" comparison using the power law central (model-implied, not spot price)
-  const currentEl = document.getElementById('gold-flip-current');
-  if (currentEl) {
-    const nowP = q50Points[0];
-    const btcNowMc = computeBtcMcT(nowP.y);
-    const gNow = GOLD_MC_T;
-    currentEl.innerHTML = `Today (power law Q50 at data end): <span class="font-mono terminal-text-accent">BTC ~$${btcNowMc.toFixed(1)}T</span> vs <span class="font-mono terminal-text-gold">Gold ~$${gNow.toFixed(0)}T</span>`;
-  }
-
-  const curve25 = curvesData.curves?.[0.25] ?? [];
-  const curve75 = curvesData.curves?.[0.75] ?? [];
-
-  const labels: string[] = [];
-  const goldData: (number | null)[] = [];
-  const btcQ50Data: (number | null)[] = [];
-  const btcQ25Data: (number | null)[] = [];
-  const btcQ75Data: (number | null)[] = [];
-
-  for (const p of q50Points) {
-    const yr = daysToDate(p.x).getUTCFullYear();
-    labels.push(String(yr));
-
-    const btcMc = computeBtcMcT(p.y);
-    btcQ50Data.push(parseFloat(btcMc.toFixed(2)));
-
-    const gMc = goldMcAt(p.x, cagr);
-    goldData.push(parseFloat(gMc.toFixed(2)));
-
-    const p25 = getCurveValue(curve25, p.x, 400);
-    btcQ25Data.push(p25 != null ? parseFloat(computeBtcMcT(p25).toFixed(2)) : null);
-
-    const p75 = getCurveValue(curve75, p.x, 400);
-    btcQ75Data.push(p75 != null ? parseFloat(computeBtcMcT(p75).toFixed(2)) : null);
-  }
-
-  const goldLabel = `Gold @ ${(cagr * 100).toFixed(0)}% CAGR`;
-
-  const datasets: any[] = [
-    {
-      label: goldLabel,
-      data: goldData,
-      borderColor: T.gold,
-      borderWidth: 2.5,
-      pointRadius: 0,
-      tension: 0.15,
-      order: 2,
-    },
-    {
-      label: 'BTC Q50 (power law × 21M)',
-      data: btcQ50Data,
-      borderColor: T.accent,
-      borderWidth: 3,
-      pointRadius: 0,
-      tension: 0,
-      order: 1,
-    },
-  ];
-
-  // Include bands if the main UI has inner bands enabled (keeps viz consistent)
-  if (state.showBands) {
-    datasets.push({
-      label: 'BTC Q25',
-      data: btcQ25Data,
-      borderColor: 'rgba(245, 158, 11, 0.45)',
-      borderWidth: 1.5,
-      borderDash: [4, 3],
-      pointRadius: 0,
-      tension: 0,
-      order: 3,
-    });
-    datasets.push({
-      label: 'BTC Q75',
-      data: btcQ75Data,
-      borderColor: 'rgba(245, 158, 11, 0.45)',
-      borderWidth: 1.5,
-      borderDash: [4, 3],
-      pointRadius: 0,
-      tension: 0,
-      order: 0,
-    });
-  }
-
-  state.goldFlipChart = new (window as any).Chart(canvas, {
-    type: 'line',
-    plugins: [terminalChartBackgroundPlugin],
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: chartAnimationDuration(220) },
-      scales: {
-        x: {
-          title: { display: true, text: 'Year', color: T.textDim, font: { size: 11 } },
-          ticks: { color: T.textDim, maxTicksLimit: 14, autoSkip: true },
-          grid: { color: 'rgba(63,63,70,0.3)' },
-        },
-        y: {
-          beginAtZero: true,
-          title: { display: true, text: 'Market Cap (USD trillions)', color: T.textDim, font: { size: 11 } },
-          ticks: {
-            color: T.textDim,
-            callback: (v: number) => '$' + v + 'T',
-          },
-          grid: { color: 'rgba(63,63,70,0.3)' },
-        },
-      },
-      plugins: {
-        legend: {
-          position: 'top',
-          align: 'end',
-          labels: { color: T.textMuted, boxWidth: 10, font: { size: 11 } },
-        },
-        tooltip: {
-          mode: 'index',
-          intersect: false,
-          callbacks: {
-            label: (ctx: any) => `${ctx.dataset.label}: $${ctx.raw}T`,
-          },
-        },
-      },
-      elements: {
-        point: { hoverRadius: 3 },
-      },
-    },
-  });
-}
-
-export async function computeCrossoverTableData() {
-  const curvesData = await fetchLongTermCurves();
-  const results: Array<{
-    rate: number;
-    label: string;
-    yearQ50: string;
-    yearQ25: string;
-    yearQ75: string;
-    mcBtc: string;
-    mcGold: string;
-  }> = [];
-
-  for (const opt of GOLD_CAGR_OPTIONS) {
-    const cagr = opt.rate;
-    const q50Pts = curvesData.curves?.[0.5] ?? [];
-    const q25Pts = curvesData.curves?.[0.25] ?? [];
-    const q75Pts = curvesData.curves?.[0.75] ?? [];
-
-    const findFirstCross = (pts: any[]) => {
-      for (const p of pts) {
-        const btcMc = computeBtcMcT(p.y);
-        const gMc = goldMcAt(p.x, cagr);
-        if (btcMc > gMc + 0.01) { // small epsilon
-          return daysToDate(p.x).getUTCFullYear().toString();
-        }
-      }
-      return 'after 2050';
-    };
-
-    const yearQ50 = findFirstCross(q50Pts);
-    const yearQ25 = findFirstCross(q25Pts);
-    const yearQ75 = findFirstCross(q75Pts);
-
-    // For the central cross values (use Q50 cross point)
-    let mcBtcStr = '—';
-    let mcGoldStr = '—';
-    for (const p of q50Pts) {
-      const btcMc = computeBtcMcT(p.y);
-      const gMc = goldMcAt(p.x, cagr);
-      if (btcMc > gMc + 0.01) {
-        mcBtcStr = btcMc.toFixed(1) + 'T';
-        mcGoldStr = gMc.toFixed(1) + 'T';
-        break;
-      }
-    }
-
-    results.push({
-      rate: cagr,
-      label: opt.label,
-      yearQ50,
-      yearQ25,
-      yearQ75,
-      mcBtc: mcBtcStr,
-      mcGold: mcGoldStr,
-    });
-  }
-  return results;
-}
-
-export function populateGoldFlipTable(selectedRate?: number) {
-  const headEl = document.getElementById('gold-flip-table-head')!;
-  const bodyEl = document.getElementById('gold-flip-table')!;
-  if (!headEl || !bodyEl) return;
-
-  headEl.innerHTML = `
-    <th class="text-left font-normal px-3 py-2">Gold CAGR</th>
-    <th class="text-right font-normal px-3 py-2">Q50 crosses in</th>
-    <th class="text-right font-normal px-3 py-2">Q25 crosses in</th>
-    <th class="text-right font-normal px-3 py-2">Q75 crosses in</th>
-    <th class="text-right font-normal px-3 py-2">BTC MC</th>
-    <th class="text-right font-normal px-3 py-2">Gold MC</th>
-  `;
-
-  bodyEl.innerHTML = `<tr><td colspan="6" class="px-4 py-3 terminal-text-muted">Computing crossovers...</td></tr>`;
-
-  computeCrossoverTableData().then((rows) => {
-    let html = '';
-    for (const r of rows) {
-      const isSel = selectedRate != null && Math.abs(r.rate - selectedRate) < 0.0001;
-      const cls = isSel ? tu.rowSelected : '';
-      html += `
-        <tr class="${cls} transition-colors">
-          <td class="px-3 py-2 font-medium text-[var(--tb-text)]">${r.label}</td>
-          <td class="px-3 py-2 text-right font-mono terminal-text-accent">${r.yearQ50}</td>
-          <td class="px-3 py-2 text-right font-mono terminal-text-positive">${r.yearQ25}</td>
-          <td class="px-3 py-2 text-right font-mono text-rose-400">${r.yearQ75}</td>
-          <td class="px-3 py-2 text-right font-mono">${r.mcBtc}</td>
-          <td class="px-3 py-2 text-right font-mono">${r.mcGold}</td>
-        </tr>`;
-    }
-    bodyEl.innerHTML = html || `<tr><td colspan="6" class="px-3 py-2 terminal-text-muted">No data</td></tr>`;
-  }).catch((err) => {
-    console.error(err);
-    bodyEl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 terminal-text-error">Failed to compute gold flip table</td></tr>`;
-  });
-}
 
 function glanceStatBox(label: string, value: string, sub: string, valueClass = 'text-[var(--tb-text)]'): string {
   return `
@@ -917,48 +333,6 @@ export async function loadBitcoinCAGRCard() {
   } catch (err) {
     console.error('Failed to load bitcoin CAGR', err);
     tableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 terminal-text-error">Failed to load CAGR (backend /historical?)</td></tr>`;
-  }
-}
-
-export async function loadGoldFlipCard() {
-  // Setup the segmented controls for gold growth rate (affects chart gold line)
-  const controls = document.getElementById('gold-growth-controls');
-  if (controls) {
-    controls.innerHTML = `<span class="terminal-control-label px-2">Gold growth assumption:</span>`;
-    GOLD_CAGR_OPTIONS.forEach((opt) => {
-      const btn = document.createElement('button');
-      const active = Math.abs(opt.rate - state.selectedGoldCagr) < 0.0001;
-      btn.className = `terminal-seg-btn ${active
-        ? tu.segActive
-        : tu.segIdle}`;
-      btn.textContent = opt.label;
-      btn.addEventListener('click', () => {
-        state.selectedGoldCagr = opt.rate;
-        // re-style all
-        controls.querySelectorAll('button').forEach((b) => {
-          b.classList.remove(tu.segActive);
-          b.classList.add(tu.segIdle);
-        });
-        btn.classList.remove(tu.segIdle);
-        btn.classList.add(tu.segActive);
-        // update viz
-        renderGoldFlipChart(state.selectedGoldCagr).catch(console.error);
-        populateGoldFlipTable(state.selectedGoldCagr);
-      });
-      controls.appendChild(btn);
-    });
-  }
-
-  setChartLoading('gold-flip-chart-loading', true);
-  try {
-    await renderGoldFlipChart(state.selectedGoldCagr);
-    populateGoldFlipTable(state.selectedGoldCagr);
-  } catch (err) {
-    console.error('Failed to load gold flip card:', err);
-    const tbl = document.getElementById('gold-flip-table');
-    if (tbl) tbl.innerHTML = `<tr><td colspan="6" class="px-3 py-2 terminal-text-error">Failed to load (server may still be waking up)</td></tr>`;
-  } finally {
-    setChartLoading('gold-flip-chart-loading', false);
   }
 }
 
@@ -1249,237 +623,6 @@ export async function loadAssetCorrelationsCard() {
 }
 
 // --- Mayer Multiple History card (chart + current indicator) ---
-
-function renderMayerChart(mmSeries: Array<{ x: number; y: number }>) {
-  const ctx = document.getElementById('mayer-multiple-chart') as HTMLCanvasElement | null;
-  if (!ctx) return;
-
-  if (state.mayerChart) {
-    state.mayerChart.destroy();
-    state.mayerChart = null;
-  }
-  if (!mmSeries || mmSeries.length === 0) return;
-
-  const firstX = mmSeries[0].x;
-  const lastX = mmSeries[mmSeries.length - 1].x;
-  const maxMM = Math.max(...mmSeries.map(p => p.y));
-  const ySuggestedMax = Math.max(3.5, Math.ceil(maxMM * 1.15));
-
-  const ref1 = [{ x: firstX, y: 1 }, { x: lastX, y: 1 }];
-  const ref08 = [{ x: firstX, y: 0.8 }, { x: lastX, y: 0.8 }];
-  const ref24 = [{ x: firstX, y: 2.4 }, { x: lastX, y: 2.4 }];
-
-  const datasets: any[] = [
-    {
-      label: 'Mayer Multiple',
-      data: mmSeries,
-      borderColor: T.accent,
-      borderWidth: 1.75,
-      pointRadius: mmSeries.length > 900 ? 0 : 0.7,
-      pointHoverRadius: 3,
-      tension: 0.08,
-      order: 2,
-    },
-    {
-      label: '1.0 (200DMA)',
-      data: ref1,
-      borderColor: T.textMuted,
-      borderWidth: 1,
-      borderDash: [3, 3],
-      pointRadius: 0,
-      tension: 0,
-      order: 10,
-    },
-    {
-      label: '0.8 (deep value / oversold)',
-      data: ref08,
-      borderColor: T.positive,
-      borderWidth: 1,
-      borderDash: [4, 2],
-      pointRadius: 0,
-      tension: 0,
-      order: 11,
-    },
-    {
-      label: '2.4 (classic threshold)',
-      data: ref24,
-      borderColor: T.negative,
-      borderWidth: 1,
-      borderDash: [2, 2],
-      pointRadius: 0,
-      tension: 0,
-      order: 12,
-    },
-  ];
-
-  const desiredXTicks = getTimeTickValues(firstX, lastX);
-
-  state.mayerChart = new Chart(ctx, {
-    type: 'line',
-    plugins: [terminalChartBackgroundPlugin],
-    data: { datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: chartAnimationDuration(220) },
-      scales: {
-        x: {
-          type: 'linear',
-          min: firstX,
-          max: lastX,
-          title: { display: true, text: 'Year', color: T.textMuted },
-          grid: { color: T.grid },
-          ticks: {
-            color: T.textDim,
-            font: { size: 10 },
-            callback: function (value: number) {
-              return formatTimeTickLabel(value as number, firstX, lastX);
-            },
-          },
-          afterBuildTicks: (axis: any) => {
-            if (desiredXTicks && desiredXTicks.length > 0) {
-              axis.ticks = desiredXTicks.map((v: number) => ({ value: v }));
-            }
-          },
-        },
-        y: {
-          type: 'linear',
-          min: 0,
-          suggestedMax: ySuggestedMax,
-          title: { display: true, text: 'Mayer Multiple', color: T.textMuted },
-          grid: { color: T.grid },
-          ticks: { color: T.textDim, font: { size: 10 }, stepSize: 0.5 },
-        },
-      },
-      plugins: {
-        legend: {
-          display: true,
-          position: 'top',
-          labels: { boxWidth: 10, font: { size: 10 }, padding: 8 },
-        },
-        tooltip: {
-          mode: 'nearest',
-          intersect: false,
-          backgroundColor: T.tooltipBg,
-          borderColor: T.tooltipBorder,
-          borderWidth: 1,
-          callbacks: {
-            title: (tooltipItems: any[]) => {
-              if (!tooltipItems.length) return '';
-              const x = tooltipItems[0].raw.x;
-              const d = daysToDate(x);
-              return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-            },
-            label: (item: any) => `Mayer Multiple: ${Number(item.raw.y).toFixed(2)}`,
-          },
-        },
-      },
-    },
-  });
-}
-
-/** Render the Mayer chart for the active state.mayerRange (uses the precomputed full series). */
-function renderMayerForCurrentRange() {
-  const visible = getMayerVisibleSeries(state.mayerRange);
-  renderMayerChart(visible);
-}
-
-/** Create the All / 5y / 2y segmented controls for the Mayer history chart. */
-export function setupMayerRangeControls() {
-  const container = document.getElementById('mayer-range-controls');
-  if (!container) return;
-
-  const ranges: Array<{ key: 'all' | '5y' | '2y'; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: '5y', label: '5y' },
-    { key: '2y', label: '2y' },
-  ];
-
-  container.innerHTML = `<span class="terminal-control-label px-2">View:</span>`;
-
-  ranges.forEach(({ key, label }) => {
-    const btn = document.createElement('button');
-    const isActive = key === state.mayerRange;
-    btn.className = `text-xs px-2.5 py-1 rounded-md border transition-colors ${
-      isActive
-        ? tu.segActive
-        : tu.segIdle
-    }`;
-    btn.textContent = label;
-    btn.addEventListener('click', () => {
-      if (state.mayerRange === key) return;
-      state.mayerRange = key;
-
-      // Update button styles
-      container.querySelectorAll('button').forEach(b => {
-        b.classList.remove(tu.segActive);
-        b.classList.add(tu.segIdle);
-      });
-      btn.classList.remove(tu.segIdle);
-      btn.classList.add(tu.segActive);
-
-      renderMayerForCurrentRange();
-    });
-    container.appendChild(btn);
-  });
-}
-
-export async function loadMayerMultipleCard() {
-  const valueEl = document.getElementById('mayer-current-value') as HTMLElement | null;
-  const contextEl = document.getElementById('mayer-current-context') as HTMLElement | null;
-  const dateEl = document.getElementById('mayer-now-date') as HTMLElement | null;
-  const canvas = document.getElementById('mayer-multiple-chart') as HTMLCanvasElement | null;
-  if (!valueEl || !contextEl || !canvas) return;
-
-  valueEl.textContent = '…';
-  contextEl.textContent = 'Loading Mayer Multiple history…';
-  setChartLoading('mayer-chart-loading', true);
-
-  try {
-    const points = await fetchHistoricalForMayer();
-    state.fullMayerSeries = computeMayerMultipleSeries(points, 200);
-    if (!state.fullMayerSeries || state.fullMayerSeries.length === 0) {
-      valueEl.textContent = '—';
-      contextEl.textContent = 'Not enough history for 200-day SMA';
-      return;
-    }
-
-    if (dateEl && state.currentDataEndDate) {
-      dateEl.textContent = `(as of ${state.currentDataEndDate})`;
-    }
-
-    // Current indicator + stats are always computed from the *full* history,
-    // independent of the chart time-range toggle.
-    const currentMM = state.fullMayerSeries[state.fullMayerSeries.length - 1].y;
-    valueEl.textContent = currentMM.toFixed(2);
-
-    const stats = computeMayerStats(state.fullMayerSeries);
-    const vals = state.fullMayerSeries.map(p => p.y);
-    const rank = percentileRank(vals, currentMM);
-    const pct = Math.round(rank * 100);
-    const meanStr = stats ? stats.mean.toFixed(2) : '—';
-
-    let zone = '';
-    if (currentMM < 0.8) zone = ' • Deep value / oversold';
-    else if (currentMM < 1.0) zone = ' • Below 200DMA';
-    else if (currentMM < 2.4) zone = ' • Within historical range';
-    else zone = ' • Elevated (above classic 2.4 threshold)';
-
-    contextEl.textContent = `Historical avg ≈ ${meanStr} • Higher than ${pct}% of readings${zone}`;
-
-    // Setup (or refresh) the All / 5y / 2y toggle buttons
-    setupMayerRangeControls();
-
-    // Render the chart for the currently selected range (slices state.fullMayerSeries)
-    renderMayerForCurrentRange();
-  } catch (err) {
-    console.error('Failed to load Mayer Multiple card', err);
-    valueEl.textContent = '—';
-    contextEl.textContent = 'Failed to load (server may still be waking up)';
-  } finally {
-    setChartLoading('mayer-chart-loading', false);
-  }
-}
 
 // --- Strengthening Power Law (expanding-window fit quality) ---
 

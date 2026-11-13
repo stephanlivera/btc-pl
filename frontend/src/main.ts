@@ -16,18 +16,13 @@ import { loadAndRender } from './mainChart';
 import { state } from './state';
 import {
   loadYearEndProjections,
-  initProjectionsScenarioExplorer,
-  loadConditionalReturnsCard,
   loadTimeBelowQuantileCard,
   loadBitcoinStatsCard,
-  loadMayerMultipleCard,
   loadBitcoinCAGRCard,
-  loadGoldFlipCard,
   loadAssetCorrelationsCard,
   loadFitStrengthCard,
   loadFalsifiabilityCard,
   loadFloorCard,
-  renderGoldFlipChart,
 } from './cards';
 import { loadMonteCarloCard } from './monteCarloCard';
 import { initMotion, revealStaggerSequence } from './motion';
@@ -156,9 +151,6 @@ function setupControls() {
     updateBandsToggle();
     loadAndRender(state.currentRange);
     loadYearEndProjections();
-    if (state.goldFlipChart) {
-      renderGoldFlipChart(state.selectedGoldCagr).catch(console.error);
-    }
   });
 
   const outerToggleBtn = document.getElementById('outer-bands-toggle')!;
@@ -180,7 +172,6 @@ function setupControls() {
   updateBandsToggle();
   updateOuterBandsToggle();
   updateFloorToggle();
-  initProjectionsScenarioExplorer();
 }
 
 async function init() {
@@ -201,12 +192,9 @@ async function init() {
   await Promise.allSettled([
     loadYearEndProjections(),
     loadFloorCard(),
-    loadConditionalReturnsCard(),
     loadTimeBelowQuantileCard(),
     loadBitcoinStatsCard(),
-    loadMayerMultipleCard(),
     loadBitcoinCAGRCard(),
-    loadGoldFlipCard(),
     loadAssetCorrelationsCard(),
     loadFitStrengthCard(),
     loadFalsifiabilityCard(),

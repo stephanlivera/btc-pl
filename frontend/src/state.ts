@@ -18,16 +18,6 @@ export const state = {
   // Q1 floor card
   floorChart: null as any,
 
-  // Gold flip card
-  goldFlipChart: null as any,
-  selectedGoldCagr: 0.08,
-  longTermCurvesCache: null as any,
-
-  // Mayer Multiple history card
-  mayerChart: null as any,
-  mayerRange: '2y' as 'all' | '5y' | '2y',
-  fullMayerSeries: [] as Array<{ x: number; y: number }>,
-
   // Asset correlations card
   corrChart: null as any,
   corrWindow: 90,
@@ -61,32 +51,11 @@ export const state = {
     floor_q1?: number;
     floor_gap_pct?: number;
   },
-
-  // Year-end projections + scenario explorer
-  projectionsCache: null as {
-    key: string;
-    yearEnds: Array<{ year: number; days: number }>;
-    curves: Record<string, Array<{ x: number; y: number }>>;
-    todayPrice: number;
-    todayDays: number;
-  } | null,
-  scenarioSelection: {
-    year: null as number | null,
-    quantile: 0.5,
-  },
 };
 
 export const GENESIS = new Date('2009-01-03T00:00:00Z');
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 export const END_OF_2035_DAYS = IMPORTED_END_OF_2035_DAYS;
-
-export const GOLD_MC_T = 31.0;
-export const BTC_SUPPLY = 21_000_000;
-export const GOLD_CAGR_OPTIONS = [
-  { rate: 0.04, label: '4% p.a.' },
-  { rate: 0.06, label: '6% p.a.' },
-  { rate: 0.08, label: '8% p.a.' },
-] as const;
 
 export const CORR_WINDOWS = [30, 90, 180, 365] as const;
 export const CORR_ASSET_COLORS: Record<string, string> = {

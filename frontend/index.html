@@ -235,49 +235,6 @@
       <div class="mt-2 terminal-footnote">
         Q50 is the trend at each 31 Dec; other columns are that corridor, not 10/25/75/90% outcome probabilities. The Q1 floor is not compressed over time. Toggle bands and the floor on the chart.
       </div>
-
-      <div id="projections-scenario" class="projections-scenario mt-5 pt-4 border-t border-[var(--tb-border-muted)]">
-        <div class="terminal-card-subtitle mb-1">Scenario explorer</div>
-        <p class="terminal-card-desc mb-3">
-          Pick a year-end and a corridor line to see the implied price and CAGR from today's actual BTC price.
-        </p>
-
-        <div class="flex flex-col sm:flex-row sm:items-end gap-3 mb-3">
-          <div class="min-w-[9rem]">
-            <label for="scenario-year-select" class="terminal-control-label block mb-1.5">Target year-end</label>
-            <select id="scenario-year-select" class="projections-scenario-select w-full"></select>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="terminal-control-label mb-1.5">Corridor line</div>
-            <div id="scenario-quantile-chips" class="flex flex-wrap gap-1.5"></div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-sm">
-          <div class="terminal-stat-box px-3 py-2">
-            <div class="terminal-stat-label">Implied price</div>
-            <div id="scenario-implied-price" class="font-mono terminal-text-accent font-semibold mt-0.5">—</div>
-          </div>
-          <div class="terminal-stat-box px-3 py-2">
-            <div class="terminal-stat-label">CAGR from today</div>
-            <div id="scenario-cagr" class="font-mono terminal-text-positive font-semibold mt-0.5">—</div>
-          </div>
-          <div class="terminal-stat-box px-3 py-2">
-            <div class="terminal-stat-label">Total return</div>
-            <div id="scenario-total-return" class="font-mono terminal-text-live mt-0.5">—</div>
-          </div>
-          <div class="terminal-stat-box px-3 py-2">
-            <div class="terminal-stat-label">vs Q50 that year</div>
-            <div id="scenario-vs-q50" class="font-mono text-[var(--tb-text)] mt-0.5">—</div>
-          </div>
-        </div>
-
-        <p id="scenario-summary" class="text-sm terminal-text-muted px-1 leading-relaxed">—</p>
-
-        <div class="mt-2 terminal-footnote">
-          Model-implied scenario only — not a forecast. CAGR is computed from today's actual price, not the Q50 trend, and is shown only for horizons of a year or more.
-        </div>
-      </div>
     </div>
     </section>
 
@@ -297,44 +254,6 @@
       </div>
       <div class="mt-2 terminal-footnote">
         Daily closes since 2010. 200-week MA is a 1,400-day average.
-      </div>
-    </div>
-
-    <!-- Mayer Multiple History -->
-    <div class="mt-6 terminal-card terminal-card-accent-live terminal-reveal-in-view p-5">
-      <div class="terminal-card-title mb-2 flex items-center justify-between">
-        <span>Mayer Multiple</span>
-        <span class="terminal-card-subtitle font-normal">Price ÷ 200-day SMA</span>
-      </div>
-
-      <!-- Range toggle for the Mayer chart -->
-      <div id="mayer-range-controls" class="flex flex-wrap items-center gap-1 mb-2 text-xs"></div>
-
-      <div class="terminal-card-desc mb-3">
-        The Mayer Multiple shows how far price is trading above or below its 200-day moving average over time.
-        Values near or below 1.0 have often coincided with bear-market accumulation zones; 0.8 has been cited as a deep value / oversold zone in later analyses; readings well above 2.4 have historically preceded major corrections.
-        <span id="mayer-now-date" class="text-zinc-400"></span>
-      </div>
-
-      <div class="chart-container p-3 mb-3" style="height: 260px;">
-        <div id="mayer-chart-loading" class="chart-loading-overlay" aria-hidden="true">
-          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
-          <p class="chart-loading-message">Loading Mayer Multiple history…</p>
-        </div>
-        <canvas id="mayer-multiple-chart"></canvas>
-      </div>
-
-      <!-- Prominent current indicator -->
-      <div class="flex flex-col sm:flex-row sm:items-end gap-3 px-1">
-        <div>
-          <div class="text-[10px] text-zinc-500">Current Mayer Multiple</div>
-          <div id="mayer-current-value" class="text-3xl font-semibold font-mono text-orange-400 tabular-nums">—</div>
-        </div>
-        <div id="mayer-current-context" class="text-sm terminal-text-muted sm:pb-1"></div>
-      </div>
-
-      <div class="mt-3 terminal-footnote">
-        Independent of the power-law model. 200-day simple moving average.
       </div>
     </div>
 
@@ -378,95 +297,6 @@
 
     <section id="section-more" class="page-section">
     <div class="page-section-label">More analysis</div>
-
-    <!-- Conditional forward returns -->
-    <div class="terminal-card terminal-card-accent-model terminal-reveal-in-view p-5" id="conditional-returns-card">
-      <div class="terminal-card-title mb-3 flex items-center justify-between">
-        <span>When cheap, what happened next</span>
-        <span class="terminal-card-subtitle font-normal">Historical, not a forecast</span>
-      </div>
-
-      <div class="terminal-card-desc mb-3">
-        Median forward return after past days in each power-law regime.
-        <span id="conditional-returns-now-date" class="text-zinc-400"></span>
-      </div>
-
-      <div id="conditional-returns-summary" class="text-sm terminal-text-muted mb-3 px-1"></div>
-
-      <div class="terminal-table-scroll overflow-x-auto">
-        <table class="projection-table w-full text-sm">
-          <thead>
-            <tr id="conditional-returns-table-head" class="border-b border-[var(--tb-border-muted)]">
-              <th class="text-left font-normal px-4 py-2">Regime</th>
-              <th class="text-right font-normal px-4 py-2">n</th>
-              <th class="text-right font-normal px-4 py-2">+3 months</th>
-              <th class="text-right font-normal px-4 py-2">+6 months</th>
-              <th class="text-right font-normal px-4 py-2">+1 year</th>
-              <th class="text-right font-normal px-4 py-2">+2 years</th>
-            </tr>
-          </thead>
-          <tbody id="conditional-returns-table" class="divide-y text-sm">
-            <tr>
-              <td colspan="6" class="px-4 py-3 terminal-text-muted">
-                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading historical returns…</span></span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="mt-2 terminal-footnote">
-        Each cell is the median historical return and episode count. Highlighted row is today’s regime. Not a forecast.
-      </div>
-    </div>
-
-    <!-- Bitcoin vs Gold Market Cap Flip -->
-    <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5">
-      <div class="terminal-card-title mb-2 flex items-center justify-between">
-        <span>vs gold</span>
-        <span class="terminal-card-subtitle font-normal">Model market cap vs gold growing at a set rate</span>
-      </div>
-
-      <div class="terminal-card-desc mb-3">
-        BTC market cap = power law price × 21M supply. Gold market cap starts at ~$31T and compounds at a constant long-term historical rate.
-        The chart and table show when the power law corridors cross gold under different gold growth assumptions.
-      </div>
-
-      <!-- Gold CAGR selector (populated by JS) -->
-      <div id="gold-growth-controls" class="flex flex-wrap items-center gap-1 mb-3 text-xs"></div>
-
-      <div id="gold-flip-current" class="terminal-card-desc mb-2 px-1"></div>
-
-      <div class="chart-container p-3 mb-3" style="height: 320px;">
-        <div id="gold-flip-chart-loading" class="chart-loading-overlay" aria-hidden="true">
-          <div class="loading-spinner loading-spinner-sm" aria-hidden="true"></div>
-          <p class="chart-loading-message">Loading gold crossover analysis…</p>
-        </div>
-        <canvas id="gold-flip-chart"></canvas>
-      </div>
-
-      <div class="terminal-table-scroll overflow-x-auto">
-        <table class="projection-table w-full text-sm">
-          <thead>
-            <tr id="gold-flip-table-head" class="border-b border-[var(--tb-border-muted)]">
-              <!-- JS populated -->
-            </tr>
-          </thead>
-          <tbody id="gold-flip-table" class="divide-y text-sm">
-            <tr>
-              <td colspan="6" class="px-4 py-3 terminal-text-muted">
-                <span class="inline-flex items-center gap-2"><span class="loading-spinner loading-spinner-xs" aria-hidden="true"></span><span class="loading-pulse">Loading crossover projections…</span></span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="mt-2 terminal-footnote">
-        Assumptions: fixed 21M BTC supply (long-term); gold MC growth rate combines new above-ground supply (~1–2%/yr) + price appreciation; crossovers use yearly samples from the model to 2050.
-        Q25/Q75 show the inner power law corridor. Long-horizon extrapolations have substantial uncertainty.
-      </div>
-    </div>
 
     <!-- Bitcoin vs Major Asset Classes — Rolling Correlations -->
     <div class="mt-6 terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="asset-correlations-card">

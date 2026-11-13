@@ -12,7 +12,6 @@ import {
   buildTimeBelowQuantileExplanation,
   formatTimeBelowQuantileSubtext,
   calculateCAGR,
-  computeQuantileScenario,
   findClosestCurvePoint,
   getProjectionsColumns,
   FLOOR_QUANTILE,
@@ -26,16 +25,11 @@ import {
   filterCorrelationSeriesByDate,
   dateToDays,
   daysToDate,
-  computeMayerMultipleSeries,
-  computeMayerStats,
-  percentileRank,
   computeChartYAxisLimits,
   computePointQuantileRank,
   empiricalQuantileRank,
   logResidualFromQ50,
   formatReturnPct,
-  formatConditionalReturnCell,
-  conditionalReturnColorClass,
   computeSimpleReturn,
   findPriceAtDaysAgo,
   computeAthStats,
@@ -215,29 +209,11 @@ describe('bitcoin glance stats', () => {
   });
 });
 
-describe('conditional return formatters', () => {
+describe('formatReturnPct', () => {
   it('formats signed percentage returns', () => {
     expect(formatReturnPct(0.182)).toBe('+18.2%');
     expect(formatReturnPct(-0.05)).toBe('-5.0%');
     expect(formatReturnPct(null)).toBe('—');
-  });
-
-  it('builds a median + episode-count cell', () => {
-    const cell = formatConditionalReturnCell({
-      median_return: 0.18,
-      p25_return: -0.05,
-      p75_return: 0.35,
-      hit_rate: 0.64,
-      count: 120,
-    });
-    expect(cell.main).toBe('+18.0%');
-    expect(cell.sub).toBe('120 episodes');
-  });
-
-  it('colors returns by sign and magnitude', () => {
-    expect(conditionalReturnColorClass(0.2)).toContain('terminal-text-positive');
-    expect(conditionalReturnColorClass(-0.2)).toContain('terminal-text-negative');
-    expect(conditionalReturnColorClass(0.01)).toContain('tb-text');
   });
 });
 
@@ -364,65 +340,6 @@ describe('findClosestCurvePoint', () => {
   });
 });
 
-describe('computeQuantileScenario', () => {
-  const curves = {
-    '0.5': [
-      { x: 7000, y: 100000 },
-      { x: 7300, y: 200000 },
-      { x: 7800, y: 300000 },
-    ],
-    '0.75': [
-      { x: 7000, y: 130000 },
-      { x: 7300, y: 260000 },
-      { x: 7800, y: 390000 },
-    ],
-  };
-
-  it('computes CAGR from today actual price to the selected quantile', () => {
-    const result = computeQuantileScenario({
-      year: 2031,
-      targetDays: 7800,
-      quantile: 0.75,
-      quantileLabel: 'Q75',
-      curves,
-      todayPrice: 100000,
-      todayDays: 7000,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result!.impliedPrice).toBe(390000);
-    expect(result!.pctVsToday).toBeCloseTo(290, 5);
-    expect(result!.pctVsQ50AtYear).toBeCloseTo(30, 5);
-    expect(result!.cagrFromToday).toBeCloseTo(
-      calculateCAGR(100000, 390000, (7800 - 7000) / 365.25)!,
-      6,
-    );
-    expect(result!.summary).toContain('Q75');
-    expect(result!.summary).toContain('annualized');
-    expect(result!.summary).toContain("today's $100k");
-  });
-
-  it('does not annualize horizons shorter than one year', () => {
-    // +160% over 300 days used to be reported as a ~220% "CAGR"; over 49 days
-    // the same arithmetic produced +18,462%.
-    const result = computeQuantileScenario({
-      year: 2030,
-      targetDays: 7300,
-      quantile: 0.75,
-      quantileLabel: 'Q75',
-      curves,
-      todayPrice: 100000,
-      todayDays: 7000,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result!.cagrFromToday).toBeNull();
-    expect(result!.pctVsToday).toBeCloseTo(160, 5);
-    expect(result!.summary).toContain('over 300 days');
-    expect(result!.summary).not.toContain('annualized from');
-  });
-});
-
 describe('findPriceAtYearsAgo', () => {
   const points = [
     { x: 6000, y: 10000 },
@@ -440,39 +357,6 @@ describe('findPriceAtYearsAgo', () => {
   it('returns null if no point within tolerance', () => {
     const res = findPriceAtYearsAgo(points, 6359, 10);
     expect(res).toBeNull();
-  });
-});
-
-describe('computeMayerMultipleSeries', () => {
-  it('returns empty for fewer points than window', () => {
-    const pts = Array.from({ length: 50 }, (_, i) => ({ x: 1000 + i, y: 100 + i }));
-    expect(computeMayerMultipleSeries(pts, 200)).toEqual([]);
-  });
-
-  it('produces correct number of points and first MM uses exact window', () => {
-    // Flat price series => MM should be exactly 1.0 after window
-    const n = 250;
-    const pts = Array.from({ length: n }, (_, i) => ({ x: 1000 + i, y: 100 }));
-    const mm = computeMayerMultipleSeries(pts, 200);
-    expect(mm.length).toBe(n - 200 + 1); // indices 199..249 => 51 points
-    expect(mm[0].y).toBeCloseTo(1.0, 6);
-    expect(mm[mm.length - 1].y).toBeCloseTo(1.0, 6);
-    // x values preserved for the valid range
-    expect(mm[0].x).toBe(1000 + 199);
-  });
-
-  it('computes varying MM for a ramp series', () => {
-    const pts = [
-      ...Array.from({ length: 200 }, (_, i) => ({ x: 1000 + i, y: 100 + i * 0.1 })),
-      { x: 1200, y: 130 }, // extra point => total 201 pts
-    ];
-    const mm = computeMayerMultipleSeries(pts, 200);
-    // 201 points, window 200 => 2 valid MM values (i=199 and i=200)
-    expect(mm.length).toBe(2);
-    // Rough sanity on values (not exactly 1.0 because of the ramp)
-    expect(mm[0].y).not.toBeCloseTo(1.0, 2);
-    expect(mm[0].y).toBeGreaterThan(0);
-    expect(mm[1].y).toBeGreaterThan(0);
   });
 });
 
@@ -509,34 +393,6 @@ describe('correlation helpers', () => {
   it('round-trips date strings through day counts', () => {
     const days = dateToDays('2024-06-01');
     expect(daysToDate(days).toISOString().slice(0, 10)).toBe('2024-06-01');
-  });
-});
-
-describe('computeMayerStats + percentileRank', () => {
-  it('returns null for empty series', () => {
-    expect(computeMayerStats([])).toBeNull();
-  });
-
-  it('computes mean/min/max/count', () => {
-    const series = [
-      { x: 1, y: 0.5 },
-      { x: 2, y: 1.0 },
-      { x: 3, y: 1.5 },
-    ];
-    const s = computeMayerStats(series);
-    expect(s).not.toBeNull();
-    expect(s!.mean).toBeCloseTo(1.0);
-    expect(s!.min).toBe(0.5);
-    expect(s!.max).toBe(1.5);
-    expect(s!.count).toBe(3);
-  });
-
-  it('percentileRank gives sensible fractions', () => {
-    const vals = [0.5, 1.0, 1.5, 2.0, 2.5];
-    expect(percentileRank(vals, 0.4)).toBeCloseTo(0);
-    expect(percentileRank(vals, 1.0)).toBeCloseTo(1 / 5); // 0.2 (strictly less)
-    expect(percentileRank(vals, 2.5)).toBeCloseTo(4 / 5);
-    expect(percentileRank(vals, 3.0)).toBeCloseTo(1);
   });
 });
 

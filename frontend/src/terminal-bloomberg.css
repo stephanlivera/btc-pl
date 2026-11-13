@@ -429,26 +429,6 @@ body.terminal-bloomberg .projection-table .terminal-cell-selected {
   font-weight: 600;
 }
 
-.projections-scenario-select {
-  appearance: none;
-  background: var(--tb-card-inset);
-  border: 1px solid var(--tb-border-muted);
-  border-radius: 0.5rem;
-  color: var(--tb-text);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.8125rem;
-  padding: 0.45rem 0.65rem;
-}
-
-.projections-scenario-select:focus {
-  border-color: var(--tb-accent);
-  outline: none;
-}
-
-.projections-scenario-chip {
-  min-width: 2.75rem;
-}
-
 body.terminal-bloomberg .divide-y > :not([hidden]) ~ :not([hidden]) {
   border-color: var(--tb-border-muted);
 }

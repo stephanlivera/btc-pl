@@ -12,7 +12,7 @@ import {
   FLOOR_QUANTILE,
   FLOOR_LABEL,
 } from './utils';
-import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, GOLD_MC_T, BTC_SUPPLY, GOLD_CAGR_OPTIONS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
+import { state, GENESIS, MS_PER_DAY, END_OF_2035_DAYS, CORR_WINDOWS, CORR_ASSET_COLORS } from './state';
 import {
   fetchCurves,
   fetchHistorical,
