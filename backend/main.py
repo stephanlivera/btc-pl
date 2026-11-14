@@ -28,6 +28,7 @@ from .monte_carlo import (
     build_calibration,
     run_simulation,
 )
+from .live_price import LivePriceCache
 from .quantile_model import FLOOR_QUANTILE, QuantilePowerLawModel
 
 # Configurable data paths (Docker / Render / Vercel). Repo root = parent of backend/.
@@ -50,6 +51,7 @@ ASSETS_PATH = _resolve_csv_path("ASSETS_DAILY_CSV_PATH", DEFAULT_ASSETS_PATH)
 
 model = QuantilePowerLawModel(quantiles=[0.10, 0.25, 0.50, 0.75, 0.90])
 correlation_model = AssetCorrelationModel(assets_path=ASSETS_PATH, btc_path=DATA_PATH)
+live_prices = LivePriceCache()
 
 
 def _load_and_fit_model() -> None:
@@ -289,6 +291,35 @@ def get_current(
             "similar-residual regimes; scaled_* fields apply those multipliers to today's actual price."
         )
     return response
+
+
+@app.get("/live")
+def get_live():
+    """Intraday spot price placed against the fitted daily model (no refit, nothing persisted).
+
+    The quote is cached server-side (LIVE_PRICE_TTL_SECONDS, default 300 s), so upstream
+    calls don't scale with visitors. Quantiles rank against daily-close residuals:
+    read the result as "if today closed here".
+    """
+    if not model.results:
+        raise HTTPException(status_code=503, detail="Model not fitted yet.")
+    quote = live_prices.get()
+    if quote is None:
+        raise HTTPException(status_code=503, detail="Live price unavailable.")
+    try:
+        position = model.get_live_position(quote.price, quote.fetched_at)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "meta": {
+            "source": quote.source,
+            "fetched_at": quote.fetched_at.isoformat(timespec="seconds"),
+            "ttl_seconds": live_prices.ttl_seconds,
+            "data_end_date": str(model.data_end_date),
+        },
+        "position": position,
+        "note": "Intraday and provisional. Model is fitted on daily closes only; this price is not part of the fit.",
+    }
 
 
 @app.get("/floor")

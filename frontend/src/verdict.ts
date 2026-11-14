@@ -60,15 +60,16 @@ function railName(quantile: number): string {
  * inner/outer corridors shaded and today's close marked. Positions are in log space,
  * so equal distances are equal percentage moves — the same geometry as the chart.
  */
-export function buildRailHtml(levels: RailLevel[], todayPrice: number): string {
+export function buildRailHtml(levels: RailLevel[], todayPrice: number, livePrice?: number | null): string {
   const sorted = levels.filter((l) => l.price > 0).sort((a, b) => a.quantile - b.quantile);
   const byQ = (q: number) => sorted.find((l) => Math.abs(l.quantile - q) < 1e-9);
   const floor = byQ(FLOOR_QUANTILE);
   const top = sorted[sorted.length - 1];
   if (!floor || !top || !(todayPrice > 0)) return '';
 
-  const lo = Math.log10(Math.min(floor.price, todayPrice)) - 0.06;
-  const hi = Math.log10(Math.max(top.price, todayPrice)) + 0.03;
+  const live = livePrice && livePrice > 0 ? livePrice : null;
+  const lo = Math.log10(Math.min(floor.price, todayPrice, live ?? Infinity)) - 0.06;
+  const hi = Math.log10(Math.max(top.price, todayPrice, live ?? 0)) + 0.03;
   const pos = (price: number) => Math.min(100, Math.max(0, ((Math.log10(price) - lo) / (hi - lo)) * 100));
   const segment = (from: number, to: number, cls: string) =>
     `<div class="rail-seg ${cls}" style="left:${pos(from).toFixed(2)}%;width:${(pos(to) - pos(from)).toFixed(2)}%"></div>`;
@@ -89,9 +90,27 @@ export function buildRailHtml(levels: RailLevel[], todayPrice: number): string {
   }
 
   const todayX = pos(todayPrice);
-  const edge = todayX < 14 ? ' rail-now--edge-left' : todayX > 86 ? ' rail-now--edge-right' : '';
-  html += `<div class="rail-now${edge}" style="left:${todayX.toFixed(2)}%"><b>Today ${formatPrice(todayPrice)}</b><i></i></div>`;
+  if (live) {
+    // Live price carries the label; the last close stays as an unlabelled reference tick.
+    html += `<div class="rail-close" style="left:${todayX.toFixed(2)}%" title="Last close ${formatPrice(todayPrice)}"></div>`;
+  }
+  const markX = live ? pos(live) : todayX;
+  const edge = markX < 14 ? ' rail-now--edge-left' : markX > 86 ? ' rail-now--edge-right' : '';
+  const text = live ? `Live ${formatPrice(live)}` : `Today ${formatPrice(todayPrice)}`;
+  html += `<div class="rail-now${live ? ' rail-now--live' : ''}${edge}" style="left:${markX.toFixed(2)}%"><b>${text}</b><i></i></div>`;
   return html;
+}
+
+// Kept so the live poller can redraw the rail without refetching curves.
+let railLevels: RailLevel[] | null = null;
+let railClosePrice: number | null = null;
+
+/** Redraw the rail with the current live price (no-op until the close-based rail exists). */
+export function rerenderRail(livePrice: number | null): void {
+  const rail = document.getElementById('verdict-rail');
+  if (!rail || !railLevels || railClosePrice == null) return;
+  const html = buildRailHtml(railLevels, railClosePrice, livePrice);
+  if (html) rail.innerHTML = html;
 }
 
 function setText(id: string, text: string) {
@@ -137,7 +156,9 @@ export async function renderVerdict(pos: VerdictPosition, timeBelow: VerdictTime
       quantile,
       price: data?.curves?.[String(quantile)]?.[0]?.y ?? 0,
     }));
-    const html = buildRailHtml(levels, pos.actual_price);
+    railLevels = levels;
+    railClosePrice = pos.actual_price;
+    const html = buildRailHtml(levels, pos.actual_price, state.livePosition?.actual_price);
     if (html) {
       rail.innerHTML = html;
       rail.setAttribute(

@@ -37,6 +37,12 @@ export async function fetchCurrentPosition() {
   return res.json();
 }
 
+export async function fetchLivePosition() {
+  const res = await fetch('/api/live');
+  if (!res.ok) throw new Error(`Live price unavailable (${res.status})`);
+  return res.json();
+}
+
 export async function fetchFloorSummary() {
   const res = await fetch('/api/floor');
   if (!res.ok) throw new Error(`Backend error: ${res.status}`);

@@ -867,6 +867,56 @@ class QuantilePowerLawModel:
             "quantile_label": quantile_label,
         }
 
+    def get_live_position(self, price: float, as_of: dt.datetime) -> dict:
+        """Place an intraday price against the already-fitted daily model (no refit).
+
+        Same quantities as ``get_current_position`` but for an arbitrary price at a
+        fractional day: trend from the stored Q50 coefficients, residual vs that trend,
+        and its empirical rank among the historical *daily-close* residuals. Read it as
+        "if today closed here".
+        """
+        if not (price > 0):
+            raise ValueError("price must be positive")
+        if 0.5 not in self.results or not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
+            raise RuntimeError("Central model or residuals not available; fit the model first.")
+
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=dt.timezone.utc)
+        genesis = dt.datetime.combine(GENESIS_DATE, dt.time(), tzinfo=dt.timezone.utc)
+        days = (as_of - genesis).total_seconds() / 86400.0
+
+        central_res = self.results[0.5]
+        central_a = float(central_res.params["const"])
+        central_b = float(central_res.params["log_days"])
+        central_log = central_a + central_b * float(np.log10(days))
+        model_q50 = 10 ** central_log
+
+        residual = float(np.log10(price) - central_log)
+        if getattr(self, "_sorted_residuals_src", None) is not self._log_residuals:
+            self._sorted_residuals = np.sort(self._log_residuals)
+            self._sorted_residuals_src = self._log_residuals
+        rank = int(np.searchsorted(self._sorted_residuals, residual, side="right"))
+        quantile = rank / self._sorted_residuals.size
+        floor_price = model_q50 * 10 ** self._residual_offset(FLOOR_QUANTILE)
+
+        return {
+            "actual_price": round(float(price), 2),
+            "days": round(days, 4),
+            "as_of": as_of.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
+            "model_q50": round(model_q50, 2),
+            "floor_q1": round(floor_price, 2),
+            "floor_gap_pct": round((price / floor_price - 1.0) * 100.0, 2),
+            "deviation_pct": round((price / model_q50 - 1.0) * 100.0, 2),
+            "residual": round(residual, 6),
+            "quantile": round(quantile, 4),
+            "quantile_label": f"Q{int(round(quantile * 100))}",
+            # Same definition as get_time_below_quantile() over the full history: days whose
+            # residual (hence rank) is at or below this one.
+            "days_at_or_below": rank,
+            "total_days": int(self._sorted_residuals.size),
+            "time_below_pct": round(rank / self._sorted_residuals.size * 100.0, 1),
+        }
+
     def get_floor_summary(self) -> dict:
         """Statistics for the Q1 floor line (trend shifted down to the 1st-percentile residual).
 

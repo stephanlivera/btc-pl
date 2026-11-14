@@ -27,6 +27,7 @@ import {
 import { loadMonteCarloCard } from './monteCarloCard';
 import { initMotion, revealStaggerSequence } from './motion';
 import { applyChartDefaults } from './theme';
+import { startLivePolling } from './live';
 
 // --- Event Listeners ---
 
@@ -186,6 +187,7 @@ async function init() {
   setAppLoadingMessage('Loading power law chart and price data…');
 
   await loadAndRender('5y');
+  startLivePolling();
 
   setAppLoadingMessage('Loading analysis panels…');
 

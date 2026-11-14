@@ -466,7 +466,35 @@ const mainChartDecorationsPlugin = {
     }
 
     const todayPoint = findNearestPoint(state.lastHistoricalPoints, state.currentLatestDays, 3);
+    const live = state.livePosition;
+    let liveDrawn = false;
+    if (live && todayPoint) {
+      // Intraday marker: dashed link from the last close to a hollow live dot, which
+      // takes the price callout. Display only — not part of the fitted series.
+      const lx = xScale.getPixelForValue(live.days);
+      const ly = yScale.getPixelForValue(live.actual_price);
+      const cx = xScale.getPixelForValue(todayPoint.x);
+      const cy = yScale.getPixelForValue(todayPoint.y);
+      if (lx >= chartArea.left && lx <= chartArea.right && ly >= chartArea.top + 20 && ly <= chartArea.bottom - 20) {
+        ctx.strokeStyle = T.cyan;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(lx, ly);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const time = new Date(live.as_of).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        drawTodayPriceCallout(ctx, lx, ly, formatPrice(live.actual_price), `Live ${time} UTC`, chartArea);
+        ctx.beginPath();
+        ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+        ctx.fillStyle = T.calloutBg;
+        ctx.fill();
+        liveDrawn = true;
+      }
+    }
     if (
+      !liveDrawn &&
       todayPoint &&
       todayPx >= chartArea.left &&
       todayPx <= chartArea.right

@@ -51,6 +51,24 @@ export const state = {
     floor_q1?: number;
     floor_gap_pct?: number;
   },
+  /**
+   * Intraday spot price from GET /live, placed against the fitted daily model.
+   * Display only: never feeds the fit, the history, or any close-based statistic.
+   */
+  livePosition: null as null | LivePosition,
+};
+
+export type LivePosition = {
+  actual_price: number;
+  days: number;
+  as_of: string;
+  model_q50: number;
+  floor_q1: number;
+  floor_gap_pct: number;
+  deviation_pct: number;
+  quantile: number;
+  quantile_label: string;
+  time_below_pct: number;
 };
 
 export const GENESIS = new Date('2009-01-03T00:00:00Z');

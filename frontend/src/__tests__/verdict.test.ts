@@ -50,6 +50,16 @@ describe('buildRailHtml', () => {
     expect((html.match(/class="rail-tick/g) ?? []).length).toBe(levels.length);
   });
 
+  it('labels the live price and keeps the close as a reference tick', () => {
+    const html = buildRailHtml(levels, 71_840, 62_000);
+    expect(html).toContain('Live $62k');
+    expect(html).not.toContain('Today $');
+    const close = leftOf(html, 'rail-close');
+    const live = leftOf(html, 'rail-now');
+    expect(live).toBeLessThan(leftOf(html, 'rail-tick rail-tick--floor'));
+    expect(close).toBeGreaterThan(live);
+  });
+
   it('keeps a close under the floor on the scale', () => {
     const html = buildRailHtml(levels, 60_000);
     expect(leftOf(html, 'rail-now')).toBeLessThan(leftOf(html, 'rail-tick rail-tick--floor'));
