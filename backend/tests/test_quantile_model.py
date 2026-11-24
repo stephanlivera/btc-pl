@@ -408,6 +408,15 @@ def test_get_floor_summary(fitted_model):
     assert today["floor"] == pytest.approx(pos["floor_q1"], rel=1e-3)
     assert today["gap_pct"] == pytest.approx(pos["floor_gap_pct"], abs=0.05)
 
+    run = summary["current_run_below"]
+    if today["gap_pct"] >= 0:
+        assert run is None
+    else:
+        assert 1 <= run["closes"] <= below
+        assert run["start_date"] <= today["date"]
+        if run["previous_below_date"] is not None:
+            assert run["previous_below_date"] < run["start_date"]
+
     since = summary["since"]
     assert since["closes_below"] <= below
     assert since["closest"]["gap_pct"] == pytest.approx(

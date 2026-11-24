@@ -1175,6 +1175,17 @@ export async function loadFloorCard() {
           ? `, and the deepest was ${Math.abs(since.closest.gap_pct).toFixed(1)}% under on ${formatFloorDate(since.closest.date)}.`
           : `; the closest came within ${Math.abs(since.closest.gap_pct).toFixed(1)}% on ${formatFloorDate(since.closest.date)}.`)
       : '';
+    const run = data.current_run_below as { closes: number; start_date: string; previous_below_date: string | null } | null;
+    if (run) {
+      const streak =
+        run.closes === 1
+          ? 'The latest close is under it'
+          : `Bitcoin has closed under it ${run.closes} days running, since ${formatFloorDate(run.start_date)}`;
+      const previous = run.previous_below_date
+        ? `, the first ${run.closes === 1 ? 'close' : 'closes'} under it since ${formatFloorDate(run.previous_below_date)}`
+        : '';
+      lede.textContent += ` ${streak}${previous}.`;
+    }
 
     facts.innerHTML = [
       floorFact(`${all.closes_below} of ${all.total_days.toLocaleString()}`, 'closes below the floor, all history'),

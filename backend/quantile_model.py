@@ -972,6 +972,21 @@ class QuantilePowerLawModel:
             closest_approaches.append({"era": f"{start_year}–{era_end}" if era_end != start_year else str(start_year), **_point(best)})
 
         latest = len(closes) - 1
+
+        # Run of consecutive closes under the floor ending today (None when today is above it),
+        # plus the last close under the floor before that run started.
+        below = ratio < 1.0
+        current_run = None
+        if below[latest]:
+            above_idx = np.flatnonzero(~below[: latest + 1])
+            run_start = int(above_idx[-1]) + 1 if above_idx.size else 0
+            earlier_below = np.flatnonzero(below[:run_start])
+            current_run = {
+                "closes": int(latest - run_start + 1),
+                "start_date": str(dates[run_start]),
+                "previous_below_date": str(dates[earlier_below[-1]]) if earlier_below.size else None,
+            }
+
         step = FLOOR_RATIO_SERIES_STEP
         series_idx = list(range(0, latest + 1, step))
         if series_idx[-1] != latest:
@@ -986,6 +1001,7 @@ class QuantilePowerLawModel:
             "offset_log10": round(float(offset), 6),
             "pct_below_trend": round(float((10 ** offset - 1.0) * 100.0), 2),
             "today": _point(latest),
+            "current_run_below": current_run,
             "all_history": {
                 "closes_below": int((ratio < 1.0).sum()),
                 "total_days": int(len(ratio)),
