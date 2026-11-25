@@ -98,16 +98,21 @@ def test_read_btc_earliest_date(tmp_path: Path):
 
 
 def test_fetch_btc_daily_closes_parses_coingecko_payload():
+    import datetime as dt
+
     session = MagicMock()
     session.get.return_value.json.return_value = {
         "prices": [
-            [1_704_067_200_000, 42000.12],
-            [1_704_153_600_000, 43000.34],
+            [1_704_067_200_000, 42000.12],  # 2024-01-01
+            [1_704_153_600_000, 43000.34],  # 2024-01-02
+            [1_704_268_800_000, 43500.55],  # 2024-01-03 intraday (filtered out when today_utc=2024-01-03)
         ]
     }
     session.get.return_value.raise_for_status = MagicMock()
 
-    rows = data_updater.fetch_btc_daily_closes(days=30, session=session)
+    rows = data_updater.fetch_btc_daily_closes(
+        days=30, session=session, today_utc=dt.date(2024, 1, 3)
+    )
     assert rows == [("2024-01-01", 42000.12), ("2024-01-02", 43000.34)]
 
 

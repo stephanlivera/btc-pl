@@ -72,15 +72,15 @@ def test_expanding_window_series_cached_at_fit(fitted_model):
 
 
 def test_falsifiability_suite_structure_and_pass(fitted_model):
-    """Santostasi §10 conditions F1/F3/F5 pass on live history; F2/F4 unmonitored."""
+    """Santostasi §10 (F1–F5) + reactive OOS & Q1 floor checks (F6–F7)."""
     summary = fitted_model.get_statistical_summary()
     fb = summary["falsifiability"]
 
-    assert fb["overall"] == "pass"
+    assert fb["overall"] in ("pass", "watch")
     assert fb["all_monitored_pass"] is True
-    assert fb["monitored_count"] == 3
+    assert fb["monitored_count"] == 5
     assert fb["unmonitored_count"] == 2
-    assert len(fb["tests"]) == 5
+    assert len(fb["tests"]) == 7
 
     by_id = {t["id"]: t for t in fb["tests"]}
     assert by_id["F1"]["status"] == "pass"
@@ -88,6 +88,8 @@ def test_falsifiability_suite_structure_and_pass(fitted_model):
     assert by_id["F3"]["status"] == "pass"
     assert by_id["F4"]["status"] == "unmonitored"
     assert by_id["F5"]["status"] == "pass"
+    assert by_id["F6"]["status"] in ("pass", "watch")
+    assert by_id["F7"]["status"] in ("pass", "watch")
 
     floor = by_id["F1"]["detail"]["floor_price_today"]
     assert floor is not None and floor > 100  # 3σ floor well above dust
@@ -99,6 +101,16 @@ def test_falsifiability_suite_structure_and_pass(fitted_model):
     assert by_id["F5"]["detail"]["min_cumulative_r2"] is not None
     # Early sample can dip below 0.80, but not for a multi-year stretch.
     assert by_id["F5"]["detail"]["longest_below_threshold_days"] <= int(2 * 365.25)
+
+    assert by_id["F6"]["detail"]["samples"] >= 20
+    assert by_id["F7"]["detail"]["fail_threshold_days"] == 90
+
+    # Block bootstrap CI & start-date sensitivity are populated and cached.
+    fit = summary["fit"]
+    assert fit["beta_ci_method"].startswith("moving_block_bootstrap")
+    assert fit["beta_ci"][1] - fit["beta_ci"][0] > 0.25
+    assert len(summary["stability"]["start_date_sensitivity"]) >= 3
+    assert fitted_model.get_statistical_summary() is summary
 
     rolling = fb["rolling_r2_3y_diagnostic"]
     assert len(rolling) >= 20
@@ -302,17 +314,20 @@ def test_get_time_below_quantile(fitted_model):
     assert abs(stats["time_below_pct"] - (stats["days_at_or_below"] / stats["total_days"] * 100)) < 0.15
     assert stats["data_end_date"] == str(fitted_model.data_end_date)
 
-    # Recompute the day count independently to guard against drift in the helper.
+    # Recompute the day count independently using standardized residuals.
     central_res = fitted_model.results[0.5]
     central_a = float(central_res.params["const"])
     central_b = float(central_res.params["log_days"])
     subset = fitted_model.df[fitted_model.df["Date"].dt.date >= since].copy()
-    central_log = central_a + central_b * subset["log_days"].astype(float)
-    residuals = subset["log_close"].astype(float).to_numpy() - central_log.to_numpy()
-    ranks = (fitted_model._log_residuals[:, np.newaxis] <= residuals[np.newaxis, :]).mean(axis=0)
+    central_log = central_a + central_b * subset["log_days"].to_numpy(dtype=float)
+    raw_res = subset["log_close"].to_numpy(dtype=float) - central_log
+    std_res = fitted_model._standardize_residuals(raw_res, subset["days"].to_numpy(dtype=float))
+    ranks = np.searchsorted(fitted_model._sorted_std_residuals, std_res, side="right") / fitted_model._sorted_std_residuals.size
     manual_count = int((ranks <= pos["quantile"]).sum())
     assert stats["days_at_or_below"] == manual_count
     assert stats["total_days"] == len(subset)
+    assert stats["modern_era"] is not None
+    assert stats["modern_era"]["since_date"] == "2013-01-01"
 
 
 def test_get_conditional_forward_returns(fitted_model):

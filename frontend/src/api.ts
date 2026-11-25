@@ -91,7 +91,20 @@ export async function ensureQuantileRankContext() {
     throw new Error('Q50 model parameters unavailable from /parameters');
   }
 
-  state.q50Model = { intercept: q50.a, slope: q50.b };
+  const ud = paramsData?.upside_decay;
+  const upsideDecay =
+    ud &&
+    typeof ud.lambda_per_year === 'number' &&
+    typeof ud.t0_days === 'number' &&
+    typeof ud.min_scale === 'number'
+      ? {
+          lambdaPerYear: ud.lambda_per_year,
+          t0Days: ud.t0_days,
+          minScale: ud.min_scale,
+        }
+      : undefined;
+
+  state.q50Model = { intercept: q50.a, slope: q50.b, upsideDecay };
   state.fullLogResiduals = buildLogResiduals(histData?.points ?? [], state.q50Model);
   state.quantileContextKey = cacheKey;
 }

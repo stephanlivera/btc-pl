@@ -13,23 +13,27 @@ import {
   buildSimulateConfig,
   DEFAULT_HALF_LIFE_MONTHS,
   DEFAULT_N_PATHS,
+  DEFAULT_VOL_REGIME,
   DEFAULT_VOL_SCALE,
   halfLifeDaysFromMonths,
   kappaFromHalfLifeDays,
   MC_HORIZONS,
   MC_PATH_COUNTS,
   q50Price,
+  resolveBaseSigma,
   simulateEnsemble,
   type EnsembleResult,
   type HorizonKey,
   type MonteCarloCalibration,
   type ShockDist,
+  type VolRegime,
 } from './monteCarloModel';
 
 type McUiState = {
   horizon: HorizonKey;
   halfLifeMonths: number;
   volScale: number;
+  volRegime: VolRegime;
   nPaths: number;
   softFloor: boolean;
   shock: ShockDist;
@@ -44,6 +48,7 @@ const mc: McUiState = {
   horizon: '5y',
   halfLifeMonths: DEFAULT_HALF_LIFE_MONTHS,
   volScale: DEFAULT_VOL_SCALE,
+  volRegime: DEFAULT_VOL_REGIME,
   nPaths: DEFAULT_N_PATHS,
   softFloor: false,
   shock: 'normal',
@@ -157,6 +162,16 @@ function bindControls() {
     runSimulation();
   });
 
+  const volEl = document.getElementById('mc-vol-regime-controls');
+  volEl?.addEventListener('click', (event) => {
+    const btn = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-value]');
+    if (!btn?.dataset.value) return;
+    mc.volRegime = btn.dataset.value as VolRegime;
+    setSegActive(volEl, 'button[data-value]', mc.volRegime);
+    updateVolRegimeHint();
+    runSimulation();
+  });
+
   const pathsEl = document.getElementById('mc-paths-controls');
   pathsEl?.addEventListener('click', (event) => {
     const btn = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-value]');
@@ -210,6 +225,20 @@ function populateStaticControls() {
     ).join('');
   }
 
+  const volRegimeEl = document.getElementById('mc-vol-regime-controls');
+  if (volRegimeEl && volRegimeEl.childElementCount === 0) {
+    const opts: Array<{ key: VolRegime; label: string }> = [
+      { key: 'recent_4y', label: 'Recent 4y' },
+      { key: 'full_history', label: 'Full history' },
+    ];
+    volRegimeEl.innerHTML = opts
+      .map(
+        ({ key, label }) =>
+          `<button type="button" class="terminal-seg-btn ${key === mc.volRegime ? tu.segActive : tu.segIdle}" data-value="${key}" aria-pressed="${key === mc.volRegime}">${label}</button>`,
+      )
+      .join('');
+  }
+
   const pathsEl = document.getElementById('mc-paths-controls');
   if (pathsEl && pathsEl.childElementCount === 0) {
     pathsEl.innerHTML = MC_PATH_COUNTS.map(
@@ -259,6 +288,7 @@ function runSimulation() {
     horizonKey: mc.horizon,
     halfLifeMonths: mc.halfLifeMonths,
     volScale: mc.volScale,
+    volRegime: mc.volRegime,
     nPaths: mc.nPaths,
     softFloor: mc.softFloor,
     shock: mc.shock,
@@ -559,6 +589,16 @@ function populateMcMetrics(result: EnsembleResult) {
   }
 }
 
+function updateVolRegimeHint() {
+  const hint = document.getElementById('mc-vol-hint');
+  const calib = mc.calibration;
+  if (!hint || !calib) return;
+  const sigma = resolveBaseSigma(calib, mc.volRegime);
+  const dailyPct = (10 ** sigma - 1) * 100;
+  const label = mc.volRegime === 'full_history' ? 'full 2010–present' : 'trailing 4y';
+  hint.textContent = `1.0 = ${label} innovation σ (≈ ${dailyPct.toFixed(1)}%/day)`;
+}
+
 function populateCalibrationHints(calib: MonteCarloCalibration) {
   const hlHint = document.getElementById('mc-half-life-hint');
   const suggested = calib.ou.suggested_half_life_months;
@@ -572,6 +612,7 @@ function populateCalibrationHints(calib: MonteCarloCalibration) {
   if (through && calib.meta.data_end_date) {
     through.textContent = `(from ${calib.meta.data_end_date})`;
   }
+  updateVolRegimeHint();
 }
 
 export async function loadMonteCarloCard() {

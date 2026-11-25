@@ -125,7 +125,7 @@ def check_central_between_bands(curves: dict[float, list[dict]]) -> list[str]:
 
 
 def check_decay_only_in_future(model: QuantilePowerLawModel) -> list[str]:
-    """Decay must not change historical band points; future bands must compress."""
+    """Verify asymmetric upside compression is smooth, monotone, and keeps downside bands parallel."""
     errors: list[str] = []
     if not hasattr(model, "ref_days") or model.ref_days is None:
         return errors
@@ -134,23 +134,21 @@ def check_decay_only_in_future(model: QuantilePowerLawModel) -> list[str]:
     if ref <= 0:
         return errors
 
-    # Predict a curve that crosses the reference point
+    # Predict a curve spanning early history through far future
     curves = model.predict_curve(
-        start_days=ref - 200,
+        start_days=max(1000, ref - 2000),
         end_days=ref + 2000,
         step=50,
-        quantiles=[0.1, 0.25, 0.5, 0.75, 0.9],
+        quantiles=[0.01, 0.1, 0.25, 0.5, 0.75, 0.9],
         parallel=True,
     )
 
-    for q in [0.1, 0.25, 0.75, 0.9]:
+    for q in [0.01, 0.1, 0.25, 0.75, 0.9]:
         curve = curves.get(q, [])
         for point in curve:
             if point["y"] <= 0:
-                errors.append(f"Non-positive price in future at day {point['x']} for q={q}")
+                errors.append(f"Non-positive price at day {point['x']} for q={q}")
 
-    # Historical band points: offset must match raw residual quantile (no decay).
-    # Compare band width at a historical day vs just after ref (width should shrink or stay).
     q25 = {p["x"]: p["y"] for p in curves.get(0.25, [])}
     q50 = {p["x"]: p["y"] for p in curves.get(0.5, [])}
     q75 = {p["x"]: p["y"] for p in curves.get(0.75, [])}
@@ -160,14 +158,13 @@ def check_decay_only_in_future(model: QuantilePowerLawModel) -> list[str]:
         h = max(hist_days)
         f = max(future_days)
         if h in q25 and h in q75 and f in q25 and f in q75 and q50[h] > 0 and q50[f] > 0:
-            width_hist = (q75[h] / q50[h]) / (q50[h] / q25[h])  # geometric symmetry check not needed
-            # Use log-width: log(Q75/Q50) should shrink into the future under decay.
+            # Upside log-width log(Q75/Q50) should compress into the future under upside decay.
             log_width_hist = np.log(q75[h] / q50[h])
             log_width_fut = np.log(q75[f] / q50[f])
             if log_width_fut > log_width_hist * 1.02:
                 errors.append(
-                    f"Band width expanded into future (hist log-width={log_width_hist:.4f}, "
-                    f"future={log_width_fut:.4f}); decay may be broken"
+                    f"Upside band width expanded into future (hist log-width={log_width_hist:.4f}, "
+                    f"future={log_width_fut:.4f}); upside decay may be broken"
                 )
             # Q50 should keep rising
             if q50[f] <= q50[h]:
@@ -175,7 +172,7 @@ def check_decay_only_in_future(model: QuantilePowerLawModel) -> list[str]:
                     f"Q50 not increasing from hist day {h} ({q50[h]:.2f}) to future day {f} ({q50[f]:.2f})"
                 )
 
-    # Explicit: historical non-central prices must equal pure residual offset (no decay).
+    # Verify exact match to the asymmetric model: downside parallel, upside scaled by S_+(d).
     if 0.5 in model.results and hasattr(model, "residual_quantiles"):
         central = model.results[0.5]
         a = float(central.params["const"])
@@ -185,12 +182,11 @@ def check_decay_only_in_future(model: QuantilePowerLawModel) -> list[str]:
             if base_off is None:
                 continue
             for point in curves.get(q, []):
-                if point["x"] > ref:
-                    continue
-                expected = 10 ** (a + b * np.log10(point["x"]) + base_off)
+                off = base_off * model.upside_scale(point["x"]) if base_off > 0 else base_off
+                expected = 10 ** (a + b * np.log10(point["x"]) + off)
                 if abs(point["y"] - expected) / expected > 0.002:
                     errors.append(
-                        f"Historical q={q} day {point['x']} has decay applied "
+                        f"q={q} day {point['x']} mismatch vs asymmetric model "
                         f"(got {point['y']:.2f}, expected {expected:.2f})"
                     )
                     break
@@ -232,13 +228,13 @@ def check_fit_statistics(model: QuantilePowerLawModel) -> list[str]:
 
 
 def check_residual_coverage(model: QuantilePowerLawModel) -> list[str]:
-    """Empirical residual bands should cover approximately the nominal probability mass."""
+    """Empirical standardized residual bands should cover approximately the nominal probability mass."""
     errors: list[str] = []
-    if not hasattr(model, "_log_residuals") or model._log_residuals is None:
-        errors.append("Log residuals missing for coverage check")
+    if not hasattr(model, "_std_residuals") or model._std_residuals is None:
+        errors.append("Standardized log residuals missing for coverage check")
         return errors
 
-    res = np.asarray(model._log_residuals, dtype=float)
+    res = np.asarray(model._std_residuals, dtype=float)
     if res.size < 100:
         errors.append(f"Too few residuals for coverage check ({res.size})")
         return errors

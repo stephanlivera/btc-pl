@@ -13,12 +13,14 @@ export const DAYS_PER_MONTH = 365.25 / 12;
 export const DT_DAILY = 1;
 export const DEFAULT_HALF_LIFE_MONTHS = 10;
 export const DEFAULT_VOL_SCALE = 1;
+export const DEFAULT_VOL_REGIME: VolRegime = 'recent_4y';
 export const DEFAULT_N_PATHS = 250;
 export const STUDENT_T_DF = 5;
 export const SAMPLE_PATH_COUNT = 16;
 
 export type ResidualProcessMode = 'ou';
 export type ShockDist = 'normal' | 'student_t';
+export type VolRegime = 'recent_4y' | 'full_history';
 export type HorizonKey = '1y' | '2y' | '5y' | 'eoy2030' | 'eoy2035';
 
 export const MC_HORIZONS: ReadonlyArray<{ key: HorizonKey; label: string }> = [
@@ -336,12 +338,17 @@ export interface MonteCarloCalibration {
   ou: {
     mu: number;
     sigma: number;
+    sigma_recent_4y?: number;
+    sigma_full_history?: number;
+    vol_regime?: VolRegime;
+    residual_floor_q1?: number;
     residual_floor_minus_2sigma: number;
     residual_std: number;
     suggested_half_life_months: number | null;
     defaults: {
       half_life_months: number;
       vol_scale: number;
+      vol_regime?: VolRegime;
       n_paths: number;
       horizon: string;
       soft_floor: boolean;
@@ -352,12 +359,23 @@ export interface MonteCarloCalibration {
   residual_series?: { days: number[]; values: number[] };
 }
 
+export function resolveBaseSigma(calib: MonteCarloCalibration, regime: VolRegime = DEFAULT_VOL_REGIME): number {
+  if (regime === 'full_history' && typeof calib.ou.sigma_full_history === 'number') {
+    return calib.ou.sigma_full_history;
+  }
+  if (regime === 'recent_4y' && typeof calib.ou.sigma_recent_4y === 'number') {
+    return calib.ou.sigma_recent_4y;
+  }
+  return calib.ou.sigma;
+}
+
 export function buildSimulateConfig(
   calib: MonteCarloCalibration,
   opts: {
     horizonKey: HorizonKey;
     halfLifeMonths: number;
     volScale: number;
+    volRegime?: VolRegime;
     nPaths: number;
     softFloor: boolean;
     shock: ShockDist;
@@ -369,6 +387,11 @@ export function buildSimulateConfig(
   const nSteps = Math.max(1, endDays - startDays);
   const trendNow = q50LogPrice(calib.trend.a, calib.trend.b, startDays);
   const r0 = Math.log10(Math.max(calib.current.price, 0.01)) - trendNow;
+  const baseSigma = resolveBaseSigma(calib, opts.volRegime ?? DEFAULT_VOL_REGIME);
+  const floorValue =
+    typeof calib.ou.residual_floor_q1 === 'number'
+      ? calib.ou.residual_floor_q1
+      : calib.ou.residual_floor_minus_2sigma;
   return {
     mode: 'ou',
     nSteps,
@@ -376,13 +399,13 @@ export function buildSimulateConfig(
     r0,
     mu: 0,
     kappa: kappaFromHalfLifeDays(halfLifeDaysFromMonths(opts.halfLifeMonths)),
-    sigma: calib.ou.sigma * opts.volScale,
+    sigma: baseSigma * opts.volScale,
     dt: DT_DAILY,
     q50a: calib.trend.a,
     q50b: calib.trend.b,
     startDays,
     softFloor: opts.softFloor,
-    floorValue: calib.ou.residual_floor_minus_2sigma,
+    floorValue,
     shock: opts.shock,
     studentDf: STUDENT_T_DF,
     seed: opts.seed,

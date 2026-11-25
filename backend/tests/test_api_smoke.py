@@ -193,28 +193,30 @@ def test_stats_endpoint_returns_fit_summary():
 
 
 def test_stats_endpoint_includes_falsifiability_suite():
-    """Santostasi §10 F1–F5 suite for the falsifiability card."""
+    """Santostasi §10 F1–F5 + reactive OOS & Q1 floor checks F6–F7."""
     response = client.get("/stats")
     assert response.status_code == 200
     data = response.json()
     fb = data.get("falsifiability")
     assert fb is not None
-    assert fb["overall"] in ("pass", "fail")
+    assert fb["overall"] in ("pass", "watch", "fail")
     assert "tests" in fb
-    assert len(fb["tests"]) == 5
+    assert len(fb["tests"]) == 7
     ids = [t["id"] for t in fb["tests"]]
-    assert ids == ["F1", "F2", "F3", "F4", "F5"]
+    assert ids == ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]
 
     by_id = {t["id"]: t for t in fb["tests"]}
     assert by_id["F1"]["status"] in ("pass", "fail")
     assert by_id["F3"]["status"] in ("pass", "fail")
     assert by_id["F5"]["status"] in ("pass", "fail")
+    assert by_id["F6"]["status"] in ("pass", "watch", "fail")
+    assert by_id["F7"]["status"] in ("pass", "watch", "fail")
     assert by_id["F2"]["status"] == "unmonitored"
     assert by_id["F4"]["status"] == "unmonitored"
 
-    # Live price history should not currently falsify the power law on monitored tests.
+    # Live price history should not hard-fail the power law on monitored tests.
     assert fb["all_monitored_pass"] is True
-    assert fb["overall"] == "pass"
+    assert fb["overall"] in ("pass", "watch")
     assert fb["failed_ids"] == []
 
     f1 = by_id["F1"]
@@ -229,6 +231,14 @@ def test_stats_endpoint_includes_falsifiability_suite():
     assert f5["metric_value"] >= 0.80
     assert f5["detail"]["method"] == "expanding_window_ols"
     assert len(fb.get("rolling_r2_3y_diagnostic") or []) > 10
+
+
+def test_refit_requires_admin_key_when_configured(monkeypatch):
+    """POST /refit rejects missing/wrong keys when ADMIN_API_KEY is set."""
+    monkeypatch.setenv("ADMIN_API_KEY", "test-secret-token")
+    assert client.post("/refit").status_code == 401
+    assert client.post("/refit", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.post("/correlations/reload").status_code == 401
 
 
 def test_monte_carlo_calibration_endpoint():

@@ -723,9 +723,23 @@ export function findPriceAtYearsAgo(
   return null;
 }
 
+export interface UpsideDecayParams {
+  lambdaPerYear: number;
+  t0Days: number;
+  minScale: number;
+}
+
 export interface Q50ModelParams {
   intercept: number;
   slope: number;
+  upsideDecay?: UpsideDecayParams;
+}
+
+/** Smooth asymmetric upside dispersion scale S_+(days) ∈ [minScale, 1]. */
+export function upsideScale(days: number, decay?: UpsideDecayParams): number {
+  if (!decay || !(decay.lambdaPerYear > 0)) return 1;
+  const years = Math.max(0, (days - decay.t0Days) / 365.25);
+  return Math.max(decay.minScale, Math.exp(-decay.lambdaPerYear * years));
 }
 
 /** log10(price) residual around the fitted central Q50 power law (matches backend). */
@@ -739,14 +753,28 @@ export function logResidualFromQ50(
   return Math.log10(price) - centralLog;
 }
 
-/** Build the full-history log-residual reference distribution for empirical ranks. */
+/** Standardized residual: scales positive residuals by S_+(days); leaves negative residuals untouched. */
+export function standardizedLogResidualFromQ50(
+  days: number,
+  price: number,
+  model: Q50ModelParams
+): number | null {
+  const raw = logResidualFromQ50(days, price, model);
+  if (raw == null) return null;
+  if (raw > 0 && model.upsideDecay) {
+    return raw / upsideScale(days, model.upsideDecay);
+  }
+  return raw;
+}
+
+/** Build the full-history standardized log-residual reference distribution for empirical ranks. */
 export function buildLogResiduals(
   historicalPoints: Array<{ x: number; y: number }>,
   model: Q50ModelParams
 ): number[] {
   const residuals: number[] = [];
   for (const p of historicalPoints) {
-    const residual = logResidualFromQ50(p.x, p.y, model);
+    const residual = standardizedLogResidualFromQ50(p.x, p.y, model);
     if (residual != null) residuals.push(residual);
   }
   return residuals;
@@ -771,7 +799,7 @@ export function computePointQuantileRank(
 ): { quantile: number; label: string } | null {
   if (referenceResiduals.length < 10) return null;
 
-  const targetResidual = logResidualFromQ50(targetX, targetPrice, model);
+  const targetResidual = standardizedLogResidualFromQ50(targetX, targetPrice, model);
   if (targetResidual == null) return null;
 
   const quantile = empiricalQuantileRank(referenceResiduals, targetResidual);
@@ -873,7 +901,7 @@ export function buildFitStrengthColoredSegments(
 
 // --- Santostasi Section 10 falsifiability card helpers ---
 
-export type FalsifiabilityStatus = 'pass' | 'fail' | 'unmonitored';
+export type FalsifiabilityStatus = 'pass' | 'watch' | 'fail' | 'unmonitored';
 
 export type FalsifiabilityTest = {
   id: string;
@@ -888,9 +916,10 @@ export type FalsifiabilityTest = {
 };
 
 export type FalsifiabilitySummary = {
-  overall: 'pass' | 'fail';
+  overall: 'pass' | 'watch' | 'fail';
   all_monitored_pass: boolean;
   failed_ids: string[];
+  watch_ids?: string[];
   monitored_count: number;
   unmonitored_count: number;
   source?: string;
@@ -901,6 +930,7 @@ export type FalsifiabilitySummary = {
 /** Tailwind/theme class for a falsifiability status chip. */
 export function falsifiabilityStatusClass(status: FalsifiabilityStatus | string): string {
   if (status === 'pass') return 'terminal-text-positive';
+  if (status === 'watch') return 'terminal-text-accent';
   if (status === 'fail') return 'terminal-text-negative';
   return 'terminal-text-muted';
 }
@@ -908,6 +938,7 @@ export function falsifiabilityStatusClass(status: FalsifiabilityStatus | string)
 /** Short uppercase label for the status chip. */
 export function falsifiabilityStatusLabel(status: FalsifiabilityStatus | string): string {
   if (status === 'pass') return 'PASS';
+  if (status === 'watch') return 'WATCH';
   if (status === 'fail') return 'FAIL';
   if (status === 'unmonitored') return 'N/A';
   return String(status).toUpperCase();
@@ -918,6 +949,10 @@ export function buildFalsifiabilityHeadline(summary: FalsifiabilitySummary | nul
   if (!summary) return 'Unable to evaluate falsifiability tests.';
   if (summary.overall === 'pass') {
     return `All ${summary.monitored_count} monitored conditions hold — power law not falsified.`;
+  }
+  if (summary.overall === 'watch') {
+    const ids = summary.watch_ids?.length ? summary.watch_ids.join(', ') : 'reactive checks';
+    return `Not falsified on hard thresholds, but active watch flags triggered: ${ids}.`;
   }
   const ids = summary.failed_ids?.length ? summary.failed_ids.join(', ') : 'unknown';
   return `Falsified on monitored conditions: ${ids}.`;

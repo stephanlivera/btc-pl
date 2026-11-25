@@ -22,6 +22,12 @@ export type VerdictTimeBelow = {
   time_below_pct: number;
   days_at_or_below: number;
   total_days: number;
+  modern_era?: {
+    since_date: string;
+    days_at_or_below: number;
+    total_days: number;
+    time_below_pct: number;
+  } | null;
 };
 
 export type RailLevel = { quantile: number; price: number };
@@ -141,10 +147,11 @@ export async function renderVerdict(pos: VerdictPosition, timeBelow: VerdictTime
     if (typeof pos.floor_gap_pct === 'number') setText('verdict-floor-sub', describeGap(pos.floor_gap_pct));
   }
   setText('verdict-time-below', `${timeBelow.time_below_pct.toFixed(1)}%`);
-  setText(
-    'verdict-time-below-sub',
-    `${timeBelow.days_at_or_below.toLocaleString('en-US')} of ${timeBelow.total_days.toLocaleString('en-US')} daily closes`,
-  );
+  const modern = timeBelow.modern_era;
+  const timeBelowSub = modern
+    ? `${timeBelow.days_at_or_below.toLocaleString('en-US')} of ${timeBelow.total_days.toLocaleString('en-US')} all-time · ${modern.days_at_or_below.toLocaleString('en-US')} (${modern.time_below_pct.toFixed(1)}%) since ${modern.since_date.slice(0, 4)}`
+    : `${timeBelow.days_at_or_below.toLocaleString('en-US')} of ${timeBelow.total_days.toLocaleString('en-US')} daily closes`;
+  setText('verdict-time-below-sub', timeBelowSub);
 
   // Rail levels come from the same /curves endpoint as the chart (no model math in the browser).
   const rail = document.getElementById('verdict-rail');

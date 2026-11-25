@@ -812,20 +812,54 @@ function renderFitStrengthR2Chart(points: ExpandingFitPoint[]) {
 
 function populateFitStrengthHeadlineStats(fit: any, meta: any, latestPoint?: ExpandingFitPoint | null) {
   const betaEl = document.getElementById('fit-strength-beta-now');
+  const betaCiEl = document.getElementById('fit-strength-beta-ci');
   const r2El = document.getElementById('fit-strength-r2-now');
   const corrEl = document.getElementById('fit-strength-corr-now');
   const nEl = document.getElementById('fit-strength-n-now');
   const throughEl = document.getElementById('fit-strength-through');
 
-  const beta = latestPoint?.beta ?? fit?.beta;
+  const beta = typeof fit?.beta === 'number' ? fit.beta : latestPoint?.beta;
   const r2 = latestPoint?.ols_r2 ?? fit?.ols_r2;
   if (betaEl) betaEl.textContent = typeof beta === 'number' ? beta.toFixed(3) : '—';
+  if (betaCiEl) {
+    const ci = Array.isArray(fit?.beta_ci) && fit.beta_ci.length === 2 ? fit.beta_ci : null;
+    betaCiEl.textContent = ci
+      ? `95% block CI: ${Number(ci[0]).toFixed(2)}–${Number(ci[1]).toFixed(2)}`
+      : '';
+  }
   if (r2El) r2El.textContent = typeof r2 === 'number' ? r2.toFixed(4) : '—';
   if (corrEl) corrEl.textContent = typeof fit?.correlation === 'number' ? fit.correlation.toFixed(4) : '—';
   if (nEl) nEl.textContent = typeof fit?.n_points === 'number' ? fit.n_points.toLocaleString() : '—';
   if (throughEl && meta?.data_end_date) {
     throughEl.textContent = `(through ${meta.data_end_date})`;
   }
+}
+
+function renderStartDateSensitivityTable(rows: Array<{
+  start_date: string;
+  n: number;
+  beta: number;
+  q50_today: number;
+  q50_2035: number;
+}>) {
+  const tbody = document.getElementById('fit-sensitivity-table');
+  if (!tbody) return;
+  if (!rows?.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-2 terminal-text-muted">No start-date sensitivity rows available.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows
+    .map(
+      (r, idx) => `
+      <tr${idx === 0 ? ' class="font-medium"' : ''}>
+        <td class="px-3 py-2 text-[var(--tb-text)]">${r.start_date}${idx === 0 ? ' <span class="text-[11px] terminal-text-muted">(live fit)</span>' : ''}</td>
+        <td class="px-3 py-2 text-right font-mono terminal-text-muted">${r.n.toLocaleString('en-US')}</td>
+        <td class="px-3 py-2 text-right font-mono terminal-text-accent">${r.beta.toFixed(3)}</td>
+        <td class="px-3 py-2 text-right font-mono text-[var(--tb-text)]">${formatPrice(r.q50_today)}</td>
+        <td class="px-3 py-2 text-right font-mono text-[var(--tb-text)]">${formatPrice(r.q50_2035)}</td>
+      </tr>`,
+    )
+    .join('');
 }
 
 /** Shared /stats payload for fit-strength + falsifiability cards (one request per load). */
@@ -859,6 +893,7 @@ export async function loadFitStrengthCard() {
     populateFitStrengthHeadlineStats(data.fit, data.meta, latest);
     renderFitStrengthBetaChart(points);
     renderFitStrengthR2Chart(points);
+    renderStartDateSensitivityTable(data?.stability?.start_date_sensitivity ?? []);
   } catch (err) {
     console.error('Failed to load fit strength card', err);
     populateFitStrengthHeadlineStats(null, null, null);
@@ -938,6 +973,16 @@ function renderFalsifiabilityDetails(tests: FalsifiabilityTest[]) {
         const roll = t.detail.rolling_3y_r2_today;
         const rollStr = typeof roll === 'number' ? roll.toFixed(4) : '—';
         extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Min cumulative R²: ${typeof minR2 === 'number' ? minR2.toFixed(4) : '—'} · longest R²&lt;0.80 streak: ${lowDays ?? 0} days · trailing 3y refit R² (diagnostic): ${rollStr}</div>`;
+      } else if (t.id === 'F6' && t.detail) {
+        const med2y = t.detail.recent_2y_median_log10;
+        const rmse = t.detail.all_oos_rmse_log10;
+        const samples = t.detail.samples;
+        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Trailing 2y median OOS error: ${typeof med2y === 'number' ? `${med2y >= 0 ? '+' : ''}${med2y.toFixed(3)} dex` : '—'} · full OOS RMSE: ${typeof rmse === 'number' ? `${rmse.toFixed(3)} dex` : '—'} · ${samples ?? 0} walk-forward steps</div>`;
+      } else if (t.id === 'F7' && t.detail) {
+        const active = t.detail.current_streak_closes;
+        const maxStreak = t.detail.max_post2013_streak_days;
+        const thresh = t.detail.fail_threshold_days;
+        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Active streak below Q1: ${active ?? 0} closes · longest post-2013 streak: ${maxStreak ?? 0} days · fail threshold: &gt;${thresh ?? 90} closes</div>`;
       } else if (t.status === 'unmonitored' && t.detail && typeof t.detail.reason === 'string') {
         extra = `<div class="mt-1 text-xs terminal-text-muted">${t.detail.reason}</div>`;
       }
@@ -968,11 +1013,20 @@ function populateFalsifiabilityHeadline(summary: FalsifiabilitySummary | null) {
     return;
   }
 
-  const pass = summary.overall === 'pass';
-  const border = pass ? 'border-[rgba(52,211,153,0.35)]' : 'border-[rgba(248,113,113,0.4)]';
-  const color = pass ? 'terminal-text-positive' : 'terminal-text-negative';
+  const isPass = summary.overall === 'pass';
+  const isWatch = summary.overall === 'watch';
+  const border = isPass
+    ? 'border-[rgba(52,211,153,0.35)]'
+    : isWatch
+      ? 'border-[rgba(245,158,11,0.45)]'
+      : 'border-[rgba(248,113,113,0.4)]';
+  const color = isPass
+    ? 'terminal-text-positive'
+    : isWatch
+      ? 'terminal-text-accent'
+      : 'terminal-text-negative';
   headline.className = `mb-4 px-3 py-2.5 rounded-md border ${border} bg-[var(--tb-card-inset)] text-sm font-medium ${color}`;
-  const badge = pass ? 'VALID' : 'FALSIFIED';
+  const badge = isPass ? 'VALID' : isWatch ? 'WATCH' : 'FALSIFIED';
   headline.innerHTML = `<span class="font-mono font-semibold mr-2">${badge}</span>${buildFalsifiabilityHeadline(summary)}`;
 
   if (throughEl && summary.as_of) {

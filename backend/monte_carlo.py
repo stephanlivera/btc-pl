@@ -22,7 +22,7 @@ from typing import Literal
 
 import numpy as np
 
-from .quantile_model import GENESIS_DATE, QuantilePowerLawModel
+from .quantile_model import FLOOR_QUANTILE, GENESIS_DATE, QuantilePowerLawModel
 
 DAYS_PER_MONTH = 365.25 / 12.0
 DT_DAILY = 1.0
@@ -30,6 +30,8 @@ DEFAULT_HALF_LIFE_MONTHS = 10.0
 DEFAULT_VOL_SCALE = 1.0
 DEFAULT_N_PATHS = 250
 DEFAULT_HISTORY_YEARS = 2.75
+RECENT_VOL_WINDOW_YEARS = 4.0
+DEFAULT_VOL_REGIME = "recent_4y"
 STUDENT_T_DF = 5
 MAX_PATHS = 2000
 MIN_PATHS = 10
@@ -39,6 +41,7 @@ MAX_SAMPLE_PATHS = 40
 RESIDUAL_PROCESS_MODE = "ou"
 
 ShockDist = Literal["normal", "student_t"]
+VolRegime = Literal["recent_4y", "full_history"]
 
 
 def half_life_days_from_months(half_life_months: float) -> float:
@@ -335,12 +338,18 @@ def build_calibration(
 
     days, residuals = _residuals_and_days(model)
     a, b = _q50_params(model)
-    ou = calibrate_ou(residuals)
+    ou_full = calibrate_ou(residuals)
 
     latest_days = int(days[-1])
     latest_price = float(model.df["Close"].iloc[-1])
     latest_residual = float(residuals[-1])
     model_q50 = float(q50_price(a, b, float(latest_days)))
+
+    # Trailing 4-year calibration reflects modern BTC volatility (~2.6%/d vs ~4.8%/d full history).
+    recent_cutoff = latest_days - int(round(RECENT_VOL_WINDOW_YEARS * 365.25))
+    recent_residuals = residuals[days >= recent_cutoff]
+    ou_recent = calibrate_ou(recent_residuals) if recent_residuals.size >= 60 else ou_full
+    floor_q1_offset = float(model._residual_offset(FLOOR_QUANTILE))
 
     hist_start = max(int(days[0]), latest_days - int(round(history_years * 365.25)))
     hist_df = model.df[model.df["days"] >= hist_start]
@@ -348,6 +357,29 @@ def build_calibration(
         {"x": int(d), "y": round(float(p), 2)}
         for d, p in zip(hist_df["days"].to_numpy(), hist_df["Close"].to_numpy())
     ]
+
+    ou_payload = {
+        **{
+            k: (round(v, 8) if isinstance(v, float) else v)
+            for k, v in ou_full.items()
+        },
+        # Default sigma uses the modern trailing 4y volatility regime; full history stays available.
+        "sigma": round(float(ou_recent["sigma"]), 8),
+        "sigma_recent_4y": round(float(ou_recent["sigma"]), 8),
+        "sigma_full_history": round(float(ou_full["sigma"]), 8),
+        "recent_window_years": RECENT_VOL_WINDOW_YEARS,
+        "vol_regime": DEFAULT_VOL_REGIME,
+        "residual_floor_q1": round(floor_q1_offset, 8),
+        "defaults": {
+            "half_life_months": DEFAULT_HALF_LIFE_MONTHS,
+            "vol_scale": DEFAULT_VOL_SCALE,
+            "vol_regime": DEFAULT_VOL_REGIME,
+            "n_paths": DEFAULT_N_PATHS,
+            "horizon": "5y",
+            "soft_floor": False,
+            "shock": "normal",
+        },
+    }
 
     return {
         "meta": {
@@ -357,8 +389,8 @@ def build_calibration(
             "note": (
                 "OU on log10 residuals around the Q50 power-law trend. "
                 "mu is 0 so paths mean-revert to the trend itself. "
-                "sigma is the AR(1) innovation std (1.0 on the vol slider = historical). "
-                "A residual-bootstrap mode can reuse the residual_series later."
+                "Default sigma is the trailing 4-year AR(1) innovation std (full-history sigma is also provided). "
+                "Soft floor aligns with the dashboard's Q1 floor offset."
             ),
         },
         "trend": {
@@ -372,20 +404,7 @@ def build_calibration(
             "residual": round(latest_residual, 6),
             "model_q50": round(model_q50, 2),
         },
-        "ou": {
-            **{
-                k: (round(v, 8) if isinstance(v, float) else v)
-                for k, v in ou.items()
-            },
-            "defaults": {
-                "half_life_months": DEFAULT_HALF_LIFE_MONTHS,
-                "vol_scale": DEFAULT_VOL_SCALE,
-                "n_paths": DEFAULT_N_PATHS,
-                "horizon": "5y",
-                "soft_floor": False,
-                "shock": "normal",
-            },
-        },
+        "ou": ou_payload,
         "history": {
             "points": history_points,
         },
@@ -402,6 +421,7 @@ def run_simulation(
     horizon_days: int,
     half_life_months: float = DEFAULT_HALF_LIFE_MONTHS,
     vol_scale: float = DEFAULT_VOL_SCALE,
+    vol_regime: VolRegime = DEFAULT_VOL_REGIME,
     n_paths: int = DEFAULT_N_PATHS,
     soft_floor: bool = False,
     shock: ShockDist = "normal",
@@ -428,8 +448,13 @@ def run_simulation(
 
     half_life_days = half_life_days_from_months(half_life_months)
     kappa = kappa_from_half_life_days(half_life_days)
-    sigma = float(ou["sigma"]) * float(vol_scale)
-    floor_value = float(ou["residual_floor_minus_2sigma"])
+    base_sigma = (
+        float(ou["sigma_full_history"])
+        if vol_regime == "full_history"
+        else float(ou["sigma_recent_4y"])
+    )
+    sigma = base_sigma * float(vol_scale)
+    floor_value = float(ou["residual_floor_q1"])
     start_days = int(current["days"])
     r0 = math.log10(max(float(current["price"]), 0.01)) - float(
         q50_log_price(a, b, float(start_days))
@@ -463,7 +488,8 @@ def run_simulation(
         "kappa": kappa,
         "mu": 0.0,
         "sigma": sigma,
-        "sigma_historical": float(ou["sigma"]),
+        "sigma_historical": base_sigma,
+        "vol_regime": vol_regime,
         "vol_scale": float(vol_scale),
         "soft_floor": bool(soft_floor),
         "floor_value": floor_value,

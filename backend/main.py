@@ -6,12 +6,13 @@ This is Option 2 (Full Curve Generation Backend).
 
 from __future__ import annotations
 
+import hmac
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -19,12 +20,14 @@ from .asset_correlations import AssetCorrelationModel
 from .monte_carlo import (
     DEFAULT_HALF_LIFE_MONTHS,
     DEFAULT_N_PATHS,
+    DEFAULT_VOL_REGIME,
     DEFAULT_VOL_SCALE,
     MAX_HORIZON_DAYS,
     MAX_PATHS,
     MAX_SAMPLE_PATHS,
     MIN_HORIZON_DAYS,
     MIN_PATHS,
+    VolRegime,
     build_calibration,
     run_simulation,
 )
@@ -80,13 +83,41 @@ app = FastAPI(title="Bitcoin Power Law Quantile Curves", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
 
-@app.post("/refit")
+def _require_admin_auth(
+    authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None),
+) -> None:
+    """Protect state-mutating endpoints (/refit, /correlations/reload).
+
+    - When ADMIN_API_KEY is set, callers must send it via X-API-Key or Bearer token.
+    - In hosted prod (RENDER / VERCEL_ENV) without ADMIN_API_KEY, mutations are disabled (403).
+    - In local dev / pytest without ADMIN_API_KEY, mutations remain open for convenience.
+    """
+    expected = (os.getenv("ADMIN_API_KEY") or "").strip()
+    if not expected:
+        if os.getenv("RENDER") or os.getenv("VERCEL_ENV"):
+            raise HTTPException(
+                status_code=403,
+                detail="Admin endpoints disabled in production unless ADMIN_API_KEY is configured.",
+            )
+        return
+
+    token = (x_api_key or "").strip()
+    if not token and authorization:
+        parts = authorization.strip().split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1].strip()
+    if not token or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="Invalid or missing admin API key.")
+
+
+@app.post("/refit", dependencies=[Depends(_require_admin_auth)])
 def refit_model():
     """Reload the CSV and refit the quantile models.
     Call this after running the update script to refresh the curves.
@@ -159,18 +190,24 @@ def get_parameters():
     if hasattr(model, 'residual_quantiles') and model.residual_quantiles:
         response["residual_quantiles"] = model.residual_quantiles
 
-    # Surface the decay configuration for transparency
+    # Surface the fitted asymmetric upside decay configuration for transparency + frontend parity
+    upside_decay = model.get_upside_decay_params()
+    response["upside_decay"] = upside_decay
     response["decay"] = {
         "enabled_for_future": True,
-        "rate": 0.12,
-        "min_factor": 0.30,
+        "method": upside_decay["method"],
+        "lambda_per_year": upside_decay["lambda_per_year"],
+        "half_life_years": upside_decay["half_life_years"],
+        "t0_days": upside_decay["t0_days"],
+        "min_factor": upside_decay["min_scale"],
+        "scale_today": upside_decay["scale_today"],
         "ref_days": model.ref_days,
-        "description": "offset(t) = base_offset * max(min_factor, 1 / (1 + rate * years_ahead)) for t > ref_days",
+        "description": upside_decay["description"],
         "exempt_quantiles": [0.5, FLOOR_QUANTILE],
     }
     response["floor"] = {
         "quantile": FLOOR_QUANTILE,
-        "note": "Q1 floor is parallel to the Q50 trend and is not decayed in projections.",
+        "note": "Q1 floor (and downside bands) stay parallel to the Q50 trend and are not decayed.",
     }
 
     return response
@@ -358,7 +395,7 @@ def get_correlations(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/correlations/reload")
+@app.post("/correlations/reload", dependencies=[Depends(_require_admin_auth)])
 def reload_correlations():
     """Reload asset CSV data (call after update_data.py)."""
     try:
@@ -375,6 +412,7 @@ class MonteCarloSimulateRequest(BaseModel):
     horizon_days: int = Field(..., ge=MIN_HORIZON_DAYS, le=MAX_HORIZON_DAYS)
     half_life_months: float = Field(DEFAULT_HALF_LIFE_MONTHS, ge=1.0, le=60.0)
     vol_scale: float = Field(DEFAULT_VOL_SCALE, ge=0.1, le=3.0)
+    vol_regime: VolRegime = DEFAULT_VOL_REGIME
     n_paths: int = Field(DEFAULT_N_PATHS, ge=MIN_PATHS, le=MAX_PATHS)
     soft_floor: bool = False
     shock: Literal["normal", "student_t"] = "normal"
@@ -417,6 +455,7 @@ def post_monte_carlo_simulate(req: MonteCarloSimulateRequest):
             horizon_days=req.horizon_days,
             half_life_months=req.half_life_months,
             vol_scale=req.vol_scale,
+            vol_regime=req.vol_regime,
             n_paths=req.n_paths,
             soft_floor=req.soft_floor,
             shock=req.shock,

@@ -159,8 +159,14 @@ def fetch_btc_daily_closes(
     days: int = DEFAULT_BTC_DAYS,
     api_key: Optional[str] = None,
     session: Optional[requests.Session] = None,
+    today_utc: Optional[dt.date] = None,
 ) -> List[Tuple[str, float]]:
-    """Fetch daily Bitcoin closes from CoinGecko."""
+    """Fetch completed daily Bitcoin closes from CoinGecko.
+
+    CoinGecko's /market_chart?interval=daily appends an extra intraday snapshot
+    timestamped for the current UTC day. Filtering out dates >= today_utc ensures
+    an incomplete intraday price is never frozen as an official daily close.
+    """
     if days < 1:
         raise ValueError("--btc-days must be at least 1")
 
@@ -178,9 +184,12 @@ def fetch_btc_daily_closes(
     resp.raise_for_status()
     data = resp.json()
 
+    cutoff = today_utc if today_utc is not None else dt.datetime.now(dt.timezone.utc).date()
     closes: List[Tuple[str, float]] = []
     for timestamp_ms, price in data.get("prices", []):
         date = dt.datetime.fromtimestamp(timestamp_ms / 1000, tz=dt.timezone.utc).date()
+        if date >= cutoff:
+            continue
         closes.append((date.isoformat(), round(float(price), 2)))
     return closes
 

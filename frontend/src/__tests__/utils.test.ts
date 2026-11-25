@@ -564,9 +564,11 @@ describe('fit strength helpers', () => {
 describe('falsifiability helpers', () => {
   it('maps status to theme classes and labels', () => {
     expect(falsifiabilityStatusClass('pass')).toBe('terminal-text-positive');
+    expect(falsifiabilityStatusClass('watch')).toBe('terminal-text-accent');
     expect(falsifiabilityStatusClass('fail')).toBe('terminal-text-negative');
     expect(falsifiabilityStatusClass('unmonitored')).toBe('terminal-text-muted');
     expect(falsifiabilityStatusLabel('pass')).toBe('PASS');
+    expect(falsifiabilityStatusLabel('watch')).toBe('WATCH');
     expect(falsifiabilityStatusLabel('fail')).toBe('FAIL');
     expect(falsifiabilityStatusLabel('unmonitored')).toBe('N/A');
   });
@@ -577,18 +579,30 @@ describe('falsifiability helpers', () => {
         overall: 'pass',
         all_monitored_pass: true,
         failed_ids: [],
-        monitored_count: 3,
+        monitored_count: 5,
         unmonitored_count: 2,
         tests: [],
       })
-    ).toContain('All 3 monitored conditions hold');
+    ).toContain('All 5 monitored conditions hold');
+
+    expect(
+      buildFalsifiabilityHeadline({
+        overall: 'watch',
+        all_monitored_pass: true,
+        failed_ids: [],
+        watch_ids: ['F6', 'F7'],
+        monitored_count: 5,
+        unmonitored_count: 2,
+        tests: [],
+      })
+    ).toContain('F6, F7');
 
     expect(
       buildFalsifiabilityHeadline({
         overall: 'fail',
         all_monitored_pass: false,
         failed_ids: ['F1', 'F5'],
-        monitored_count: 3,
+        monitored_count: 5,
         unmonitored_count: 2,
         tests: [],
       })
