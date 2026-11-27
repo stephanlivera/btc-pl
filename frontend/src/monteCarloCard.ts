@@ -12,6 +12,7 @@ import { terminal as T, terminalUi as tu, terminalChartBackgroundPlugin } from '
 import {
   buildSimulateConfig,
   DEFAULT_HALF_LIFE_MONTHS,
+  DEFAULT_INCLUDE_TREND_UNCERTAINTY,
   DEFAULT_N_PATHS,
   DEFAULT_VOL_REGIME,
   DEFAULT_VOL_SCALE,
@@ -34,6 +35,7 @@ type McUiState = {
   halfLifeMonths: number;
   volScale: number;
   volRegime: VolRegime;
+  includeTrendUncertainty: boolean;
   nPaths: number;
   softFloor: boolean;
   shock: ShockDist;
@@ -49,6 +51,7 @@ const mc: McUiState = {
   halfLifeMonths: DEFAULT_HALF_LIFE_MONTHS,
   volScale: DEFAULT_VOL_SCALE,
   volRegime: DEFAULT_VOL_REGIME,
+  includeTrendUncertainty: DEFAULT_INCLUDE_TREND_UNCERTAINTY,
   nPaths: DEFAULT_N_PATHS,
   softFloor: false,
   shock: 'normal',
@@ -149,6 +152,17 @@ function updateSoftFloorToggle() {
   btn.setAttribute('aria-pressed', String(mc.softFloor));
 }
 
+function updateTrendUncertaintyToggle() {
+  const btn = document.getElementById('mc-trend-unc-toggle');
+  const indicator = document.getElementById('mc-trend-unc-indicator');
+  if (!btn || !indicator) return;
+  btn.classList.toggle(tu.toggleOn, mc.includeTrendUncertainty);
+  btn.classList.toggle(tu.toggleOff, !mc.includeTrendUncertainty);
+  indicator.classList.toggle(tu.indicatorOn, mc.includeTrendUncertainty);
+  indicator.classList.toggle(tu.indicatorOff, !mc.includeTrendUncertainty);
+  btn.setAttribute('aria-pressed', String(mc.includeTrendUncertainty));
+}
+
 function bindControls() {
   if (mc.controlsBound) return;
   mc.controlsBound = true;
@@ -210,6 +224,12 @@ function bindControls() {
     runSimulation();
   });
 
+  document.getElementById('mc-trend-unc-toggle')?.addEventListener('click', () => {
+    mc.includeTrendUncertainty = !mc.includeTrendUncertainty;
+    updateTrendUncertaintyToggle();
+    runSimulation();
+  });
+
   document.getElementById('mc-regenerate')?.addEventListener('click', () => {
     mc.seed = newSeed();
     runSimulation();
@@ -268,6 +288,7 @@ function populateStaticControls() {
 
   updateSliderLabels();
   updateSoftFloorToggle();
+  updateTrendUncertaintyToggle();
 }
 
 function scheduleSimulation() {
@@ -289,6 +310,7 @@ function runSimulation() {
     halfLifeMonths: mc.halfLifeMonths,
     volScale: mc.volScale,
     volRegime: mc.volRegime,
+    includeTrendUncertainty: mc.includeTrendUncertainty,
     nPaths: mc.nPaths,
     softFloor: mc.softFloor,
     shock: mc.shock,

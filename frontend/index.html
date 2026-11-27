@@ -234,7 +234,7 @@
       </div>
       
       <div class="mt-2 terminal-footnote">
-        Q50 is the trend at each 31 Dec; other columns are that corridor, not 10/25/75/90% outcome probabilities. Upside bands (Q75/Q90) follow fitted exponential dispersion decay across history and projections; downside bands (Q10/Q25) and the Q1 floor stay parallel. Toggle bands and the floor on the chart.
+        Q50 is the trend at each 31 Dec; other columns are that corridor, not 10/25/75/90% outcome probabilities (fixed-trend bands omit slope uncertainty). Upside bands (Q75/Q90) follow a smooth asymptotic exponential decay fitted on rolling 4-year cycle-window Q90 residuals; downside bands (Q10/Q25) and the Q1 floor stay parallel. Toggle bands and the floor on the chart.
       </div>
     </div>
     </section>
@@ -345,7 +345,7 @@
       </div>
 
       <div class="mt-2 terminal-footnote">
-        Correlations range from −1 (opposite moves) to +1 (lockstep). Computed on overlapping trading days from <code>/correlations</code>. Property proxy = VNQ (US REITs). Updates with <code>scripts/update_data.py</code>.
+        Correlations range from −1 (opposite moves) to +1 (lockstep). Computed on overlapping ETF trading days (1y = 252 trading days) from <code>/correlations</code>. Property proxy = VNQ (US REITs). Updates with <code>scripts/update_data.py</code>.
       </div>
     </div>
 
@@ -428,7 +428,7 @@
 
       <div class="mt-3 terminal-footnote">
         Top: expanding-window OLS scale coefficient β. Bottom: cumulative OLS R².
-        The headline β CI uses a 180-day moving-block bootstrap to account for daily autocorrelation (naive i.i.d. CIs understate slope uncertainty by ~10×).
+        The headline β CI uses a 180-day heteroskedastic moving-block bootstrap (300 replicates on standardized residuals) to account for daily autocorrelation (naive i.i.d. CIs understate slope uncertainty by ~10×).
         Series and sensitivity table are cached per refit and served from <code>/stats</code>.
       </div>
     </div>
@@ -558,6 +558,10 @@
           <summary>Advanced</summary>
           <div class="mc-advanced-body">
             <div class="flex flex-wrap items-center gap-2">
+              <button id="mc-trend-unc-toggle" type="button" class="terminal-toggle-btn terminal-toggle-on" aria-pressed="true">
+                <span>Trend (β) uncertainty</span>
+                <div id="mc-trend-unc-indicator" class="w-2 h-2 rounded-full terminal-indicator-on"></div>
+              </button>
               <button id="mc-soft-floor-toggle" type="button" class="terminal-toggle-btn terminal-toggle-off" aria-pressed="false">
                 <span>Soft residual floor (Q1)</span>
                 <div id="mc-soft-floor-indicator" class="w-2 h-2 rounded-full terminal-indicator-off"></div>
@@ -568,7 +572,9 @@
               <div id="mc-shock-controls" class="terminal-control-group mt-1.5"></div>
             </div>
             <p class="mt-2 text-[11px] terminal-text-muted">
-              Floor reflects residuals below the dashboard's Q1 floor offset (matching the main chart). Student's t uses 5 degrees of freedom, scaled to unit variance.
+              Trend uncertainty draws each path's (a, β) from cached 180d block-bootstrap replicates while anchoring every path at today's spot price.
+              Soft floor reflects residuals below Q1 (note: a one-sided floor adds upward drift to the ensemble median under high volatility).
+              Student's t uses 5 degrees of freedom, scaled to unit variance.
             </p>
           </div>
         </details>
@@ -613,6 +619,98 @@
         Calibration (current residual, historical σ, residual series) comes from <code>/monte-carlo/calibration</code>.
         Paths are generated in the browser so sliders stay responsive; the same OU engine is also available at
         <code>POST /monte-carlo/simulate</code>. Residual-bootstrap is a planned alternative to the OU shocks.
+      </div>
+    </div>
+    </section>
+
+    <section id="section-methodology" class="page-section">
+    <div class="page-section-label">Methodology</div>
+
+    <div class="terminal-card terminal-card-accent-secondary terminal-reveal-in-view p-5" id="methodology-card">
+      <div class="terminal-card-title mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <span>How the model works</span>
+        <span class="terminal-card-subtitle font-normal">Power-law quantile regression + asymmetric dispersion</span>
+      </div>
+
+      <p class="terminal-card-desc mb-3">
+        A quick reference to the data, regression, bands, and simulation engine behind the charts above.
+      </p>
+
+      <div class="terminal-table-scroll overflow-x-auto">
+        <table class="projection-table w-full text-sm">
+          <thead>
+            <tr class="border-b border-[var(--tb-border-muted)]">
+              <th class="text-left font-normal px-3 py-2 w-40">Component</th>
+              <th class="text-left font-normal px-3 py-2">How it works</th>
+              <th class="text-left font-normal px-3 py-2 hidden md:table-cell">Why / caveat</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y text-sm">
+            <tr>
+              <td class="px-3 py-2.5 text-[var(--tb-text)] font-medium align-top">Price data</td>
+              <td class="px-3 py-2.5 terminal-text-muted align-top">
+                Daily USD closes from <code>2010-07-18</code> through the latest completed UTC day, indexed by days since the <code>2009-01-03</code> genesis block.
+              </td>
+              <td class="px-3 py-2.5 text-xs terminal-text-muted align-top hidden md:table-cell">
+                Live intraday quotes are display-only and never feed the fit.
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2.5 text-[var(--tb-text)] font-medium align-top">Central trend (Q50)</td>
+              <td class="px-3 py-2.5 terminal-text-muted align-top">
+                Median quantile regression (q = 0.5) on <code>log₁₀(price) = a + β · log₁₀(days)</code><span id="meth-q50-live" class="font-mono text-[var(--tb-text)]"></span>.
+              </td>
+              <td class="px-3 py-2.5 text-xs terminal-text-muted align-top hidden md:table-cell">
+                More robust to early blow-off bubbles than OLS; slope β remains sensitive to fit start date and time origin.
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2.5 text-[var(--tb-text)] font-medium align-top">Downside &amp; Q1 floor</td>
+              <td class="px-3 py-2.5 terminal-text-muted align-top">
+                Empirical 1st, 10th, and 25th percentiles of historical log₁₀ residuals below Q50, kept parallel across history and projections (never decayed).
+              </td>
+              <td class="px-3 py-2.5 text-xs terminal-text-muted align-top hidden md:table-cell">
+                Downside gaps have stayed nearly stationary since 2010, but Q1 is fitted in-sample (~1% of closes sit below it by construction).
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2.5 text-[var(--tb-text)] font-medium align-top">Upside bands (Q75 / Q90)</td>
+              <td class="px-3 py-2.5 terminal-text-muted align-top">
+                Standardized positive residual quantiles scaled by the smooth envelope <code>S₊(t) = 0.10 + 0.90 · e^(−λ(t − t₀))</code>, with λ fitted on uncensored rolling 4-year cycle-window Q90 residuals<span id="meth-decay-live" class="font-mono text-[var(--tb-text)]"></span>.
+              </td>
+              <td class="px-3 py-2.5 text-xs terminal-text-muted align-top hidden md:table-cell">
+                Reflects shrinking cycle peaks smoothly with no kink at today; bands map historical dispersion, not fixed outcome probabilities.
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2.5 text-[var(--tb-text)] font-medium align-top">Slope uncertainty</td>
+              <td class="px-3 py-2.5 terminal-text-muted align-top">
+                180-day heteroskedastic moving-block bootstrap (300 replicates on standardized residuals) for the 95% β confidence interval<span id="meth-ci-live" class="font-mono text-[var(--tb-text)]"></span>.
+              </td>
+              <td class="px-3 py-2.5 text-xs terminal-text-muted align-top hidden md:table-cell">
+                Daily residuals are heavily autocorrelated; naive i.i.d. intervals understate slope uncertainty by ~10×.
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2.5 text-[var(--tb-text)] font-medium align-top">Monte Carlo futures</td>
+              <td class="px-3 py-2.5 terminal-text-muted align-top">
+                Exact discrete-time Ornstein–Uhlenbeck log₁₀ residual paths starting at today's close, defaulting to trailing 4-year innovation σ and per-path bootstrap <code>(a, β)</code> draws.
+              </td>
+              <td class="px-3 py-2.5 text-xs terminal-text-muted align-top hidden md:table-cell">
+                Illustrative only: pure OU omits 4-year cyclicality, and enabling the one-sided Q1 soft floor adds upward drift under high volatility.
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2.5 text-[var(--tb-text)] font-medium align-top">Falsifiability &amp; OOS</td>
+              <td class="px-3 py-2.5 terminal-text-muted align-top">
+                Tracks Santostasi §10 structural conditions (F1–F5) plus reactive walk-forward 1-year out-of-sample bias (F6) and post-2013 Q1 breach streaks (F7).
+              </td>
+              <td class="px-3 py-2.5 text-xs terminal-text-muted align-top hidden md:table-cell">
+                Cumulative OLS metrics react slowly after 16 years of multi-decade data; F6–F7 surface near-term regime stress.
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
     </section>

@@ -207,6 +207,41 @@ def test_build_calibration_matches_live_model(fitted_model):
     assert len(calib["residual_series"]["values"]) == len(calib["residual_series"]["days"])
     assert len(calib["history"]["points"]) > 500
     assert calib["meta"]["mode"] == "ou"
+    assert len(calib["trend"]["bootstrap_samples"]) >= 50
+    assert calib["ou"]["defaults"]["include_trend_uncertainty"] is True
+
+
+def test_trend_uncertainty_starts_at_spot_and_widens_long_horizon(fitted_model):
+    fixed = run_simulation(
+        fitted_model,
+        horizon_days=3650,
+        half_life_months=10,
+        vol_scale=1.0,
+        include_trend_uncertainty=False,
+        n_paths=200,
+        seed=42,
+        output_step=30,
+        sample_paths=6,
+    )
+    uncertain = run_simulation(
+        fitted_model,
+        horizon_days=3650,
+        half_life_months=10,
+        vol_scale=1.0,
+        include_trend_uncertainty=True,
+        n_paths=200,
+        seed=42,
+        output_step=30,
+        sample_paths=6,
+    )
+    assert fixed["params"]["include_trend_uncertainty"] is False
+    assert uncertain["params"]["include_trend_uncertainty"] is True
+    assert uncertain["median"][0] == pytest.approx(uncertain["current"]["price"], rel=1e-4)
+    for path in uncertain["sample_paths"]:
+        assert path[0] == pytest.approx(uncertain["current"]["price"], rel=1e-4)
+    fixed_spread = math.log10(fixed["q90"][-1] / fixed["q10"][-1])
+    unc_spread = math.log10(uncertain["q90"][-1] / uncertain["q10"][-1])
+    assert unc_spread > fixed_spread
 
 
 def test_run_simulation_wrapper(fitted_model):

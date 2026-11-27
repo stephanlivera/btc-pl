@@ -4,9 +4,9 @@ Interactive visualization of Bitcoin's long-term power law trend using Giovanni 
 
 ## What This Is
 
-- **Core model**: Quantile regression (Q25 / Q50 / Q75) fit on log-log daily Bitcoin closes (`log10(price) ~ log10(days_since_2009-01-03)`).
-- **Data source**: `btc_daily.csv` (daily closes back to ~2012, kept fresh via script).
-- **Bands**: Residual-based parallel bands around the central (Q50) fit for stability. Long-term projections use **simple time-based decay** (Option 1) so the Q75/Q50 ratio compresses naturally toward ~1.3–1.45× by the early 2030s (matching how many analysts present maturing power law corridors).
+- **Core model**: Quantile regression (`QuantReg`, Q50 central trend) fit on log-log daily Bitcoin closes (`log10(price) ~ log10(days_since_2009-01-03)`).
+- **Data source**: `btc_daily.csv` (daily closes back to `2010-07-18`, kept fresh via script).
+- **Bands**: Asymmetric residual bands around the central (Q50) fit for stability. Downside bands (Q1 floor, Q10, Q25) stay parallel to Q50; upside bands (Q75, Q90, Q99) follow a smooth asymptotic exponential decay `S_+(t) = S_min + (1 - S_min) * exp(-λ * (t - t0)/365.25)` fitted on uncensored rolling 4-year cycle-window Q90 residuals across both history and projections (no kink at today).
 - **Features**: Verdict block with position rail, time-range buttons (1y / 3y / 5y / All), toggleable Q25–Q75 and Q10–Q90 bands with shaded corridors, **Q1 floor line** (undecayed 1st-percentile floor, with its own history card), line-end labels with projected values, main chart fullscreen + PNG download/copy, today marker with projection shading and price callout, hover crosshair, quantile rank in tooltips, dynamic log-scale Y-axis with readable price ticks, 10-year year-end projections table, **Time Spent Below Quantile** card (today's rank + share of history at or below that level), **Bitcoin Stats at a Glance** (price, power-law quantile, ATH, YTD/30d/90d returns, moving averages, Mayer, RSI, 30d vol, halving cycle), Bitcoin CAGR table, rolling asset-class correlations, **The Strengthening Power Law** card (expanding-window OLS β + R² over time), year + month tooltips.
 
 The old single-file `index.html` (root) is the legacy prototype. The current production experience lives in `frontend/` + `backend/`.
@@ -26,22 +26,21 @@ For the central line the predicted price on any day `d` (past or future) is simp
 
 There is **no time-based decay applied to Q50**. The line you see stretching into 2030–2035 (and the numbers in the "Central (Q50)" column of the year-end projections table) are the direct extrapolation of the fitted central power law.
 
-### Parallel bands + decay (what `parallel=true` does)
+### Asymmetric residual bands + smooth upside decay (what `parallel=true` does)
 The UI and the year-end table request curves with `parallel=true` (the strongly recommended mode). In this mode:
 
 1. The backend fits the central Q50 as above.
 2. It computes the historical log-residuals of every data point around that central fit: `residual = log10(actual) - (a50 + b50*log10(days))`.
-3. For any requested quantile q it stores `base_offset[q] = quantile(residuals, q)`.
-4. For a requested day range it builds:
-   - `central_log = a50 + b50 * log10(days)`
-   - For q == 0.5: `offset ≈ 0` (no decay).
-   - For other q and days > the reference day (last day in the fitted CSV): apply a decay factor only to the offset:
-         years_ahead = (d - ref_days) / 365.25
-         decay = max(0.30, 1 / (1 + 0.12 * years_ahead))
-         offset = base_offset[q] * decay
-   - `log_price = central_log + offset`; `price = 10 ** log_price`
+3. It fits an uncensored upside decay rate `λ` by regressing `ln(Q90)` of raw residuals inside rolling 4-year cycle windows against time, then defines the smooth asymptotic scale:
+       S_+(d) = S_min + (1 - S_min) * exp(-λ * max(0, d - t0) / 365.25)   (S_min = 0.10)
+4. Positive residuals are standardized as `z = residual / S_+(d)` while negative residuals stay unscaled (`z = residual`). For any requested quantile `q`, `base_offset[q] = quantile(z, q)`.
+5. For any day `d` (past or future):
+   - `central_log = a50 + b50 * log10(d)`
+   - For `q == 0.5`, `q == 0.01` (Q1 floor), or `base_offset[q] <= 0`: `offset = base_offset[q]` (parallel, never decayed).
+   - For `base_offset[q] > 0` (upside bands Q75 / Q90 / Q99): `offset = base_offset[q] * S_+(d)`.
+   - `price = 10 ** (central_log + offset)`.
 
-This produces stable, non-crossing bands whose width narrows in the far future while the central Q50 trend line continues its pure power-law path.
+This produces stable, non-crossing bands with no kink at today: downside support stays parallel to Q50 while upside bubble corridors compress smoothly across history and future projections.
 
 ### How the year-end projections table is populated
 - `getNextTenYearEnds(latestDays)` (frontend) calculates the exact day counts for the next 10 calendar Dec-31 dates (starting from the current data year, or the next year if it is late December).
@@ -54,7 +53,7 @@ You can inspect the live fitted coefficients and decay settings at the `/paramet
 ### Q1 floor line
 The **Q1 floor** is a power-law floor line: the Q50 trend shifted down by the 1st percentile of historical log-residuals (`FLOOR_QUANTILE = 0.01` in `backend/quantile_model.py`). It uses the same parallel-offset method as the other bands, with one deliberate difference:
 
-- **It is never decayed.** Q10–Q90 are compressed toward the trend after the last data day; the floor keeps a constant log-distance below Q50, past and future. Applying the decay rule would lift the floor from ~51% below trend today to ~29% below by 2035, which is a much stronger claim than "where lows have been".
+- **It is never decayed.** Downside bands (Q1, Q10, Q25) keep a constant log-distance below Q50 across past and future, while upside bands (Q75, Q90, Q99) compress via `S_+(t)`. Applying decay to the floor would pull it up toward trend over time, which is a much stronger claim than "where lows have been".
 - It is requested like any other curve (`/curves?...&quantiles=0.01&parallel=true`) and drawn on the main chart with a hatched zone beneath it (toggle: **Show Q1 floor**, on by default). It also appears as the first column of the year-end table.
 - `GET /current` returns `floor_q1` and `floor_gap_pct` for today; `GET /floor` returns the floor card's statistics: closes below the floor (all history and since 2013), the deepest close under it, the closest approach in each era, and the price ÷ floor series.
 
@@ -131,8 +130,8 @@ The current backend does not hard-code those numbers. On every refit it performs
 
 Differences from some classic corridor charts:
 - We use quantile regression (median-focused, robust) rather than ordinary least squares.
-- Bands are empirical residual quantiles around the central fit (parallel by construction) rather than fixed multiplicative factors.
-- We apply an explicit, simple future-only time-based decay to the band offsets. This was added specifically so that the displayed Q25–Q75 corridor narrows toward the ~1.3–1.45× ratios that many analysts (including Santostasi-inspired work) show for the 2030s, rather than maintaining a constant historical width forever.
+- Bands use empirical standardized residual quantiles around Q50: downside bands (Q1/Q10/Q25) stay parallel while upside bands (Q75/Q90/Q99) follow a data-driven smooth asymptotic exponential compression `S_+(t)` fitted on rolling 4-year cycle-window Q90 residuals (no fixed-level truncation bias and no kink at today).
+- Slope uncertainty is quantified with a 180-day heteroskedastic moving-block bootstrap (300 replicates) and propagated into the Monte Carlo futures engine by default, alongside a start-date sensitivity table and walk-forward out-of-sample falsifiability checks (`F6`/`F7`).
 
 In short: the **central Q50 trend line and its year-end projections are a faithful, continuously re-fitted realization of the Santostasi power-law model**. The surrounding machinery (residual bands + decay) is a pragmatic, stable, and transparent engineering layer on top that makes long-term visualizations match how the community commonly presents maturing power-law corridors.
 

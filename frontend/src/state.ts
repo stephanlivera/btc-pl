@@ -75,7 +75,7 @@ export const GENESIS = new Date('2009-01-03T00:00:00Z');
 export const MS_PER_DAY = 1000 * 60 * 60 * 24;
 export const END_OF_2035_DAYS = IMPORTED_END_OF_2035_DAYS;
 
-export const CORR_WINDOWS = [30, 90, 180, 365] as const;
+export const CORR_WINDOWS = [30, 90, 180, 252] as const;
 export const CORR_ASSET_COLORS: Record<string, string> = {
   stocks: terminal.stocks,
   gold: terminal.gold,

@@ -195,6 +195,46 @@ describe('simulateEnsemble', () => {
     );
     expect(result.median.every((v) => Number.isFinite(v) && v > 0)).toBe(true);
   });
+
+  it('propagates trendSamples while anchoring t=0 at spot and widening long-horizon range', () => {
+    const calib = baseCalib();
+    calib.trend.bootstrap_samples = [
+      [-15.1, 5.3],
+      [-17.0, 5.8],
+      [-18.9, 6.3],
+    ];
+    const fixed = simulateEnsemble(
+      buildSimulateConfig(calib, {
+        horizonKey: 'eoy2035',
+        halfLifeMonths: 10,
+        volScale: 1,
+        includeTrendUncertainty: false,
+        nPaths: 120,
+        softFloor: false,
+        shock: 'normal',
+        seed: 42,
+      }),
+    );
+    const uncertain = simulateEnsemble(
+      buildSimulateConfig(calib, {
+        horizonKey: 'eoy2035',
+        halfLifeMonths: 10,
+        volScale: 1,
+        includeTrendUncertainty: true,
+        nPaths: 120,
+        softFloor: false,
+        shock: 'normal',
+        seed: 42,
+      }),
+    );
+    expect(uncertain.median[0]).toBeCloseTo(calib.current.price, 4);
+    for (const path of uncertain.samplePaths) {
+      expect(path[0]).toBeCloseTo(calib.current.price, 4);
+    }
+    const fixedSpread = Math.log10(fixed.summary.terminalP90 / fixed.summary.terminalP10);
+    const uncSpread = Math.log10(uncertain.summary.terminalP90 / uncertain.summary.terminalP10);
+    expect(uncSpread).toBeGreaterThan(fixedSpread);
+  });
 });
 
 describe('random draws', () => {

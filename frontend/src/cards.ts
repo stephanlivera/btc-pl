@@ -833,6 +833,21 @@ function populateFitStrengthHeadlineStats(fit: any, meta: any, latestPoint?: Exp
   if (throughEl && meta?.data_end_date) {
     throughEl.textContent = `(through ${meta.data_end_date})`;
   }
+
+  // Mirror live fitted figures into the bottom Methodology summary table (no extra fetch).
+  const methQ50 = document.getElementById('meth-q50-live');
+  if (methQ50 && typeof beta === 'number') {
+    methQ50.textContent = ` (live β = ${beta.toFixed(3)})`;
+  }
+  const methCi = document.getElementById('meth-ci-live');
+  if (methCi && Array.isArray(fit?.beta_ci) && fit.beta_ci.length === 2) {
+    methCi.textContent = ` (${Number(fit.beta_ci[0]).toFixed(2)}–${Number(fit.beta_ci[1]).toFixed(2)})`;
+  }
+  const methDecay = document.getElementById('meth-decay-live');
+  const decay = state.q50Model?.upsideDecay;
+  if (methDecay && decay && decay.lambdaPerYear > 0) {
+    methDecay.textContent = ` (λ = ${decay.lambdaPerYear.toFixed(3)}/yr)`;
+  }
 }
 
 function renderStartDateSensitivityTable(rows: Array<{
@@ -977,12 +992,19 @@ function renderFalsifiabilityDetails(tests: FalsifiabilityTest[]) {
         const med2y = t.detail.recent_2y_median_log10;
         const rmse = t.detail.all_oos_rmse_log10;
         const samples = t.detail.samples;
-        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Trailing 2y median OOS error: ${typeof med2y === 'number' ? `${med2y >= 0 ? '+' : ''}${med2y.toFixed(3)} dex` : '—'} · full OOS RMSE: ${typeof rmse === 'number' ? `${rmse.toFixed(3)} dex` : '—'} · ${samples ?? 0} walk-forward steps</div>`;
+        const cov = t.detail.oos_band_coverage as
+          | { q25_q75_pct?: number; q10_q90_pct?: number; below_q1_pct?: number }
+          | undefined;
+        const covStr =
+          cov && typeof cov.q25_q75_pct === 'number' && typeof cov.q10_q90_pct === 'number'
+            ? ` · 1y OOS band coverage: Q25–Q75 ${cov.q25_q75_pct.toFixed(1)}%, Q10–Q90 ${cov.q10_q90_pct.toFixed(1)}%`
+            : '';
+        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Trailing 2y median OOS error: ${typeof med2y === 'number' ? `${med2y >= 0 ? '+' : ''}${med2y.toFixed(3)} dex` : '—'} · full OOS RMSE: ${typeof rmse === 'number' ? `${rmse.toFixed(3)} dex` : '—'} · ${samples ?? 0} walk-forward steps${covStr}</div>`;
       } else if (t.id === 'F7' && t.detail) {
         const active = t.detail.current_streak_closes;
-        const maxStreak = t.detail.max_post2013_streak_days;
+        const maxStreak = t.detail.max_post2013_streak_closes ?? t.detail.max_post2013_streak_days;
         const thresh = t.detail.fail_threshold_days;
-        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Active streak below Q1: ${active ?? 0} closes · longest post-2013 streak: ${maxStreak ?? 0} days · fail threshold: &gt;${thresh ?? 90} closes</div>`;
+        extra = `<div class="mt-1 font-mono text-xs terminal-text-muted">Active streak below Q1: ${active ?? 0} closes · longest post-2013 streak: ${maxStreak ?? 0} closes · fail threshold: &gt;${thresh ?? 90} closes</div>`;
       } else if (t.status === 'unmonitored' && t.detail && typeof t.detail.reason === 'string') {
         extra = `<div class="mt-1 text-xs terminal-text-muted">${t.detail.reason}</div>`;
       }

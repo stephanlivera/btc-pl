@@ -397,6 +397,15 @@ def run_sense_checks(*, skip_data_quality: bool = False) -> bool:
             f"  β={diag.get('beta')}, OLS R²={diag.get('ols_r2')}, "
             f"corr={diag.get('correlation')}, n={diag.get('n_points')}"
         )
+    oos = model._compute_oos_walk_forward()
+    cov = oos.get("coverage") if isinstance(oos, dict) else None
+    if cov:
+        print(
+            f"  1y OOS band coverage (n={cov['n_steps']}): "
+            f"Q25–Q75={cov['q25_q75_pct']}% (nom 50%), "
+            f"Q10–Q90={cov['q10_q90_pct']}% (nom 80%), "
+            f"<Q1={cov['below_q1_pct']}% (nom 1%)"
+        )
 
     # Generate curves for checking
     curves = model.predict_curve(
@@ -441,7 +450,7 @@ def run_sense_checks(*, skip_data_quality: bool = False) -> bool:
     print("\n✅ All sense checks PASSED")
     print("   - Data quality OK")
     print("   - No quantile crossings; central between bands")
-    print("   - Prices positive; decay only in future; bands compress")
+    print("   - Prices positive; asymmetric upside decay smooth & monotone; downside parallel")
     print("   - β / R² / correlation within bounds")
     print("   - Residual coverage near nominal")
     print("   - Year-end Q50 monotone; position surfaces aligned")

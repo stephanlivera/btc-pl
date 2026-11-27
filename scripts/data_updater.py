@@ -227,11 +227,16 @@ def fetch_yahoo_daily_closes(
 
     chart = result[0]
     timestamps = chart.get("timestamp") or []
-    closes = chart.get("indicators", {}).get("quote", [{}])[0].get("close") or []
+    indicators = chart.get("indicators", {})
+    quote_closes = (indicators.get("quote") or [{}])[0].get("close") or []
+    adj_closes = (indicators.get("adjclose") or [{}])[0].get("adjclose") or []
 
     out: Dict[str, float] = {}
-    for ts, close in zip(timestamps, closes):
-        if close is None:
+    for i, ts in enumerate(timestamps):
+        adj = adj_closes[i] if i < len(adj_closes) else None
+        raw = quote_closes[i] if i < len(quote_closes) else None
+        close = adj if adj is not None else raw
+        if close is None or float(close) <= 0:
             continue
         date_str = dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%d")
         out[date_str] = float(close)

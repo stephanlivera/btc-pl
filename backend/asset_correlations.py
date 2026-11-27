@@ -25,7 +25,8 @@ ASSET_DEFINITIONS: Dict[str, Dict[str, str]] = {
     "property": {"symbol": "VNQ", "label": "US Real Estate (VNQ)"},
 }
 
-DEFAULT_WINDOWS = [30, 90, 180, 365]
+# Rolling correlation windows in ETF trading days (252 ≈ 1 calendar year).
+DEFAULT_WINDOWS = [30, 90, 180, 252]
 
 
 @dataclass(frozen=True)

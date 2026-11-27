@@ -39,19 +39,25 @@ CONDITIONAL_HORIZON_LABELS: Dict[int, str] = {
 # Data-driven asymmetric upside dispersion decay across full history & projections.
 # Empirically, BTC downside residuals (Q10/Q25/Q1) have stayed nearly stationary
 # across 2010–2026, while upside bubble residuals (Q75/Q90/Q99) compressed sharply.
-# We fit an exponential envelope S_+(t) = max(MIN_UPSIDE_SCALE, exp(-lambda * (t - t0)/365.25))
-# to upper positive residuals (r > Q65) and standardize positive residuals z = r / S_+(t).
-# Negative residuals (and Q50 / Q1 floor) remain unscaled (parallel).
-UPSIDE_DECAY_QUANTILE_CUTOFF = 0.65
-UPSIDE_DECAY_MIN_SCALE = 0.15
+# To avoid fixed-level truncation bias as recent bubbles shrink, we fit λ to the
+# uncensored rolling 4-year cycle-window Q90 of raw residuals (fallback: all r > 0
+# on short datasets) and evaluate a smooth asymptotic exponential envelope:
+#   S_+(t) = S_min + (1 - S_min) * exp(-lambda * (t - t0)/365.25)
+# Positive residuals are standardized as z = r / S_+(t); negative residuals (and
+# Q50 / Q1 floor) remain unscaled (parallel).
+UPSIDE_DECAY_WINDOW_DAYS = int(round(4 * 365.25))
+UPSIDE_DECAY_WINDOW_STEP_DAYS = 180
+UPSIDE_DECAY_WINDOW_QUANTILE = 0.90
+UPSIDE_DECAY_MIN_SCALE = 0.10
 UPSIDE_DECAY_MAX_LAMBDA = 0.25
 # Legacy constants kept as fallbacks/exports for backwards compatibility.
+UPSIDE_DECAY_QUANTILE_CUTOFF = 0.65
 DECAY_RATE = 0.12
 MIN_DECAY_FACTOR = UPSIDE_DECAY_MIN_SCALE
 
 # Moving-block bootstrap & start-date sensitivity settings (cached at fit time).
 BOOTSTRAP_BLOCK_DAYS = 180
-BOOTSTRAP_SAMPLES = 120
+BOOTSTRAP_SAMPLES = 300
 BOOTSTRAP_SEED = 42
 SENSITIVITY_START_DATES = (
     dt.date(2010, 7, 18),
@@ -117,14 +123,11 @@ class QuantilePowerLawModel:
     where days_since_genesis = (date - 2009-01-03).days.
 
     The central (Q50) fit is always used as the base for long-term projections
-    when parallel=True (the recommended mode). Other quantiles are expressed
-    as stable *residual offsets* around that central fit (computed once at
-    fit time from historical log-residuals vs Q50). This produces parallel,
-    non-crossing bands.
-
-    For future points only, a simple time-based decay is applied to the
-    *offsets* (never to the Q50 central line itself). See DECAY_RATE and
-    MIN_DECAY_FACTOR.
+    when parallel=True (the recommended mode). Downside quantiles (Q1 floor,
+    Q10, Q25) keep constant log10 residual offsets around Q50 (parallel).
+    Upside quantiles (Q75, Q90, Q99) use standardized residual offsets scaled
+    by the smooth asymptotic exponential envelope S_+(t) across both history
+    and future projections (no kink at today, guaranteed non-crossing).
     """
 
     def __init__(self, quantiles: List[float] | None = None):
@@ -140,6 +143,7 @@ class QuantilePowerLawModel:
         self._upside_decay_min_scale: float = UPSIDE_DECAY_MIN_SCALE
         self._std_residuals: np.ndarray = np.array([], dtype=float)
         self._sorted_std_residuals: np.ndarray = np.array([], dtype=float)
+        self._bootstrap_ab: list[tuple[float, float]] | None = None
         self._statistical_summary_cache: dict | None = None
 
     def load_data(self, csv_path: Path | str) -> pd.DataFrame:
@@ -163,18 +167,56 @@ class QuantilePowerLawModel:
         return df
 
     def _fit_upside_decay(self, days: np.ndarray, raw_residuals: np.ndarray) -> tuple[float, float]:
-        """Fit smooth exponential decay S_+(t) = max(S_min, exp(-λ(t - t0)/365.25)) to upper residuals.
+        """Fit smooth upside exponential decay λ without fixed-level truncation bias.
 
-        Uses robust median regression on ln(r) vs years for r > Q65 (positive bubble
-        residuals) so early blow-off tops compress smoothly across all history and future,
-        without creating a kink at today or distorting stationary downside residuals.
+        Primary estimator (history ≥ 4y): compute the uncensored 90th percentile of
+        raw residuals inside rolling 4-year cycle windows (step 180d, including the
+        final window anchored at the latest close) and regress ln(Q90) on window
+        midpoint years. Because every 4-year cycle window includes bull and bear phases
+        without a fixed residual cutoff, shrinking modern bubbles are not censored.
+
+        Fallback (short datasets < 4y): median regression of ln(r) vs years over all
+        positive residuals (r > 1e-4).
         """
         if days.size < 60 or raw_residuals.size != days.size:
             return 0.0, float(days[0]) if days.size else 0.0
 
         t0 = float(days[0])
-        cutoff = max(1e-6, float(np.quantile(raw_residuals, UPSIDE_DECAY_QUANTILE_CUTOFF)))
-        mask = raw_residuals > cutoff
+        d_max = float(days[-1])
+        win = float(UPSIDE_DECAY_WINDOW_DAYS)
+
+        if d_max - t0 >= win:
+            pts_t: list[float] = []
+            pts_q: list[float] = []
+            end = t0 + win
+            while end <= d_max + 1e-6:
+                mk = (days >= end - win) & (days <= end)
+                if int(mk.sum()) >= 180:
+                    qv = float(np.quantile(raw_residuals[mk], UPSIDE_DECAY_WINDOW_QUANTILE))
+                    if qv > 1e-4:
+                        pts_t.append((float(days[mk].mean()) - t0) / 365.25)
+                        pts_q.append(qv)
+                end += float(UPSIDE_DECAY_WINDOW_STEP_DAYS)
+
+            # Always include the final 4-year window anchored at the latest close.
+            mk_last = days >= d_max - win
+            if int(mk_last.sum()) >= 180:
+                qv_last = float(np.quantile(raw_residuals[mk_last], UPSIDE_DECAY_WINDOW_QUANTILE))
+                t_last = (float(days[mk_last].mean()) - t0) / 365.25
+                if qv_last > 1e-4 and (not pts_t or abs(pts_t[-1] - t_last) > 0.1):
+                    pts_t.append(t_last)
+                    pts_q.append(qv_last)
+
+            if len(pts_t) >= 3 and float(np.ptp(pts_t)) >= 1.0:
+                try:
+                    ols = sm.OLS(np.log(np.asarray(pts_q, dtype=float)), sm.add_constant(np.asarray(pts_t, dtype=float))).fit()
+                    slope = float(ols.params[1])
+                    return float(np.clip(-slope, 0.0, UPSIDE_DECAY_MAX_LAMBDA)), t0
+                except Exception:
+                    pass
+
+        # Fallback for short (<4y) series: all positive residuals (no fixed-level cutoff).
+        mask = raw_residuals > 1e-4
         if int(mask.sum()) < 30:
             return 0.0, t0
 
@@ -194,7 +236,11 @@ class QuantilePowerLawModel:
         return lam, t0
 
     def upside_scale(self, days: np.ndarray | float) -> np.ndarray | float:
-        """Evaluate the fitted upside dispersion scale S_+(d) ∈ [min_scale, 1.0]."""
+        """Evaluate the smooth asymptotic upside dispersion scale S_+(d) ∈ (min_scale, 1.0].
+
+        S_+(d) = min_scale + (1 - min_scale) * exp(-lambda * max(0, (d - t0) / 365.25))
+        Avoids a hard kink where a clamped exponential would flatten abruptly.
+        """
         lam = self._upside_decay_lambda
         t0 = self._upside_decay_t0
         min_scale = self._upside_decay_min_scale
@@ -204,9 +250,9 @@ class QuantilePowerLawModel:
             return 1.0
         if isinstance(days, np.ndarray):
             years = np.maximum(0.0, (days.astype(float) - t0) / 365.25)
-            return np.maximum(min_scale, np.exp(-lam * years))
+            return min_scale + (1.0 - min_scale) * np.exp(-lam * years)
         years_f = max(0.0, (float(days) - t0) / 365.25)
-        return float(max(min_scale, np.exp(-lam * years_f)))
+        return float(min_scale + (1.0 - min_scale) * np.exp(-lam * years_f))
 
     def _standardize_residuals(self, raw_residuals: np.ndarray, days: np.ndarray) -> np.ndarray:
         """Standardize positive residuals by S_+(t); leave negative residuals unscaled."""
@@ -225,6 +271,7 @@ class QuantilePowerLawModel:
         scale_today = float(self.upside_scale(self.ref_days)) if self.ref_days else 1.0
         return {
             "method": "asymmetric_upside_exponential",
+            "estimator": "rolling_4y_q90_ols",
             "lambda_per_year": round(lam, 6),
             "half_life_years": round(half_life_years, 2) if half_life_years is not None else None,
             "t0_days": round(float(self._upside_decay_t0), 2),
@@ -232,8 +279,9 @@ class QuantilePowerLawModel:
             "scale_today": round(scale_today, 4),
             "applies_to": "positive_residuals_only",
             "description": (
-                "Positive residuals scale by S_+(t) = max(min_scale, exp(-lambda * (t - t0)/365.25)) "
-                "across full history and projections (no kink at today); negative residuals and Q1 floor remain parallel."
+                "Positive residuals scale by S_+(t) = min_scale + (1 - min_scale) * exp(-lambda * (t - t0)/365.25), "
+                "with lambda fitted on uncensored rolling 4-year cycle-window Q90 residuals; "
+                "negative residuals and Q1 floor remain parallel."
             ),
         }
 
@@ -244,6 +292,7 @@ class QuantilePowerLawModel:
 
         self.models = {}
         self.results = {}
+        self._bootstrap_ab = None
         self._statistical_summary_cache = None
 
         for q in self.quantiles:
@@ -361,22 +410,13 @@ class QuantilePowerLawModel:
         When parallel=True (strongly recommended for projections, and what the
         year-end projections table and most UI use):
             - Base is always the central Q50 fit: log10(P) = a50 + b50 * log10(d).
-            - For any q we add a constant (in log space) offset taken from the
-              empirical quantile of historical residuals around that Q50 fit.
-              This guarantees parallel, non-crossing bands by construction.
-            - Q50 itself uses offset ≈ 0 (the median residual). The central line
-              is *never* decayed.
-            - The Q1 floor (q == FLOOR_QUANTILE) is also never decayed: it stays a
-              constant log-distance below the trend, past and future.
-            - For every other q and future days (d > ref_days), a time-based decay is
-              applied *only to the offset*:
-                  years_ahead = (d - ref_days) / 365.25
-                  decay = max(MIN_DECAY_FACTOR, 1 / (1 + DECAY_RATE * years_ahead))
-                  offset = base_offset * decay
-              This makes long-term corridors narrower (~1.3-1.45x by early 2030s),
-              matching how many power-law analysts present "maturing" bands.
-            - Result for a year-end target day: the exact Q50 power-law
-              extrapolation (plus decayed band offsets if requested).
+            - Q50 uses offset ≈ 0 (never decayed).
+            - Downside bands (Q1 floor, Q10, Q25) keep constant log10 offsets
+              below Q50 (parallel, never decayed).
+            - Upside bands (Q75, Q90, Q99) use empirical quantiles of the
+              standardized residuals multiplied by the smooth asymptotic envelope
+              S_+(d) = S_min + (1 - S_min) * exp(-lambda * (d - t0) / 365.25)
+              across both history and projections (no kink at today, non-crossing).
 
         When parallel=False:
             - Uses each quantile's own independently fitted slope + intercept.
@@ -453,35 +493,71 @@ class QuantilePowerLawModel:
             }
         return params
 
-    def _compute_block_bootstrap_beta_ci(self) -> list[float] | None:
-        """Moving-block residual bootstrap 95% CI for Q50 β (accounts for heavy autocorrelation)."""
-        if 0.5 not in self.results or self.df is None or len(self.df) < BOOTSTRAP_BLOCK_DAYS * 2:
-            return None
+    def _ensure_bootstrap_replicates(self) -> list[tuple[float, float]]:
+        """Cached heteroskedastic 180-day moving-block bootstrap draws of Q50 (a, b).
+
+        Resamples standardized residuals in contiguous blocks and re-applies the
+        fitted upside scale S_+(t) to positive residuals so early bubble volatility is
+        not transplanted uniformly onto mature recent eras. Shared between /stats
+        (beta 95% CI) and Monte Carlo trend-parameter uncertainty.
+        """
+        if self._bootstrap_ab is not None:
+            return self._bootstrap_ab
+        if (
+            0.5 not in self.results
+            or self.df is None
+            or len(self.df) < BOOTSTRAP_BLOCK_DAYS * 2
+            or self._std_residuals.size != len(self.df)
+        ):
+            self._bootstrap_ab = []
+            return self._bootstrap_ab
+
         central_res = self.results[0.5]
         a = float(central_res.params["const"])
         b = float(central_res.params["log_days"])
         x = self.df["log_days"].to_numpy(dtype=float)
+        days_arr = self.df["days"].to_numpy(dtype=float)
         y_hat = a + b * x
-        r = self._log_residuals
-        n = len(r)
+        z_std = self._std_residuals
+        scales = self.upside_scale(days_arr)
+        n = len(z_std)
         block_size = min(BOOTSTRAP_BLOCK_DAYS, max(30, n // 4))
         n_blocks = int(np.ceil(n / block_size))
         X = sm.add_constant(x)
         rng = np.random.default_rng(BOOTSTRAP_SEED)
-        betas: list[float] = []
+        replicates: list[tuple[float, float]] = []
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", IterationLimitWarning)
             for _ in range(BOOTSTRAP_SAMPLES):
                 starts = rng.integers(0, n, size=n_blocks)
                 idx = np.concatenate([(s + np.arange(block_size)) % n for s in starts])[:n]
-                y_boot = y_hat + r[idx]
+                z_boot = z_std[idx]
+                r_boot = np.where(z_boot > 0.0, z_boot * scales, z_boot)
+                y_boot = y_hat + r_boot
                 try:
                     res_b = QuantReg(y_boot, X).fit(q=0.5, max_iter=500)
-                    betas.append(float(res_b.params[1]))
+                    replicates.append((float(res_b.params[0]), float(res_b.params[1])))
                 except Exception:
                     continue
-        if len(betas) < 20:
+        self._bootstrap_ab = replicates
+        return self._bootstrap_ab
+
+    def get_bootstrap_trend_samples(self, max_samples: int = 200) -> list[list[float]]:
+        """Return rounded [a, b] Q50 bootstrap replicates for Monte Carlo trend uncertainty."""
+        reps = self._ensure_bootstrap_replicates()
+        if not reps:
+            return []
+        if len(reps) > max_samples > 0:
+            step_idx = np.linspace(0, len(reps) - 1, max_samples, dtype=int)
+            reps = [reps[i] for i in step_idx]
+        return [[round(a, 6), round(b, 6)] for a, b in reps]
+
+    def _compute_block_bootstrap_beta_ci(self) -> list[float] | None:
+        """Moving-block residual bootstrap 95% CI for Q50 β (accounts for autocorrelation + heteroskedasticity)."""
+        reps = self._ensure_bootstrap_replicates()
+        if len(reps) < 20:
             return None
+        betas = [b for _a, b in reps]
         lo, hi = np.percentile(betas, [2.5, 97.5])
         return [round(float(lo), 4), round(float(hi), 4)]
 
@@ -521,17 +597,27 @@ class QuantilePowerLawModel:
         return rows
 
     def _compute_oos_walk_forward(self) -> dict:
-        """Expanding-window 1-year-ahead out-of-sample Q50 forecast errors."""
+        """Expanding-window 1-year-ahead out-of-sample Q50 forecast errors and band coverage."""
         if self.df is None or len(self.df) < FALSIFIABILITY_OOS_MIN_TRAIN + FALSIFIABILITY_OOS_HORIZON_DAYS + 10:
-            return {"samples": [], "recent_median_error": None, "latest_error": None, "all_rmse": None}
+            return {
+                "samples": [],
+                "recent_median_error": None,
+                "latest_error": None,
+                "all_rmse": None,
+                "coverage": None,
+            }
 
         x_arr = self.df["log_days"].to_numpy(dtype=float)
         y_arr = self.df["log_close"].to_numpy(dtype=float)
         days_arr = self.df["days"].to_numpy(dtype=int)
+        days_f = days_arr.astype(float)
         dates_arr = self.df["Date"].dt.date.to_numpy()
         n = len(days_arr)
         horizon = FALSIFIABILITY_OOS_HORIZON_DAYS
         samples: list[dict] = []
+        in_25_75: list[bool] = []
+        in_10_90: list[bool] = []
+        below_q1: list[bool] = []
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", IterationLimitWarning)
@@ -543,9 +629,12 @@ class QuantilePowerLawModel:
                 target_i = train_end + horizon
                 sub_x = x_arr[: train_end + 1]
                 sub_y = y_arr[: train_end + 1]
+                sub_d = days_f[: train_end + 1]
                 try:
                     res_o = QuantReg(sub_y, sm.add_constant(sub_x)).fit(q=0.5, max_iter=500)
-                    pred = float(res_o.params[0]) + float(res_o.params[1]) * float(x_arr[target_i])
+                    a_o = float(res_o.params[0])
+                    b_o = float(res_o.params[1])
+                    pred = a_o + b_o * float(x_arr[target_i])
                 except Exception:
                     continue
                 err = float(y_arr[target_i] - pred)
@@ -556,11 +645,46 @@ class QuantilePowerLawModel:
                     "pct_vs_oos_q50": round((10 ** err - 1.0) * 100.0, 2),
                 })
 
+                # Out-of-sample band calibration using only training-slice residuals + upside decay
+                train_raw = sub_y - (a_o + b_o * sub_x)
+                lam_o, t0_o = self._fit_upside_decay(sub_d, train_raw)
+                min_s = UPSIDE_DECAY_MIN_SCALE
+                if lam_o > 0.0:
+                    s_train = min_s + (1.0 - min_s) * np.exp(-lam_o * np.maximum(0.0, (sub_d - t0_o) / 365.25))
+                    s_target = float(min_s + (1.0 - min_s) * np.exp(-lam_o * max(0.0, (days_f[target_i] - t0_o) / 365.25)))
+                else:
+                    s_train = np.ones_like(sub_d)
+                    s_target = 1.0
+                train_std = np.where(train_raw > 0.0, train_raw / s_train, train_raw)
+                q01, q10, q25, q75, q90 = np.quantile(train_std, [0.01, 0.10, 0.25, 0.75, 0.90])
+                hi75 = q75 * s_target if q75 > 0 else q75
+                hi90 = q90 * s_target if q90 > 0 else q90
+                in_25_75.append(bool(q25 <= err <= hi75))
+                in_10_90.append(bool(q10 <= err <= hi90))
+                below_q1.append(bool(err < q01))
+
         if not samples:
-            return {"samples": [], "recent_median_error": None, "latest_error": None, "all_rmse": None}
+            return {
+                "samples": [],
+                "recent_median_error": None,
+                "latest_error": None,
+                "all_rmse": None,
+                "coverage": None,
+            }
 
         errs = np.array([s["error_log10"] for s in samples], dtype=float)
         recent = errs[-FALSIFIABILITY_OOS_RECENT_SAMPLES:]
+        coverage = {
+            "q25_q75_pct": round(float(np.mean(in_25_75) * 100.0), 1),
+            "q10_q90_pct": round(float(np.mean(in_10_90) * 100.0), 1),
+            "below_q1_pct": round(float(np.mean(below_q1) * 100.0), 1),
+            "n_steps": len(samples),
+            "horizon_days": horizon,
+            "note": (
+                "Walk-forward 1y-ahead out-of-sample coverage of fixed-trend corridor bands "
+                "(excludes slope-estimation uncertainty; nominal in-sample targets are 50% / 80% / 1%)."
+            ),
+        }
         return {
             "samples": samples,
             "count": len(samples),
@@ -571,6 +695,7 @@ class QuantilePowerLawModel:
             "recent_mean_error": round(float(np.mean(recent)), 4),
             "latest_error": round(float(errs[-1]), 4),
             "latest_pct_vs_oos_q50": samples[-1]["pct_vs_oos_q50"],
+            "coverage": coverage,
         }
 
     def _compute_central_diagnostics(self, *, include_bootstrap: bool = False) -> dict:
@@ -737,6 +862,7 @@ class QuantilePowerLawModel:
                 "rolling_beta_4y": rolling,
                 "expanding_window": expanding,
                 "start_date_sensitivity": start_date_sensitivity,
+                "oos_calibration": falsifiability.get("oos_calibration"),
             },
             "falsifiability": falsifiability,
             "meta": {
@@ -749,6 +875,7 @@ class QuantilePowerLawModel:
                 ),
                 "bootstrap_block_days": BOOTSTRAP_BLOCK_DAYS,
                 "bootstrap_samples": BOOTSTRAP_SAMPLES,
+                "bootstrap_method": "heteroskedastic_standardized_moving_block",
             },
         }
         self._statistical_summary_cache = summary
@@ -784,6 +911,37 @@ class QuantilePowerLawModel:
                 best_end = int(days[-1])
 
         return max_span, best_start, best_end
+
+    def _max_true_streak_count(self, mask: np.ndarray, days: np.ndarray) -> tuple[int, int | None, int | None]:
+        """Longest contiguous run of True observations (inclusive row count); returns (count, start_day, end_day)."""
+        if mask.size == 0:
+            return 0, None, None
+
+        max_count = 0
+        best_start: int | None = None
+        best_end: int | None = None
+        run_start_i: int | None = None
+
+        for i, flag in enumerate(mask):
+            if flag:
+                if run_start_i is None:
+                    run_start_i = i
+            elif run_start_i is not None:
+                count = i - run_start_i
+                if count > max_count:
+                    max_count = count
+                    best_start = int(days[run_start_i])
+                    best_end = int(days[i - 1])
+                run_start_i = None
+
+        if run_start_i is not None:
+            count = int(mask.size) - run_start_i
+            if count > max_count:
+                max_count = count
+                best_start = int(days[run_start_i])
+                best_end = int(days[-1])
+
+        return max_count, best_start, best_end
 
     def _rolling_ols_series(
         self,
@@ -1079,6 +1237,7 @@ class QuantilePowerLawModel:
                 "recent_2y_median_log10": recent_med,
                 "recent_2y_mean_log10": oos.get("recent_mean_error"),
                 "all_oos_rmse_log10": oos.get("all_rmse"),
+                "oos_band_coverage": oos.get("coverage"),
                 "samples": oos.get("count", 0),
             },
         }
@@ -1088,7 +1247,7 @@ class QuantilePowerLawModel:
         dates_arr = self.df["Date"].dt.date.to_numpy()
         modern_mask = dates_arr >= FLOOR_SINCE_DATE
         below_q1_modern = (self._log_residuals < floor_offset) & modern_mask
-        max_q1_streak, q1_start, q1_end = self._max_true_streak_days(below_q1_modern, days)
+        max_q1_streak, q1_start, q1_end = self._max_true_streak_count(below_q1_modern, days)
         q1_current_streak = 0
         if below_q1_modern[-1]:
             i = n - 1
@@ -1116,11 +1275,12 @@ class QuantilePowerLawModel:
             "metric_display": (
                 f"{q1_current_streak} closes running"
                 if q1_current_streak > 0
-                else f"0 active (max {max_q1_streak}d since 2013)"
+                else f"0 active (max {max_q1_streak} closes since 2013)"
             ),
             "detail": {
                 "current_streak_closes": q1_current_streak,
                 "max_post2013_streak_days": max_q1_streak,
+                "max_post2013_streak_closes": max_q1_streak,
                 "max_streak_start_day": q1_start,
                 "max_streak_end_day": q1_end,
                 "fail_threshold_days": FALSIFIABILITY_Q1_BREACH_FAIL_DAYS,
@@ -1154,6 +1314,7 @@ class QuantilePowerLawModel:
             "as_of": str(self.data_end_date) if self.data_end_date else None,
             "tests": tests,
             "rolling_r2_3y_diagnostic": rolling_r2,
+            "oos_calibration": oos.get("coverage"),
         }
 
     def get_historical_data(
@@ -1604,15 +1765,15 @@ class QuantilePowerLawModel:
         """
         if self.df is None or self.df.empty:
             raise RuntimeError("Data not loaded")
-        if not hasattr(self, "_log_residuals") or self._log_residuals.size == 0:
-            raise RuntimeError("Residuals not available; fit the model first.")
+        if not hasattr(self, "_std_residuals") or self._std_residuals.size == 0:
+            raise RuntimeError("Standardized residuals not available; fit the model first.")
 
-        residuals = self._log_residuals
+        residuals = self._std_residuals
         n = len(residuals)
         if n == 0:
             raise RuntimeError("No historical residuals")
 
-        # Target residual for the given quantile rank (inverse of the empirical CDF)
+        # Target standardized residual for the given quantile rank (matches /current CDF)
         target_residual = float(np.quantile(residuals, np.clip(quantile, 0.0, 1.0)))
 
         # Precompute for fast lookup and filtering

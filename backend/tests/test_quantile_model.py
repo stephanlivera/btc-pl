@@ -103,13 +103,27 @@ def test_falsifiability_suite_structure_and_pass(fitted_model):
     assert by_id["F5"]["detail"]["longest_below_threshold_days"] <= int(2 * 365.25)
 
     assert by_id["F6"]["detail"]["samples"] >= 20
+    oos_cov = by_id["F6"]["detail"].get("oos_band_coverage")
+    assert oos_cov is not None
+    assert 0.0 <= oos_cov["q25_q75_pct"] <= 100.0
+    assert 0.0 <= oos_cov["q10_q90_pct"] <= 100.0
     assert by_id["F7"]["detail"]["fail_threshold_days"] == 90
+    assert (
+        by_id["F7"]["detail"]["max_post2013_streak_days"]
+        >= by_id["F7"]["detail"]["current_streak_closes"]
+    )
+    assert (
+        by_id["F7"]["detail"]["max_post2013_streak_closes"]
+        == by_id["F7"]["detail"]["max_post2013_streak_days"]
+    )
 
     # Block bootstrap CI & start-date sensitivity are populated and cached.
     fit = summary["fit"]
     assert fit["beta_ci_method"].startswith("moving_block_bootstrap")
     assert fit["beta_ci"][1] - fit["beta_ci"][0] > 0.25
     assert len(summary["stability"]["start_date_sensitivity"]) >= 3
+    assert summary["stability"]["oos_calibration"] == oos_cov
+    assert len(fitted_model.get_bootstrap_trend_samples()) >= 100
     assert fitted_model.get_statistical_summary() is summary
 
     rolling = fb["rolling_r2_3y_diagnostic"]
@@ -402,9 +416,20 @@ def test_floor_is_parallel_and_never_decayed(fitted_model):
     gaps = [np.log10(f["y"] / c["y"]) for f, c in zip(floor, q50)]
     assert max(gaps) - min(gaps) < 1e-4, "Floor offset must not change over time"
     assert gaps[0] == pytest.approx(fitted_model._residual_offset(FLOOR_QUANTILE), abs=1e-4)
-    # Q10 still decays toward the trend, so it must stay above the floor everywhere.
+    # Downside Q10 stays parallel above the floor everywhere.
     for f, lo in zip(floor, q10):
         assert f["y"] < lo["y"]
+
+
+def test_upside_decay_is_smooth_and_strictly_decreasing(fitted_model):
+    """Smooth asymptotic upside scale S_+(t) decreases past 2035 without hitting a hard kink."""
+    ref = fitted_model.ref_days
+    assert ref is not None
+    s_now = fitted_model.upside_scale(ref)
+    s_5y = fitted_model.upside_scale(ref + 1826)
+    s_10y = fitted_model.upside_scale(ref + 3652)
+    min_s = fitted_model._upside_decay_min_scale
+    assert 1.0 > s_now > s_5y > s_10y > min_s
 
 
 def test_get_floor_summary(fitted_model):

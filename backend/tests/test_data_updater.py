@@ -135,6 +135,28 @@ def test_fetch_yahoo_daily_closes_parses_chart_payload():
     assert prices["2024-01-02"] == pytest.approx(451.2)
 
 
+def test_fetch_yahoo_daily_closes_prefers_adjclose_with_fallback():
+    session = MagicMock()
+    session.get.return_value.json.return_value = {
+        "chart": {
+            "result": [
+                {
+                    "timestamp": [1_704_067_200, 1_704_153_600],
+                    "indicators": {
+                        "quote": [{"close": [450.1, 451.2]}],
+                        "adjclose": [{"adjclose": [440.0, None]}],
+                    },
+                }
+            ]
+        }
+    }
+    session.get.return_value.raise_for_status = MagicMock()
+
+    prices = data_updater.fetch_yahoo_daily_closes("SPY", days=90, session=session)
+    assert prices["2024-01-01"] == pytest.approx(440.0)
+    assert prices["2024-01-02"] == pytest.approx(451.2)
+
+
 def test_append_btc_rows_only_adds_new_dates(tmp_path: Path):
     btc_csv = tmp_path / "btc_daily.csv"
     btc_csv.write_text("Date,Close\n2024-01-01,100.0\n")

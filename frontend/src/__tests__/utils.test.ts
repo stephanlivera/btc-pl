@@ -29,6 +29,7 @@ import {
   computePointQuantileRank,
   empiricalQuantileRank,
   logResidualFromQ50,
+  upsideScale,
   formatReturnPct,
   computeSimpleReturn,
   findPriceAtDaysAgo,
@@ -376,6 +377,7 @@ describe('correlation helpers', () => {
 
   it('labels windows', () => {
     expect(correlationWindowLabel(90)).toBe('90d');
+    expect(correlationWindowLabel(252)).toBe('1y');
     expect(correlationWindowLabel(365)).toBe('1y');
   });
 
@@ -527,6 +529,17 @@ describe('quantile rank helpers', () => {
     const residuals = [-0.2, 0.0, 0.1, 0.2];
     expect(empiricalQuantileRank(residuals, 0.0)).toBe(0.5);
     expect(logResidualFromQ50(6100, 10_000, model)).not.toBeNull();
+  });
+
+  it('evaluates smooth asymptotic upsideScale strictly above minScale', () => {
+    const decay = { lambdaPerYear: 0.11, t0Days: 561, minScale: 0.1 };
+    const s0 = upsideScale(561, decay);
+    const sNow = upsideScale(6535, decay);
+    const sFuture = upsideScale(9858, decay);
+    expect(s0).toBeCloseTo(1, 6);
+    expect(sNow).toBeLessThan(s0);
+    expect(sFuture).toBeLessThan(sNow);
+    expect(sFuture).toBeGreaterThan(decay.minScale);
   });
 });
 

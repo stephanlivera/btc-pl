@@ -60,28 +60,50 @@ def test_current_quantile_matches_full_residual_cdf(fitted_model):
     b = float(central.params["log_days"])
     latest = df.iloc[-1]
     residual = float(latest["log_close"] - (a + b * float(latest["log_days"])))
-    residuals = fitted_model._log_residuals
-    manual_q = float((residuals <= residual).mean())
+    std_residual = fitted_model._standardize_scalar_residual(residual, float(latest["days"]))
+    std_residuals = fitted_model._std_residuals
+    manual_q = float((std_residuals <= std_residual).mean())
 
     # API rounds quantile to 4 d.p.; residual to 6 d.p.
     assert abs(manual_q - pos["quantile"]) < 1e-4
     assert abs(residual - pos["residual"]) < 1e-5
+    assert abs(std_residual - pos["std_residual"]) < 1e-5
     assert pos["quantile_label"] == f"Q{int(round(manual_q * 100))}"
     # Truncating early history (day >= 800) is NOT equivalent — documents the bug class
     mask = df["days"].to_numpy() >= 800
     if mask.sum() < len(df) and pos["quantile"] < 0.05:
-        truncated = residuals[mask] if len(residuals) == len(df) else residuals
-        # Build truncated residuals from day>=800 rows only
+        # Build truncated standardized residuals from day>=800 rows only
         sub = df.loc[df["days"] >= 800]
-        trunc_res = (
+        trunc_raw = (
             sub["log_close"].to_numpy(dtype=float)
             - (a + b * sub["log_days"].to_numpy(dtype=float))
         )
-        trunc_q = float((trunc_res <= residual).mean())
+        trunc_std = fitted_model._standardize_residuals(trunc_raw, sub["days"].to_numpy(dtype=float))
+        trunc_q = float((trunc_std <= std_residual).mean())
         assert abs(trunc_q - manual_q) > 1e-4, (
             "Expected day>=800 truncation to change low-quantile rank; "
             "if this fails the residual sample may already exclude early history"
         )
+
+
+def test_positive_residual_uses_standardized_cdf(fitted_model):
+    """Above-trend prices (residual > 0) must rank against standardized residuals, not raw."""
+    import datetime as dt
+
+    pos = fitted_model.get_current_position()
+    bull_price = pos["model_q50"] * 1.5
+    as_of = dt.datetime.fromisoformat(pos["date"] + "T00:00:00+00:00")
+    live = fitted_model.get_live_position(bull_price, as_of)
+
+    expected_std = fitted_model._standardize_scalar_residual(live["residual"], float(live["days"]))
+    expected_q = float((fitted_model._std_residuals <= expected_std).mean())
+    raw_q = float((fitted_model._log_residuals <= live["residual"]).mean())
+
+    assert live["residual"] > 0
+    assert abs(live["std_residual"] - expected_std) < 1e-5
+    assert abs(live["quantile"] - expected_q) < 1e-4
+    # Standardized upside compression makes +50% above Q50 rank higher today than raw history.
+    assert live["quantile"] > raw_q
 
 
 def test_api_current_surfaces_aligned(fitted_model):

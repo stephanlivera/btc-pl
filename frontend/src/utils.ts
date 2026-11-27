@@ -735,11 +735,11 @@ export interface Q50ModelParams {
   upsideDecay?: UpsideDecayParams;
 }
 
-/** Smooth asymmetric upside dispersion scale S_+(days) ∈ [minScale, 1]. */
+/** Smooth asymptotic asymmetric upside dispersion scale S_+(days) ∈ (minScale, 1]. */
 export function upsideScale(days: number, decay?: UpsideDecayParams): number {
   if (!decay || !(decay.lambdaPerYear > 0)) return 1;
   const years = Math.max(0, (days - decay.t0Days) / 365.25);
-  return Math.max(decay.minScale, Math.exp(-decay.lambdaPerYear * years));
+  return decay.minScale + (1 - decay.minScale) * Math.exp(-decay.lambdaPerYear * years);
 }
 
 /** log10(price) residual around the fitted central Q50 power law (matches backend). */
@@ -806,9 +806,9 @@ export function computePointQuantileRank(
   return { quantile, label: quantileLabel(quantile) };
 }
 
-/** Display label for a rolling correlation window in days. */
+/** Display label for a rolling correlation window in trading days (252 ≈ 1y). */
 export function correlationWindowLabel(days: number): string {
-  if (days === 365) return '1y';
+  if (days === 252 || days === 365) return '1y';
   return `${days}d`;
 }
 

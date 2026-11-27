@@ -32,6 +32,7 @@ DEFAULT_N_PATHS = 250
 DEFAULT_HISTORY_YEARS = 2.75
 RECENT_VOL_WINDOW_YEARS = 4.0
 DEFAULT_VOL_REGIME = "recent_4y"
+DEFAULT_INCLUDE_TREND_UNCERTAINTY = True
 STUDENT_T_DF = 5
 MAX_PATHS = 2000
 MIN_PATHS = 10
@@ -201,7 +202,12 @@ def simulate_ou_residual_paths(
 
     rng = np.random.default_rng(seed)
     paths = np.empty((n_steps + 1, n_paths), dtype=float)
-    sqrt_dt = math.sqrt(dt)
+    phi = math.exp(-kappa * dt) if kappa > 0.0 else 1.0
+    step_sigma = (
+        sigma * math.sqrt((1.0 - phi * phi) / (2.0 * kappa))
+        if kappa > 0.0
+        else sigma * math.sqrt(dt)
+    )
     floor = float(floor_value) if floor_value is not None else -np.inf
 
     for p in range(n_paths):
@@ -209,7 +215,7 @@ def simulate_ou_residual_paths(
         paths[0, p] = r
         shocks = _sample_shocks(rng, n_steps, shock, student_df)
         for t in range(n_steps):
-            r = r - kappa * (r - mu) * dt + sigma * sqrt_dt * float(shocks[t])
+            r = mu + (r - mu) * phi + step_sigma * float(shocks[t])
             if soft_floor:
                 r = float(apply_soft_floor(r, floor))
             paths[t + 1, p] = r
@@ -248,28 +254,68 @@ def simulate_price_ensemble(
     output_step: int = 7,
     sample_path_count: int = 16,
     spot_price: float | None = None,
+    trend_samples: list[list[float]] | list[tuple[float, float]] | None = None,
 ) -> dict:
-    residuals = simulate_ou_residual_paths(
-        n_steps=n_steps,
-        n_paths=n_paths,
-        r0=r0,
-        mu=mu,
-        kappa=kappa,
-        sigma=sigma,
-        dt=dt,
-        soft_floor=soft_floor,
-        floor_value=floor_value,
-        shock=shock,
-        student_df=student_df,
-        seed=seed,
-    )
-
     idx = _downsample_indices(n_steps, output_step)
     days = start_days + idx
+    log_days_out = np.log10(days.astype(float))
     trend_log = q50_log_price(q50_a, q50_b, days.astype(float))
-    sampled = residuals[idx, :]
-    prices = 10.0 ** (trend_log[:, None] + sampled)
-    prices = np.maximum(prices, 0.01)
+    spot_anchor = (
+        float(spot_price)
+        if spot_price and spot_price > 0
+        else float(10.0 ** (float(q50_log_price(q50_a, q50_b, float(start_days))) + r0))
+    )
+
+    if trend_samples:
+        # Propagate Q50 (a, b) estimation uncertainty across paths while anchoring every
+        # path at today's spot price (r0_p = log10(spot) - trend_p(start_days)).
+        n_rep = len(trend_samples)
+        trend_seed = None if seed is None else (int(seed) ^ 0x9E3779B9) & 0xFFFFFFFF
+        rng_trend = np.random.default_rng(trend_seed)
+        rng_shock = np.random.default_rng(seed)
+        phi = math.exp(-kappa * dt) if kappa > 0.0 else 1.0
+        step_sigma = (
+            sigma * math.sqrt((1.0 - phi * phi) / (2.0 * kappa))
+            if kappa > 0.0
+            else sigma * math.sqrt(dt)
+        )
+        floor = float(floor_value) if floor_value is not None else -np.inf
+        log_spot = math.log10(max(spot_anchor, 0.01))
+        log_start_d = math.log10(float(start_days))
+        idx_set = {int(step): col for col, step in enumerate(idx)}
+        prices = np.empty((len(idx), n_paths), dtype=float)
+
+        for p in range(n_paths):
+            pair = trend_samples[int(rng_trend.integers(0, n_rep))]
+            a_p, b_p = float(pair[0]), float(pair[1])
+            r = log_spot - (a_p + b_p * log_start_d)
+            prices[0, p] = max(0.01, spot_anchor)
+            shocks = _sample_shocks(rng_shock, n_steps, shock, student_df)
+            for t in range(n_steps):
+                r = mu + (r - mu) * phi + step_sigma * float(shocks[t])
+                if soft_floor:
+                    r = float(apply_soft_floor(r, floor))
+                col = idx_set.get(t + 1)
+                if col is not None:
+                    prices[col, p] = max(0.01, 10.0 ** (a_p + b_p * float(log_days_out[col]) + r))
+    else:
+        residuals = simulate_ou_residual_paths(
+            n_steps=n_steps,
+            n_paths=n_paths,
+            r0=r0,
+            mu=mu,
+            kappa=kappa,
+            sigma=sigma,
+            dt=dt,
+            soft_floor=soft_floor,
+            floor_value=floor_value,
+            shock=shock,
+            student_df=student_df,
+            seed=seed,
+        )
+        sampled = residuals[idx, :]
+        prices = 10.0 ** (trend_log[:, None] + sampled)
+        prices = np.maximum(prices, 0.01)
 
     trend = 10.0 ** trend_log
     median = _percentile_axis1(prices, 50)
@@ -374,6 +420,7 @@ def build_calibration(
             "half_life_months": DEFAULT_HALF_LIFE_MONTHS,
             "vol_scale": DEFAULT_VOL_SCALE,
             "vol_regime": DEFAULT_VOL_REGIME,
+            "include_trend_uncertainty": DEFAULT_INCLUDE_TREND_UNCERTAINTY,
             "n_paths": DEFAULT_N_PATHS,
             "horizon": "5y",
             "soft_floor": False,
@@ -381,21 +428,25 @@ def build_calibration(
         },
     }
 
+    bootstrap_samples = model.get_bootstrap_trend_samples(max_samples=200)
+
     return {
         "meta": {
             "data_end_date": str(model.data_end_date) if model.data_end_date else None,
             "ref_days": model.ref_days,
             "mode": RESIDUAL_PROCESS_MODE,
             "note": (
-                "OU on log10 residuals around the Q50 power-law trend. "
-                "mu is 0 so paths mean-revert to the trend itself. "
+                "Exact discrete-time OU on log10 residuals around the Q50 power-law trend. "
+                "mu is 0 so paths mean-revert to each path's trend line. "
                 "Default sigma is the trailing 4-year AR(1) innovation std (full-history sigma is also provided). "
-                "Soft floor aligns with the dashboard's Q1 floor offset."
+                "When include_trend_uncertainty is enabled, each path draws (a, b) from cached 180d block-bootstrap replicates. "
+                "Soft floor reflects below Q1 (note: a one-sided floor adds upward drift under high volatility)."
             ),
         },
         "trend": {
             "a": a,
             "b": b,
+            "bootstrap_samples": bootstrap_samples,
         },
         "current": {
             "days": latest_days,
@@ -422,6 +473,7 @@ def run_simulation(
     half_life_months: float = DEFAULT_HALF_LIFE_MONTHS,
     vol_scale: float = DEFAULT_VOL_SCALE,
     vol_regime: VolRegime = DEFAULT_VOL_REGIME,
+    include_trend_uncertainty: bool = DEFAULT_INCLUDE_TREND_UNCERTAINTY,
     n_paths: int = DEFAULT_N_PATHS,
     soft_floor: bool = False,
     shock: ShockDist = "normal",
@@ -443,6 +495,9 @@ def run_simulation(
     calib = build_calibration(model)
     a = float(calib["trend"]["a"])
     b = float(calib["trend"]["b"])
+    trend_samples = (
+        calib["trend"].get("bootstrap_samples") if include_trend_uncertainty else None
+    )
     current = calib["current"]
     ou = calib["ou"]
 
@@ -478,6 +533,7 @@ def run_simulation(
         output_step=output_step,
         sample_path_count=sample_paths,
         spot_price=float(current["price"]),
+        trend_samples=trend_samples or None,
     )
 
     ensemble["params"] = {
@@ -491,6 +547,7 @@ def run_simulation(
         "sigma_historical": base_sigma,
         "vol_regime": vol_regime,
         "vol_scale": float(vol_scale),
+        "include_trend_uncertainty": bool(include_trend_uncertainty and bool(trend_samples)),
         "soft_floor": bool(soft_floor),
         "floor_value": floor_value,
         "shock": shock,

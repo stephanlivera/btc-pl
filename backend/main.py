@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from .asset_correlations import AssetCorrelationModel
 from .monte_carlo import (
     DEFAULT_HALF_LIFE_MONTHS,
+    DEFAULT_INCLUDE_TREND_UNCERTAINTY,
     DEFAULT_N_PATHS,
     DEFAULT_VOL_REGIME,
     DEFAULT_VOL_SCALE,
@@ -139,7 +140,7 @@ def get_curves(
     end_days: int = Query(..., description="End day (inclusive)"),
     step: int = Query(7, description="Step size in days (1 = daily, 7 = weekly, etc.)"),
     quantiles: List[float] = Query([0.25, 0.50, 0.75], description="Quantiles to return"),
-    parallel: bool = Query(True, description="Use stable parallel residual bands + simple time-based decay for future projections (strongly recommended)"),
+    parallel: bool = Query(True, description="Use Q50 central trend with parallel downside bands and smooth asymmetric upside exponential decay (strongly recommended)"),
 ):
     """
     Return full price curves for the requested quantiles and day range.
@@ -152,7 +153,7 @@ def get_curves(
         )
 
     try:
-        # parallel=True: residual-based parallel bands + simple time-based decay on future points
+        # parallel=True: Q50 central + parallel downside bands + smooth asymmetric upside decay S_+(t)
         curves = model.predict_curve(
             start_days, end_days, step=step, quantiles=quantiles, parallel=parallel
         )
@@ -182,7 +183,11 @@ def get_parameters():
         "meta": {
             "data_end_date": str(model.data_end_date),
             "last_fit_date": str(model.last_fit_date),
-            "note": "parallel=True (default) uses residual quantiles around Q50 + simple time-based decay (Option 1) applied only to future projections. This compresses Q25/Q75 band width over long horizons.",
+            "note": (
+                "parallel=True (default) uses empirical standardized residual quantiles around Q50: "
+                "downside bands (Q1/Q10/Q25) stay parallel while upside bands (Q75/Q90/Q99) scale by "
+                "the smooth asymptotic exponential envelope S_+(t) across history and projections."
+            ),
         },
         "parameters": model.get_parameters(),
     }
@@ -319,7 +324,7 @@ def get_current(
         },
         "position": position,
         "time_below_quantile": time_below_quantile,
-        "note": "quantile (0-1) is the empirical CDF rank of the latest log-residual vs full historical _log_residuals around Q50 central (parallel bands + decay).",
+        "note": "quantile (0-1) is the empirical CDF rank of today's standardized log-residual vs full historical _std_residuals around Q50 (parallel downside + smooth asymmetric upside decay S_+(t)).",
     }
     if include_analogs:
         response["analog_projections"] = analog_projections
@@ -413,6 +418,7 @@ class MonteCarloSimulateRequest(BaseModel):
     half_life_months: float = Field(DEFAULT_HALF_LIFE_MONTHS, ge=1.0, le=60.0)
     vol_scale: float = Field(DEFAULT_VOL_SCALE, ge=0.1, le=3.0)
     vol_regime: VolRegime = DEFAULT_VOL_REGIME
+    include_trend_uncertainty: bool = DEFAULT_INCLUDE_TREND_UNCERTAINTY
     n_paths: int = Field(DEFAULT_N_PATHS, ge=MIN_PATHS, le=MAX_PATHS)
     soft_floor: bool = False
     shock: Literal["normal", "student_t"] = "normal"
@@ -456,6 +462,7 @@ def post_monte_carlo_simulate(req: MonteCarloSimulateRequest):
             half_life_months=req.half_life_months,
             vol_scale=req.vol_scale,
             vol_regime=req.vol_regime,
+            include_trend_uncertainty=req.include_trend_uncertainty,
             n_paths=req.n_paths,
             soft_floor=req.soft_floor,
             shock=req.shock,

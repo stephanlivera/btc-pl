@@ -14,6 +14,7 @@ export const DT_DAILY = 1;
 export const DEFAULT_HALF_LIFE_MONTHS = 10;
 export const DEFAULT_VOL_SCALE = 1;
 export const DEFAULT_VOL_REGIME: VolRegime = 'recent_4y';
+export const DEFAULT_INCLUDE_TREND_UNCERTAINTY = true;
 export const DEFAULT_N_PATHS = 250;
 export const STUDENT_T_DF = 5;
 export const SAMPLE_PATH_COUNT = 16;
@@ -31,7 +32,7 @@ export const MC_HORIZONS: ReadonlyArray<{ key: HorizonKey; label: string }> = [
   { key: 'eoy2035', label: 'End-2035' },
 ];
 
-export const MC_PATH_COUNTS = [100, 250, 500] as const;
+export const MC_PATH_COUNTS = [100, 250, 500, 1000] as const;
 
 export interface SimulateConfig {
   mode: ResidualProcessMode;
@@ -53,6 +54,7 @@ export interface SimulateConfig {
   outputStep: number;
   samplePathCount: number;
   spotPrice: number;
+  trendSamples?: Array<[number, number]>;
 }
 
 export interface EnsembleResult {
@@ -173,7 +175,12 @@ export function ouStep(
   dt: number,
   z: number,
 ): number {
-  return r - kappa * (r - mu) * dt + sigma * Math.sqrt(dt) * z;
+  if (kappa > 0) {
+    const phi = Math.exp(-kappa * dt);
+    const stepSigma = sigma * Math.sqrt((1 - phi * phi) / (2 * kappa));
+    return mu + (r - mu) * phi + stepSigma * z;
+  }
+  return r + sigma * Math.sqrt(dt) * z;
 }
 
 export function downsampleIndices(nSteps: number, outputStep: number): number[] {
@@ -228,9 +235,12 @@ export function simulateEnsemble(config: SimulateConfig): EnsembleResult {
     outputStep,
     samplePathCount,
     spotPrice,
+    trendSamples,
   } = config;
 
   const rng = mulberry32(seed);
+  const useTrendUncertainty = Array.isArray(trendSamples) && trendSamples.length > 0;
+  const trendRng = useTrendUncertainty ? mulberry32((seed ^ 0x9e3779b9) >>> 0) : null;
   const outIdx = downsampleIndices(nSteps, outputStep);
   const outLen = outIdx.length;
   const idxSet = new Map<number, number>();
@@ -243,16 +253,31 @@ export function simulateEnsemble(config: SimulateConfig): EnsembleResult {
   const samplePaths: number[][] = sampleIdx.map(() => new Array(outLen));
   const terminal: number[] = new Array(nPaths);
 
-  const sqrtDt = Math.sqrt(dt);
+  const phi = kappa > 0 ? Math.exp(-kappa * dt) : 1;
+  const stepSigma = kappa > 0 ? sigma * Math.sqrt((1 - phi * phi) / (2 * kappa)) : sigma * Math.sqrt(dt);
+  const spotAnchor =
+    spotPrice > 0 ? spotPrice : 10 ** (q50LogPrice(q50a, q50b, startDays) + r0);
+  const logSpot = Math.log10(Math.max(spotAnchor, 0.01));
   const trendAt = (day: number) => q50Price(q50a, q50b, day);
 
   for (let p = 0; p < nPaths; p++) {
+    let aPath = q50a;
+    let bPath = q50b;
     let r = r0;
+    if (useTrendUncertainty && trendRng && trendSamples) {
+      const pair = trendSamples[Math.floor(trendRng() * trendSamples.length)];
+      aPath = pair[0];
+      bPath = pair[1];
+      r = logSpot - q50LogPrice(aPath, bPath, startDays);
+    }
     for (let t = 0; t <= nSteps; t++) {
       const outCol = idxSet.get(t);
       if (outCol !== undefined) {
         const day = startDays + t;
-        const price = Math.max(0.01, 10 ** (q50LogPrice(q50a, q50b, day) + r));
+        const price =
+          t === 0 && useTrendUncertainty
+            ? Math.max(0.01, spotAnchor)
+            : Math.max(0.01, 10 ** (q50LogPrice(aPath, bPath, day) + r));
         columns[outCol][p] = price;
         const s = sampleLookup.get(p);
         if (s !== undefined) samplePaths[s][outCol] = price;
@@ -260,7 +285,7 @@ export function simulateEnsemble(config: SimulateConfig): EnsembleResult {
       }
       if (t === nSteps) break;
       const z = sampleShock(rng, shock, studentDf);
-      r = r - kappa * (r - mu) * dt + sigma * sqrtDt * z;
+      r = mu + (r - mu) * phi + stepSigma * z;
       if (softFloor) r = applySoftFloor(r, floorValue);
     }
   }
@@ -327,7 +352,7 @@ export interface MonteCarloCalibration {
     mode: ResidualProcessMode;
     note?: string;
   };
-  trend: { a: number; b: number };
+  trend: { a: number; b: number; bootstrap_samples?: Array<[number, number]> };
   current: {
     days: number;
     date: string | null;
@@ -349,6 +374,7 @@ export interface MonteCarloCalibration {
       half_life_months: number;
       vol_scale: number;
       vol_regime?: VolRegime;
+      include_trend_uncertainty?: boolean;
       n_paths: number;
       horizon: string;
       soft_floor: boolean;
@@ -376,6 +402,7 @@ export function buildSimulateConfig(
     halfLifeMonths: number;
     volScale: number;
     volRegime?: VolRegime;
+    includeTrendUncertainty?: boolean;
     nPaths: number;
     softFloor: boolean;
     shock: ShockDist;
@@ -392,6 +419,11 @@ export function buildSimulateConfig(
     typeof calib.ou.residual_floor_q1 === 'number'
       ? calib.ou.residual_floor_q1
       : calib.ou.residual_floor_minus_2sigma;
+  const includeTrendUnc = opts.includeTrendUncertainty ?? DEFAULT_INCLUDE_TREND_UNCERTAINTY;
+  const trendSamples =
+    includeTrendUnc && Array.isArray(calib.trend.bootstrap_samples) && calib.trend.bootstrap_samples.length > 0
+      ? calib.trend.bootstrap_samples
+      : undefined;
   return {
     mode: 'ou',
     nSteps,
@@ -412,5 +444,6 @@ export function buildSimulateConfig(
     outputStep: outputStepForHorizon(nSteps),
     samplePathCount: SAMPLE_PATH_COUNT,
     spotPrice: calib.current.price,
+    trendSamples,
   };
 }
